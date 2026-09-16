@@ -13,6 +13,7 @@ CORS(app)
 UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJDTDgwMDQiLCJqdGkiOiI2YTZlZGU0YTdkMDdkYzI0NTcxY2IwNjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlzRXh0ZW5kZWQiOnRydWUsImlhdCI6MTc4NTY1MDc2MiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxODE3MjQ0MDAwfQ.QevX5BwRdiDzZNmuSc0CGqDZcN5VP1qK6GXbvziEAik").strip()
 
 CORE_MARKET_UNIVERSE = [
+    # --- NIFTY BANK ---
     {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "sector": "Nifty Bank", "isin": "NSE_EQ|INE040A01034", "is_fo": True},
     {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "sector": "Nifty Bank", "isin": "NSE_EQ|INE090A01021", "is_fo": True},
     {"symbol": "SBIN", "name": "State Bank of India", "sector": "Nifty Bank", "isin": "NSE_EQ|INE062A01020", "is_fo": True},
@@ -25,6 +26,8 @@ CORE_MARKET_UNIVERSE = [
     {"symbol": "FEDERALBNK", "name": "The Federal Bank Ltd", "sector": "Nifty Bank", "isin": "NSE_EQ|INE171A01029", "is_fo": True},
     {"symbol": "IDFCFIRSTB", "name": "IDFC First Bank Limited", "sector": "Nifty Bank", "isin": "NSE_EQ|INE092T01019", "is_fo": True},
     {"symbol": "BANDHANBNK", "name": "Bandhan Bank Limited", "sector": "Nifty Bank", "isin": "NSE_EQ|INE545U01014", "is_fo": True},
+
+    # --- NIFTY FIN SERVICE & OTHERS ---
     {"symbol": "BAJFINANCE", "name": "Bajaj Finance Limited", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE296A01024", "is_fo": True},
     {"symbol": "BAJAJFINSV", "name": "Bajaj Finserv Limited", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE918I01018", "is_fo": True},
     {"symbol": "CHOLAFIN", "name": "Cholamandalam Investment", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE121A01024", "is_fo": True},
@@ -42,6 +45,8 @@ CORE_MARKET_UNIVERSE = [
     {"symbol": "POLICYBZR", "name": "PB Fintech Limited (Policybazaar)", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE417T01026", "is_fo": True},
     {"symbol": "MFSL", "name": "Max Financial Services Ltd", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE180A01020", "is_fo": True},
     {"symbol": "PAYTM", "name": "One97 Communications Ltd", "sector": "Nifty Fin Service", "isin": "NSE_EQ|INE982J01020", "is_fo": True},
+
+    # --- NIFTY IT ---
     {"symbol": "TCS", "name": "Tata Consultancy Services", "sector": "Nifty It", "isin": "NSE_EQ|INE467B01029", "is_fo": True},
     {"symbol": "INFY", "name": "Infosys Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE009A01021", "is_fo": True},
     {"symbol": "HCLTECH", "name": "HCL Technologies Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE860A01027", "is_fo": True},
@@ -49,19 +54,44 @@ CORE_MARKET_UNIVERSE = [
     {"symbol": "TECHM", "name": "Tech Mahindra Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE669C01036", "is_fo": True},
     {"symbol": "LTIM", "name": "LTIMindtree Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE214T01019", "is_fo": True},
     {"symbol": "MPHASIS", "name": "Mphasis Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE356A01018", "is_fo": True},
+    {"symbol": "PERSISTENT", "name": "Persistent Systems Ltd", "sector": "Nifty It", "isin": "NSE_EQ|INE262H01021", "is_fo": True},
+    {"symbol": "COFORGE", "name": "Coforge Limited", "sector": "Nifty It", "isin": "NSE_EQ|INE591G01017", "is_fo": True},
+    {"symbol": "LTTS", "name": "L&T Technology Services Ltd", "sector": "Nifty It", "isin": "NSE_EQ|INE010V01015", "is_fo": True},
+    {"symbol": "KPITTECH", "name": "KPIT Technologies Ltd", "sector": "Nifty It", "isin": "NSE_EQ|INE04I01020", "is_fo": True},
+
+    # --- NIFTY AUTO ---
+    {"symbol": "SONACOMS", "name": "Sona BLW Precision Forgings Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE0ZZ101019", "is_fo": True},
     {"symbol": "TATAMOTORS", "name": "Tata Motors Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE155A01022", "is_fo": True},
     {"symbol": "MARUTI", "name": "Maruti Suzuki India", "sector": "Nifty Auto", "isin": "NSE_EQ|INE585B01010", "is_fo": True},
     {"symbol": "M&M", "name": "Mahindra & Mahindra Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE101A01026", "is_fo": True},
     {"symbol": "BAJAJ-AUTO", "name": "Bajaj Auto Limited", "sector": "Nifty Auto", "isin": "NSE_EQ|INE917I01010", "is_fo": True},
     {"symbol": "EICHERMOT", "name": "Eicher Motors Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE066A01021", "is_fo": True},
     {"symbol": "HEROMOTOCO", "name": "Hero MotoCorp Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE158A01026", "is_fo": True},
+    {"symbol": "TVSMOTOR", "name": "TVS Motor Company Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE494B01023", "is_fo": True},
+    {"symbol": "ASHOKLEY", "name": "Ashok Leyland Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE208A01029", "is_fo": True},
+    {"symbol": "BOSCHLTD", "name": "Bosch Limited", "sector": "Nifty Auto", "isin": "NSE_EQ|INE323A01026", "is_fo": True},
+    {"symbol": "ESCORTS", "name": "Escorts Kubota Limited", "sector": "Nifty Auto", "isin": "NSE_EQ|INE042A01014", "is_fo": True},
+    {"symbol": "BALKRISIND", "name": "Balkrishna Industries Ltd", "sector": "Nifty Auto", "isin": "NSE_EQ|INE787D01026", "is_fo": True},
+    {"symbol": "MOTHERSON", "name": "Samvardhana Motherson Intl", "sector": "Nifty Auto", "isin": "NSE_EQ|INE775A01035", "is_fo": True},
+
+    # --- NIFTY PHARMA & HEALTHCARE ---
     {"symbol": "SUNPHARMA", "name": "Sun Pharma Industries", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE044A01036", "is_fo": True},
     {"symbol": "CIPLA", "name": "Cipla Limited", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE059A01026", "is_fo": True},
     {"symbol": "DRREDDY", "name": "Dr. Reddy's Laboratories", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE089A01023", "is_fo": True},
     {"symbol": "DIVISLAB", "name": "Divi's Laboratories", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE361B01024", "is_fo": True},
     {"symbol": "LUPIN", "name": "Lupin Limited", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE326A01037", "is_fo": True},
     {"symbol": "AUROPHARMA", "name": "Aurobindo Pharma", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE406A01037", "is_fo": True},
+    {"symbol": "TORNTPHARM", "name": "Torrent Pharmaceuticals Ltd", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE685A01028", "is_fo": True},
+    {"symbol": "GLENMARK", "name": "Glenmark Pharmaceuticals Ltd", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE935A01035", "is_fo": True},
+    {"symbol": "BIOCON", "name": "Biocon Limited", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE376G01013", "is_fo": True},
+    {"symbol": "IPCALAB", "name": "IPCA Laboratories Ltd", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE571A01038", "is_fo": True},
+    {"symbol": "ALKEM", "name": "Alkem Laboratories Ltd", "sector": "Nifty Pharma", "isin": "NSE_EQ|INE540L01014", "is_fo": True},
     {"symbol": "APOLLOHOSP", "name": "Apollo Hospitals Enterprise", "sector": "Nifty Healthcare", "isin": "NSE_EQ|INE437A01024", "is_fo": True},
+    {"symbol": "MAXHEALTH", "name": "Max Healthcare Institute Ltd", "sector": "Nifty Healthcare", "isin": "NSE_EQ|INE275H01029", "is_fo": True},
+    {"symbol": "FORTIS", "name": "Fortis Healthcare Limited", "sector": "Nifty Healthcare", "isin": "NSE_EQ|INE061F01013", "is_fo": True},
+    {"symbol": "LALPATHLAB", "name": "Dr. Lal PathLabs Ltd", "sector": "Nifty Healthcare", "isin": "NSE_EQ|INE600L01024", "is_fo": True},
+
+    # --- NIFTY METAL ---
     {"symbol": "TATASTEEL", "name": "Tata Steel Ltd", "sector": "Nifty Metal", "isin": "NSE_EQ|INE081A01020", "is_fo": True},
     {"symbol": "JINDALSTEL", "name": "Jindal Steel & Power", "sector": "Nifty Metal", "isin": "NSE_EQ|INE220G01021", "is_fo": True},
     {"symbol": "JSWSTEEL", "name": "JSW Steel Limited", "sector": "Nifty Metal", "isin": "NSE_EQ|INE019A01038", "is_fo": True},
@@ -73,15 +103,35 @@ CORE_MARKET_UNIVERSE = [
     {"symbol": "NATIONALUM", "name": "National Aluminium Co", "sector": "Nifty Metal", "isin": "NSE_EQ|INE139A01012", "is_fo": True},
     {"symbol": "APLAPOLLO", "name": "APL Apollo Tubes Ltd", "sector": "Nifty Metal", "isin": "NSE_EQ|INE394C01025", "is_fo": True},
     {"symbol": "COALINDIA", "name": "Coal India Ltd", "sector": "Nifty Metal", "isin": "NSE_EQ|INE522F01014", "is_fo": True},
+
+    # --- NIFTY ENERGY ---
+    {"symbol": "CGPOWER", "name": "CG Power and Industrial Solutions", "sector": "Nifty Energy", "isin": "NSE_EQ|INE402A01034", "is_fo": True},
+    {"symbol": "PREMIERENE", "name": "Premier Energies Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE0X9S01015", "is_fo": True},
     {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE002A01018", "is_fo": True},
     {"symbol": "NTPC", "name": "NTPC Limited", "sector": "Nifty Energy", "isin": "NSE_EQ|INE733E01010", "is_fo": True},
     {"symbol": "POWERGRID", "name": "Power Grid Corp of India", "sector": "Nifty Energy", "isin": "NSE_EQ|INE752E01010", "is_fo": True},
     {"symbol": "ONGC", "name": "Oil & Natural Gas Corp", "sector": "Nifty Energy", "isin": "NSE_EQ|INE213A01029", "is_fo": True},
+    {"symbol": "BPCL", "name": "Bharat Petroleum Corp Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE029A01011", "is_fo": True},
+    {"symbol": "IOC", "name": "Indian Oil Corporation Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE242A01010", "is_fo": True},
+    {"symbol": "ADANIGREEN", "name": "Adani Green Energy Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE364U01010", "is_fo": True},
+    {"symbol": "ADANIENT", "name": "Adani Enterprises Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE423A01024", "is_fo": True},
+    {"symbol": "TATAPOWER", "name": "Tata Power Company Ltd", "sector": "Nifty Energy", "isin": "NSE_EQ|INE245A01021", "is_fo": True},
+    {"symbol": "NHPC", "name": "NHPC Limited", "sector": "Nifty Energy", "isin": "NSE_EQ|INE848E01016", "is_fo": True},
+    {"symbol": "SJVN", "name": "SJVN Limited", "sector": "Nifty Energy", "isin": "NSE_EQ|INE002L01015", "is_fo": True},
+
+    # --- NIFTY REALTY ---
     {"symbol": "DLF", "name": "DLF Limited", "sector": "Nifty Realty", "isin": "NSE_EQ|INE271C01023", "is_fo": True},
     {"symbol": "PRESTIGE", "name": "Prestige Estates Projects", "sector": "Nifty Realty", "isin": "NSE_EQ|INE811Z01030", "is_fo": True},
     {"symbol": "GODREJPROP", "name": "Godrej Properties", "sector": "Nifty Realty", "isin": "NSE_EQ|INE484J01027", "is_fo": True},
     {"symbol": "OBEROIRLTY", "name": "Oberoi Realty Limited", "sector": "Nifty Realty", "isin": "NSE_EQ|INE872J01011", "is_fo": True},
     {"symbol": "LODHA", "name": "Macrotech Developers Ltd", "sector": "Nifty Realty", "isin": "NSE_EQ|INE670K01029", "is_fo": True},
+    {"symbol": "PHOENIXLTD", "name": "The Phoenix Mills Ltd", "sector": "Nifty Realty", "isin": "NSE_EQ|INE211B01039", "is_fo": True},
+    {"symbol": "BRIGADE", "name": "Brigade Enterprises Ltd", "sector": "Nifty Realty", "isin": "NSE_EQ|INE791I01019", "is_fo": True},
+    {"symbol": "SOBHA", "name": "Sobha Limited", "sector": "Nifty Realty", "isin": "NSE_EQ|INE671H01015", "is_fo": True},
+
+    # --- NIFTY FMCG ---
+    {"symbol": "NYKAA", "name": "FSN E-Commerce Ventures Ltd", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE388Y01029", "is_fo": True},
+    {"symbol": "KALYANKJIL", "name": "Kalyan Jewellers India Ltd", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE303W01018", "is_fo": True},
     {"symbol": "HINDUNILVR", "name": "Hindustan Unilever Ltd", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE030A01027", "is_fo": True},
     {"symbol": "ITC", "name": "ITC Limited", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE154A01025", "is_fo": True},
     {"symbol": "NESTLEIND", "name": "Nestle India Limited", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE239A01024", "is_fo": True},

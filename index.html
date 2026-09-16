@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Finder - Pro Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --card: rgba(22, 27, 34, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --green: #2ea043;
+      --red: #f85149;
+      --primary: #f1e05a;
+      --glow-green: rgba(46, 160, 67, 0.35);
+      --glow-red: rgba(248, 81, 73, 0.35);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); background-image: radial-gradient(circle at 50% 0%, #161b22 0%, var(--bg) 70%); color: var(--text); min-height: 100vh; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    header {
+      background: rgba(13, 17, 23, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+      padding: 0.8rem 1.5rem; display: flex; justify-content: space-between; align-items: center;
+      position: sticky; top: 0; z-index: 50; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .brand { font-weight: 700; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: #fff; letter-spacing: 0.5px; }
+    .dot { width: 9px; height: 9px; background: var(--green); border-radius: 50%; box-shadow: 0 0 12px var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+    
+    .nav-tabs { display: flex; gap: 6px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
+    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 0.8rem; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: #30363d; color: #fff; font-weight: 700; box-shadow: 0 0 10px rgba(255,255,255,0.05); }
+
+    main { max-width: 1550px; margin: 1.5rem auto; padding: 0 1.5rem; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
+    .kpi-card { 
+      background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); 
+      border-radius: 12px; padding: 1.1rem; cursor: pointer; transition: all 0.25s ease;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    }
+    .kpi-card:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+    .kpi-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; letter-spacing: 0.5px; }
+    .kpi-val { font-size: 1.8rem; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1); }
+
+    /* Top Movers Section */
+    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+    @media(max-width: 900px) { .movers-grid { grid-template-columns: 1fr; } }
+    .movers-panel { 
+      background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); 
+      border-radius: 12px; padding: 1.1rem; display: flex; flex-direction: column; height: 420px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    }
+    .movers-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    
+    .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.82rem; transition: background 0.15s; }
+    .movers-row:hover { background: rgba(255,255,255,0.04); border-radius: 6px; }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; background: var(--card); backdrop-filter: blur(10px); padding: 0.9rem 1.2rem; border-radius: 10px; border: 1px solid var(--border); }
+    .filter-btn { padding: 0.55rem 1.1rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; background: rgba(255,255,255,0.03); color: var(--muted); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+    .filter-btn:hover { border-color: rgba(255,255,255,0.2); color: #fff; }
+    .filter-btn.active { background: #30363d; color: #fff; border-color: rgba(255,255,255,0.3); font-weight: 700; box-shadow: 0 0 12px rgba(255,255,255,0.08); }
+    
+    .search-box { background: rgba(0,0,0,0.4); border: 1px solid var(--border); color: #fff; padding: 0.55rem 0.9rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 220px; transition: border 0.2s; }
+    .search-box:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 10px rgba(255,255,255,0.05); }
+
+    .table-container { background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
+    th { padding: 0.9rem 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: rgba(13, 17, 23, 0.9); position: sticky; top: 0; z-index: 10; }
+    th:hover { color: #fff; background: rgba(22, 27, 34, 0.95); }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text); }
+    tr:hover { background: rgba(255,255,255,0.03); }
+
+    .stock-link { color: #58a6ff; text-decoration: none; font-weight: 700; cursor: pointer; }
+    .stock-link:hover { text-decoration: underline; color: #79c0ff; }
+
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
+    .badge-green { background: rgba(46, 160, 67, 0.15); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); text-shadow: 0 0 8px var(--glow-green); }
+    .badge-red { background: rgba(248, 81, 73, 0.15); color: #ff7b72; border: 1px solid rgba(248, 81, 73, 0.4); text-shadow: 0 0 8px var(--glow-red); }
+    
+    .val-up { color: #3fb950; font-weight: 600; text-shadow: 0 0 10px var(--glow-green); }
+    .val-down { color: #ff7b72; font-weight: 600; text-shadow: 0 0 10px var(--glow-red); }
+
+    /* Volume Spike High Pulse */
+    .vol-spike-high {
+      color: #3fb950;
+      font-weight: 700;
+      text-shadow: 0 0 10px rgba(63, 185, 80, 0.6);
+      animation: volumePulse 1.5s infinite;
+    }
+    @keyframes volumePulse {
+      0% { opacity: 0.8; }
+      50% { opacity: 1; transform: scale(1.05); }
+      100% { opacity: 0.8; }
+    }
+    .vol-bar-container {
+      width: 60px;
+      height: 6px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 3px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 6px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .vol-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    .sector-layout { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1.5rem; align-items: start; }
+    @media(max-width: 1024px) { .sector-layout { grid-template-columns: 1fr; } }
+    
+    .panel { background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+    
+    .sec-bar-row {
+      display: grid; grid-template-columns: 140px 1fr 70px; align-items: center; gap: 10px;
+      padding: 0.55rem 0.75rem; border-radius: 6px; cursor: pointer; transition: background 0.15s;
+    }
+    .sec-bar-row:hover { background: rgba(255,255,255,0.04); }
+    .sec-bar-row.active { background: rgba(88, 166, 255, 0.12); border: 1px solid rgba(88, 166, 255, 0.3); }
+    .sec-name { font-size: 0.84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .bar-track { height: 16px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
+
+    /* MOBILE RESPONSIVE MEDIA QUERIES */
+    @media (max-width: 768px) {
+      header { padding: 0.6rem 1rem; flex-direction: column; gap: 8px; }
+      .brand { font-size: 1rem; }
+      .nav-tabs { width: 100%; justify-content: center; }
+      main { margin: 0.8rem auto; padding: 0 0.8rem; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+      .kpi-val { font-size: 1.4rem; }
+      .movers-grid { grid-template-columns: 1fr; gap: 0.8rem; }
+      .movers-panel { height: 350px; }
+      .toolbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 0.8rem; }
+      .search-box { width: 100%; }
+      .sector-layout { grid-template-columns: 1fr; gap: 1rem; }
+      table { font-size: 0.75rem; }
+      th, td { padding: 0.6rem 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand"><div class="dot"></div> Stock Finder PRO <span style="font-size:0.65rem; background:rgba(88,166,255,0.15); color:#58a6ff; padding:2px 6px; border-radius:4px; border:1px solid rgba(88,166,255,0.3);">INTRADAY PRO</span></div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" id="btn-scr" onclick="switchTab('scr')">Live Screener</button>
+      <button class="tab-btn" id="btn-sec" onclick="switchTab('sec')">Sector Performance</button>
+    </div>
+    <div class="mono" style="font-size: 0.8rem; color: var(--muted);">Time: <span id="clock" style="color:#fff;">--:--:--</span></div>
+  </header>
+
+  <main>
+    <!-- SCREENER VIEW -->
+    <div id="view-scr">
+      <div class="kpi-grid">
+        <div class="kpi-card" onclick="setFilter('Long Buildup')">
+          <div class="kpi-title" style="color:#3fb950;">Long Buildup</div>
+          <div class="kpi-val mono" id="k-lb">0</div>
+        </div>
+        <div class="kpi-card" onclick="setFilter('Short Buildup')">
+          <div class="kpi-title" style="color:#ff7b72;">Short Buildup</div>
+          <div class="kpi-val mono" id="k-sb">0</div>
+        </div>
+        <div class="kpi-card" onclick="setFilter('Short Covering')">
+          <div class="kpi-title" style="color:#58a6ff;">Short Covering</div>
+          <div class="kpi-val mono" id="k-sc">0</div>
+        </div>
+        <div class="kpi-card" onclick="setFilter('Long Unwinding')">
+          <div class="kpi-title" style="color:#d29922;">Long Unwinding</div>
+          <div class="kpi-val mono" id="k-lu">0</div>
+        </div>
+      </div>
+
+      <!-- TOP GAINERS & LOSERS PANEL -->
+      <div class="movers-grid">
+        <div class="movers-panel">
+          <div class="movers-title" style="color: #3fb950;">
+            <span>🟢 Top 20 Gainers</span>
+            <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
+          </div>
+          <div class="movers-list-scroll" id="top-gainers-list">
+            <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+          </div>
+        </div>
+        <div class="movers-panel">
+          <div class="movers-title" style="color: #ff7b72;">
+            <span>🔴 Top 20 Losers</span>
+            <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
+          </div>
+          <div class="movers-list-scroll" id="top-losers-list">
+            <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL STOCKS</button>
+          <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN = LOW</button>
+          <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN = HIGH</button>
+          <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG BUILDUP</button>
+          <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT BUILDUP</button>
+        </div>
+        <div>
+          <input type="text" id="search" class="search-box mono" placeholder="SEARCH SYMBOL..." oninput="fetchData()" />
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
+              <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
+              <th onclick="toggleSort('pricePct')">Price Chg % <span id="th-pricePct">↕</span></th>
+              <th onclick="toggleSort('volume')">Volume & Spike <span id="th-volume">↕</span></th>
+              <th onclick="toggleSort('oiPct')">OI Chg % <span id="th-oiPct">↕</span></th>
+              <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
+              <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--muted);">Loading market data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SECTOR VIEW -->
+    <div id="view-sec" style="display: none;">
+      <div class="sector-layout">
+        <div class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="font-size: 1rem;">Sector Overview (Breadth)</h3>
+            <span style="font-size: 0.72rem; color: var(--muted);">Click a bar to view stocks</span>
+          </div>
+          <div id="sectors-list"></div>
+        </div>
+        
+        <div class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 id="sec-title" style="font-size: 1rem;">Select a sector</h3>
+            <span id="sec-sub" style="font-size: 0.75rem; color: var(--muted);"></span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th onclick="toggleSecSort('symbol')">Symbol <span id="sec-th-symbol">↕</span></th>
+                  <th onclick="toggleSecSort('ltp')">Price (₹) <span id="sec-th-ltp">↕</span></th>
+                  <th onclick="toggleSecSort('pricePct')">Change % <span id="sec-th-pricePct">▼</span></th>
+                  <th onclick="toggleSecSort('candleTag')">Setup <span id="sec-th-candleTag">↕</span></th>
+                </tr>
+              </thead>
+              <tbody id="sec-tbody">
+                <tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">Click any sector on the left.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let currentTab = 'scr';
+    let currentFilter = 'ALL';
+    let marketStocks = [];
+    let sectorsData = [];
+    let selectedSector = null;
+
+    let sortColumn = 'momentumScore';
+    let sortDirection = 'desc';
+
+    let secSortColumn = 'pricePct';
+    let secSortDirection = 'desc';
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('btn-scr').classList.toggle('active', tab === 'scr');
+      document.getElementById('btn-sec').classList.toggle('active', tab === 'sec');
+      document.getElementById('view-scr').style.display = tab === 'scr' ? 'block' : 'none';
+      document.getElementById('view-sec').style.display = tab === 'sec' ? 'block' : 'none';
+      if(tab === 'sec' && sectorsData.length > 0 && !selectedSector) {
+        selectSector(sectorsData[0].sector);
+      }
+    }
+
+    async function fetchData() {
+      try {
+        const [res1, res2] = await Promise.all([
+          fetch('/api/screener?filter=ALL'),
+          fetch('/api/sectors')
+        ]);
+        const d1 = await res1.json();
+        const d2 = await res2.json();
+
+        if(d1 && d1.status === 'success') {
+          marketStocks = d1.data || [];
+          document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
+          updateKPIs(marketStocks);
+          renderTopMovers(marketStocks);
+          renderTable();
+        }
+        if(d2 && d2.status === 'success') {
+          sectorsData = d2.data || [];
+          renderSectors();
+          if(currentTab === 'sec' && selectedSector) {
+            renderSectorStocks();
+          }
+        }
+      } catch(e) {
+        console.error("Error fetching data:", e);
+      }
+    }
+
+    function updateKPIs(stocks) {
+      let counts = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
+      (stocks || []).forEach(s => { if(counts[s.buildup] !== undefined) counts[s.buildup]++; });
+      document.getElementById('k-lb').innerText = counts['Long Buildup'];
+      document.getElementById('k-sb').innerText = counts['Short Buildup'];
+      document.getElementById('k-sc').innerText = counts['Short Covering'];
+      document.getElementById('k-lu').innerText = counts['Long Unwinding'];
+    }
+
+    function openChart(symbol) {
+      const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`;
+      window.open(tvUrl, '_blank');
+    }
+
+    function renderTopMovers(stocks) {
+      if (!stocks || !stocks.length) return;
+
+      const sortedByGain = [...stocks].sort((a, b) => Number(b.pricePct || 0) - Number(a.pricePct || 0));
+      const topGainers = sortedByGain.filter(s => Number(s.pricePct || 0) > 0).slice(0, 20);
+      const topLosers = [...stocks].sort((a, b) => Number(a.pricePct || 0) - Number(b.pricePct || 0)).filter(s => Number(s.pricePct || 0) < 0).slice(0, 20);
+
+      const gainersEl = document.getElementById('top-gainers-list');
+      const losersEl = document.getElementById('top-losers-list');
+
+      if (gainersEl) {
+        gainersEl.innerHTML = topGainers.length ? topGainers.map((s, idx) => {
+          let tag = '';
+          if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=LOW</span>`;
+          if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=HIGH</span>`;
+
+          return `
+            <div class="movers-row">
+              <div>
+                <span style="color:var(--muted); font-size:0.75rem; margin-right:6px;">${idx + 1}.</span>
+                <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a> ${tag}
+                <span style="font-size:0.7rem; color:var(--muted); margin-left:4px;">(${s.sector || ''})</span>
+              </div>
+              <div class="mono val-up">+${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+            </div>
+          `;
+        }).join('') : `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:1rem;">No Gainers right now</div>`;
+      }
+
+      if (losersEl) {
+        losersEl.innerHTML = topLosers.length ? topLosers.map((s, idx) => {
+          let tag = '';
+          if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=LOW</span>`;
+          if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=HIGH</span>`;
+
+          return `
+            <div class="movers-row">
+              <div>
+                <span style="color:var(--muted); font-size:0.75rem; margin-right:6px;">${idx + 1}.</span>
+                <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a> ${tag}
+                <span style="font-size:0.7rem; color:var(--muted); margin-left:4px;">(${s.sector || ''})</span>
+              </div>
+              <div class="mono val-down">${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+            </div>
+          `;
+        }).join('') : `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:1rem;">No Losers right now</div>`;
+      }
+    }
+
+    function toggleSort(col) {
+      if (sortColumn === col) {
+        sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+      } else {
+        sortColumn = col;
+        sortDirection = 'desc';
+      }
+      
+      ['symbol', 'ltp', 'pricePct', 'volume', 'oiPct', 'buildup', 'momentumScore'].forEach(c => {
+        const el = document.getElementById(`th-${c}`);
+        if(el) {
+          if(c === sortColumn) {
+            el.innerText = sortDirection === 'asc' ? '▲' : '▼';
+          } else {
+            el.innerText = '↕';
+          }
+        }
+      });
+
+      renderTable();
+    }
+
+    function toggleSecSort(col) {
+      if (secSortColumn === col) {
+        secSortDirection = secSortDirection === 'desc' ? 'asc' : 'desc';
+      } else {
+        secSortColumn = col;
+        secSortDirection = 'desc';
+      }
+
+      ['symbol', 'ltp', 'pricePct', 'candleTag'].forEach(c => {
+        const el = document.getElementById(`sec-th-${c}`);
+        if(el) {
+          if(c === secSortColumn) {
+            el.innerText = secSortDirection === 'asc' ? '▲' : '▼';
+          } else {
+            el.innerText = '↕';
+          }
+        }
+      });
+
+      renderSectorStocks();
+    }
+
+    function renderTable() {
+      const searchBox = document.getElementById('search');
+      const search = searchBox ? searchBox.value.toLowerCase() : '';
+      let filtered = [...marketStocks];
+
+      if(currentFilter === 'OPEN=LOW') {
+        filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
+      } else if(currentFilter === 'OPEN=HIGH') {
+        filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
+      } else if(currentFilter !== 'ALL') {
+        filtered = filtered.filter(s => s.buildup === currentFilter);
+      }
+
+      if(search) {
+        filtered = filtered.filter(s => (s.symbol || '').toLowerCase().includes(search) || (s.name || '').toLowerCase().includes(search));
+      }
+
+      filtered.sort((a, b) => {
+        let valA = a[sortColumn];
+        let valB = b[sortColumn];
+        if (typeof valA === 'string') {
+          return sortDirection === 'asc' ? (valA || '').localeCompare(valB || '') : (valB || '').localeCompare(valA || '');
+        } else {
+          return sortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+        }
+      });
+
+      const tbody = document.getElementById('tbody');
+      if(!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--muted);">No matching stocks found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => {
+        const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
+        const oiCls = (s.oiPct || 0) >= 0 ? 'val-up' : 'val-down';
+        let tag = '';
+        if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>`;
+        if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>`;
+
+        const ltpVal = Number(s.ltp || 0).toFixed(2);
+        const volVal = Number(s.volume || 0).toLocaleString('en-IN');
+        const momVal = s.momentumScore || 0;
+        
+        const spike = s.volSpike || 1.0;
+        let spikeClass = spike >= 2.0 ? 'vol-spike-high' : '';
+        let spikeBadge = spike >= 2.0 ? ` <span style="font-size:0.6rem; background:rgba(46,160,67,0.2); color:#3fb950; padding:1px 4px; border-radius:3px; border:1px solid rgba(46,160,67,0.3);">⚡ ${spike}x</span>` : '';
+        const barW = Math.min((spike / 5.0) * 100, 100);
+
+        return `
+          <tr>
+            <td>
+              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
+              <div style="font-size:0.7rem; color:var(--muted);">${s.name || ''}</div>
+            </td>
+            <td class="mono">₹${ltpVal}</td>
+            <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
+            <td class="mono ${spikeClass}">
+              ${volVal} ${spikeBadge}
+              <div class="vol-bar-container" title="Volume Spike: ${spike}x">
+                <div class="vol-bar-fill" style="width: ${barW}%; background: ${spike >= 2.0 ? '#3fb950' : '#58a6ff'};"></div>
+              </div>
+            </td>
+            <td class="mono ${oiCls}">${(s.oiPct || 0) > 0 ? '+' : ''}${s.oiPct || 0}%</td>
+            <td><span class="badge ${s.buildup==='Long Buildup'?'badge-green':'badge-red'}">${s.buildup || '-'}</span></td>
+            <td class="mono">🔥 ${momVal}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function setFilter(flt, el) {
+      currentFilter = flt;
+      if(el) {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+      }
+      renderTable();
+    }
+
+    function renderSectors() {
+      const container = document.getElementById('sectors-list');
+      if(!sectorsData.length) return;
+
+      container.innerHTML = sectorsData.map(sec => {
+        const avg = sec.avgChange || 0;
+        const cls = avg >= 0 ? 'val-up' : 'val-down';
+        const activeCls = selectedSector === sec.sector ? 'active' : '';
+        const advP = sec.advPct || 0;
+        const decP = sec.decPct || 0;
+
+        return `
+          <div class="sec-bar-row ${activeCls}" onclick="selectSector('${sec.sector}')">
+            <div>
+              <div class="sec-name" title="${sec.sector}">${sec.sector}</div>
+              <div style="font-size: 0.65rem; color: var(--muted);">🟢 ${sec.advances} | 🔴 ${sec.declines}</div>
+            </div>
+            <div class="bar-track" style="display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);">
+              <div style="width: ${advP}%; background: #2ea043; height: 100%; box-shadow: 0 0 8px var(--glow-green);" title="Advances: ${sec.advances}"></div>
+              <div style="width: ${decP}%; background: #f85149; height: 100%; box-shadow: 0 0 8px var(--glow-red);" title="Declines: ${sec.declines}"></div>
+            </div>
+            <div class="mono ${cls}" style="text-align: right; font-size: 0.82rem;">${avg > 0 ? '+' : ''}${avg}%</div>
+          </div>
+        `;
+      }).join('');
+
+      if(!selectedSector && sectorsData.length > 0) {
+        selectSector(sectorsData[0].sector);
+      }
+    }
+
+    function selectSector(name) {
+      selectedSector = name;
+      renderSectors();
+      renderSectorStocks();
+    }
+
+    function renderSectorStocks() {
+      const sec = sectorsData.find(s => s.sector === selectedSector);
+      const secTitleEl = document.getElementById('sec-title');
+      if (secTitleEl) secTitleEl.innerText = `${selectedSector || ''} Stocks (${sec ? sec.stocksCount : 0})`;
+      
+      const secSubEl = document.getElementById('sec-sub');
+      if(sec && secSubEl) {
+        secSubEl.innerHTML = `Avg: <span class="${(sec.avgChange || 0) >= 0 ? 'val-up' : 'val-down'}">${sec.avgChange || 0}%</span>`;
+      }
+
+      let stocks = marketStocks.filter(s => s.sector === selectedSector);
+
+      stocks.sort((a, b) => {
+        let valA = a[secSortColumn];
+        let valB = b[secSortColumn];
+        if (typeof valA === 'string') {
+          return secSortDirection === 'asc' ? (valA || '').localeCompare(valB || '') : (valB || '').localeCompare(valA || '');
+        } else {
+          return secSortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+        }
+      });
+
+      const tbody = document.getElementById('sec-tbody');
+      if(!stocks.length) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">No stocks in this sector.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = stocks.map(s => {
+        const cls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
+        let setupTag = '-';
+        if(s.candleTag === 'OPEN=LOW') setupTag = `<span class="badge badge-green">OPEN=LOW</span>`;
+        if(s.candleTag === 'OPEN=HIGH') setupTag = `<span class="badge badge-red">OPEN=HIGH</span>`;
+
+        return `
+          <tr>
+            <td>
+              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a>
+              <div style="font-size:0.7rem; color:var(--muted);">${s.name || ''}</div>
+            </td>
+            <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
+            <td class="mono ${cls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
+            <td>${setupTag}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    fetchData();
+    setInterval(fetchData, 10000);
+  </script>
+</body>
+</html>

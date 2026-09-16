@@ -76,24 +76,35 @@
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
 
-    .sector-layout { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1.5rem; align-items: start; }
+    .sector-layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; align-items: start; }
     @media(max-width: 1024px) { .sector-layout { grid-template-columns: 1fr; } }
     
     .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; }
     
-    .sec-bar-row {
-      display: grid; grid-template-columns: 140px 1fr 70px; align-items: center; gap: 10px;
-      padding: 0.55rem 0.75rem; border-radius: 6px; cursor: pointer; transition: background 0.15s;
+    /* Heatmap Grid Styles */
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
     }
-    .sec-bar-row:hover { background: rgba(255,255,255,0.02); }
-    .sec-bar-row.active { background: rgba(243, 156, 18, 0.12); border: 1px solid rgba(243, 156, 18, 0.3); }
-    .sec-name { font-size: 0.84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    .bar-track { height: 16px; background: rgba(255,255,255,0.03); border-radius: 4px; position: relative; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
-    .bar-center-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.15); z-index: 2; }
-    .bar-fill { height: 100%; position: absolute; border-radius: 2px; }
-    .bar-fill.green { left: 50%; background: var(--green); }
-    .bar-fill.red { right: 50%; background: var(--red); }
+    .heatmap-card {
+      background: #181818;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .heatmap-card:hover {
+      border-color: var(--muted);
+      transform: translateY(-2px);
+    }
+    .heatmap-card.active {
+      border-color: var(--primary);
+      background: rgba(243, 156, 18, 0.08);
+    }
+    .heatmap-card.green-card { border-left: 4px solid var(--green); }
+    .heatmap-card.red-card { border-left: 4px solid var(--red); }
   </style>
 </head>
 <body>
@@ -189,8 +200,8 @@
       <div class="sector-layout">
         <div class="panel">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1rem;">Sector Overview</h3>
-            <span style="font-size: 0.72rem; color: var(--muted);">Click a bar to view stocks</span>
+            <h3 style="font-size: 1rem;">Sector Overview (Heatmap)</h3>
+            <span style="font-size: 0.72rem; color: var(--muted);">Click a sector box</span>
           </div>
           <div id="sectors-list"></div>
         </div>
@@ -281,7 +292,6 @@
       document.getElementById('k-lu').innerText = counts['Long Unwinding'];
     }
 
-    // Direct TradingView Open Function in New Tab
     function openChart(symbol) {
       const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`;
       window.open(tvUrl, '_blank');
@@ -450,27 +460,34 @@
       renderTable();
     }
 
+    // Heatmap Grid Rendering Function
     function renderSectors() {
       const container = document.getElementById('sectors-list');
       if(!sectorsData.length) return;
       
-      const maxAbs = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)), 1.0);
+      container.className = "heatmap-grid";
 
       container.innerHTML = sectorsData.map(sec => {
         const avg = sec.avgChange || 0;
         const isUp = avg >= 0;
         const cls = isUp ? 'val-up' : 'val-down';
         const activeCls = selectedSector === sec.sector ? 'active' : '';
-        const barW = Math.min(Math.max((Math.abs(avg) / maxAbs) * 45, 3), 48);
+        const cardTheme = isUp ? 'green-card' : 'red-card';
 
         return `
-          <div class="sec-bar-row ${activeCls}" onclick="selectSector('${sec.sector}')">
-            <div class="sec-name" title="${sec.sector}">${sec.sector}</div>
-            <div class="bar-track">
-              <div class="bar-center-line"></div>
-              <div class="bar-fill ${isUp ? 'green' : 'red'}" style="width: ${barW}%;"></div>
+          <div class="heatmap-card ${activeCls} ${cardTheme}" onclick="selectSector('${sec.sector}')">
+            <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.4rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${sec.sector}">
+              ${sec.sector}
             </div>
-            <div class="mono ${cls}" style="text-align: right; font-size: 0.82rem;">${avg > 0 ? '+' : ''}${avg}%</div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+              <div class="mono ${cls}" style="font-size: 1.15rem; font-weight: 700;">
+                ${avg > 0 ? '+' : ''}${avg}%
+              </div>
+              <div style="font-size: 0.65rem; color: var(--muted); text-align: right;">
+                <div>Tot: ${sec.stocksCount}</div>
+                <div>🟢${sec.advances} 🔴${sec.declines}</div>
+              </div>
+            </div>
           </div>
         `;
       }).join('');

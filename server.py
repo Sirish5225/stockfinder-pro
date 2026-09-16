@@ -251,6 +251,7 @@ def fetch_live_upstox_quotes():
     results.sort(key=lambda x: x["momentumScore"], reverse=True)
     return results
 
+# --- ఇక్కడ హోమ్ పేజీ రూట్ యాడ్ చేయబడింది ---
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")

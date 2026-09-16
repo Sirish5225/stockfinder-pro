@@ -10,150 +10,96 @@
   
   <style>
     :root {
-      --bg: #0b0e14;
-      --card: rgba(22, 27, 34, 0.7);
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #f0f6fc;
-      --muted: #8b949e;
-      --green: #2ea043;
-      --red: #f85149;
-      --primary: #f1e05a;
-      --glow-green: rgba(46, 160, 67, 0.35);
-      --glow-red: rgba(248, 81, 73, 0.35);
+      --bg: #121212;
+      --card: #1e1e1e;
+      --border: #2d2d2d;
+      --text: #e0e0e0;
+      --muted: #9e9e9e;
+      --green: #2ecc71;
+      --red: #e74c3c;
+      --primary: #f39c12;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
-    body { background-color: var(--bg); background-image: radial-gradient(circle at 50% 0%, #161b22 0%, var(--bg) 70%); color: var(--text); min-height: 100vh; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; filter: brightness(0.95); }
     .mono { font-family: 'JetBrains Mono', monospace; }
 
     header {
-      background: rgba(13, 17, 23, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+      background: #181818; border-bottom: 1px solid var(--border);
       padding: 0.8rem 1.5rem; display: flex; justify-content: space-between; align-items: center;
-      position: sticky; top: 0; z-index: 50; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      position: sticky; top: 0; z-index: 50;
     }
-    .brand { font-weight: 700; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: #fff; letter-spacing: 0.5px; }
-    .dot { width: 9px; height: 9px; background: var(--green); border-radius: 50%; box-shadow: 0 0 12px var(--green); animation: pulse 2s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; color: var(--primary); }
+    .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; box-shadow: 0 0 8px var(--green); }
     
-    .nav-tabs { display: flex; gap: 6px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
-    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 0.8rem; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
-    .tab-btn.active { background: #30363d; color: #fff; font-weight: 700; box-shadow: 0 0 10px rgba(255,255,255,0.05); }
+    .nav-tabs { display: flex; gap: 6px; background: #121212; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
+    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 5px 12px; font-size: 0.8rem; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .tab-btn.active { background: var(--primary); color: #121212; font-weight: 700; }
 
     main { max-width: 1550px; margin: 1.5rem auto; padding: 0 1.5rem; }
 
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
-    .kpi-card { 
-      background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); 
-      border-radius: 12px; padding: 1.1rem; cursor: pointer; transition: all 0.25s ease;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    }
-    .kpi-card:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
-    .kpi-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; letter-spacing: 0.5px; }
-    .kpi-val { font-size: 1.8rem; font-weight: 700; text-shadow: 0 0 10px rgba(255,255,255,0.1); }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: transform 0.1s; }
+    .kpi-card:hover { border-color: var(--muted); }
+    .kpi-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
+    .kpi-val { font-size: 1.8rem; font-weight: 700; }
 
     /* Top Movers Section */
     .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
     @media(max-width: 900px) { .movers-grid { grid-template-columns: 1fr; } }
-    .movers-panel { 
-      background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); 
-      border-radius: 12px; padding: 1.1rem; display: flex; flex-direction: column; height: 420px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    }
-    .movers-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 420px; }
+    .movers-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
     
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.82rem; transition: background 0.15s; }
-    .movers-row:hover { background: rgba(255,255,255,0.04); border-radius: 6px; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.82rem; }
+    .movers-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
 
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; background: var(--card); backdrop-filter: blur(10px); padding: 0.9rem 1.2rem; border-radius: 10px; border: 1px solid var(--border); }
-    .filter-btn { padding: 0.55rem 1.1rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; background: rgba(255,255,255,0.03); color: var(--muted); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
-    .filter-btn:hover { border-color: rgba(255,255,255,0.2); color: #fff; }
-    .filter-btn.active { background: #30363d; color: #fff; border-color: rgba(255,255,255,0.3); font-weight: 700; box-shadow: 0 0 12px rgba(255,255,255,0.08); }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; background: var(--card); padding: 0.9rem 1.2rem; border-radius: 10px; border: 1px solid var(--border); }
+    .filter-btn { padding: 0.55rem 1.1rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; background: #181818; color: var(--muted); border: 1px solid var(--border); cursor: pointer; }
+    .filter-btn.active { background: var(--primary); color: #121212; border-color: var(--primary); font-weight: 700; }
     
-    .search-box { background: rgba(0,0,0,0.4); border: 1px solid var(--border); color: #fff; padding: 0.55rem 0.9rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 220px; transition: border 0.2s; }
-    .search-box:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 10px rgba(255,255,255,0.05); }
+    .search-box { background: #121212; border: 1px solid var(--border); color: #fff; padding: 0.55rem 0.9rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 220px; }
 
-    .table-container { background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); }
+    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
-    th { padding: 0.9rem 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: rgba(13, 17, 23, 0.9); position: sticky; top: 0; z-index: 10; }
-    th:hover { color: #fff; background: rgba(22, 27, 34, 0.95); }
-    td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text); }
-    tr:hover { background: rgba(255,255,255,0.03); }
+    th { padding: 0.9rem 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: #181818; position: sticky; top: 0; z-index: 10; }
+    th:hover { color: #fff; background: #222; }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: #e0e0e0; }
+    tr:hover { background: rgba(255,255,255,0.02); }
 
-    .stock-link { color: #58a6ff; text-decoration: none; font-weight: 700; cursor: pointer; }
-    .stock-link:hover { text-decoration: underline; color: #79c0ff; }
+    .stock-link { color: var(--primary); text-decoration: none; font-weight: 700; cursor: pointer; }
+    .stock-link:hover { text-decoration: underline; color: #fff; }
 
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
-    .badge-green { background: rgba(46, 160, 67, 0.15); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); text-shadow: 0 0 8px var(--glow-green); }
-    .badge-red { background: rgba(248, 81, 73, 0.15); color: #ff7b72; border: 1px solid rgba(248, 81, 73, 0.4); text-shadow: 0 0 8px var(--glow-red); }
+    .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
+    .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
     
-    .val-up { color: #3fb950; font-weight: 600; text-shadow: 0 0 10px var(--glow-green); }
-    .val-down { color: #ff7b72; font-weight: 600; text-shadow: 0 0 10px var(--glow-red); }
-
-    /* Volume Spike High Pulse */
-    .vol-spike-high {
-      color: #3fb950;
-      font-weight: 700;
-      text-shadow: 0 0 10px rgba(63, 185, 80, 0.6);
-      animation: volumePulse 1.5s infinite;
-    }
-    @keyframes volumePulse {
-      0% { opacity: 0.8; }
-      50% { opacity: 1; transform: scale(1.05); }
-      100% { opacity: 0.8; }
-    }
-    .vol-bar-container {
-      width: 60px;
-      height: 6px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 3px;
-      overflow: hidden;
-      display: inline-block;
-      vertical-align: middle;
-      margin-left: 6px;
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-    .vol-bar-fill {
-      height: 100%;
-      border-radius: 3px;
-    }
+    .val-up { color: var(--green); font-weight: 600; }
+    .val-down { color: var(--red); font-weight: 600; }
 
     .sector-layout { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1.5rem; align-items: start; }
     @media(max-width: 1024px) { .sector-layout { grid-template-columns: 1fr; } }
     
-    .panel { background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; }
     
     .sec-bar-row {
       display: grid; grid-template-columns: 140px 1fr 70px; align-items: center; gap: 10px;
       padding: 0.55rem 0.75rem; border-radius: 6px; cursor: pointer; transition: background 0.15s;
     }
-    .sec-bar-row:hover { background: rgba(255,255,255,0.04); }
-    .sec-bar-row.active { background: rgba(88, 166, 255, 0.12); border: 1px solid rgba(88, 166, 255, 0.3); }
+    .sec-bar-row:hover { background: rgba(255,255,255,0.02); }
+    .sec-bar-row.active { background: rgba(243, 156, 18, 0.12); border: 1px solid rgba(243, 156, 18, 0.3); }
     .sec-name { font-size: 0.84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    .bar-track { height: 16px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
-
-    /* MOBILE RESPONSIVE MEDIA QUERIES */
-    @media (max-width: 768px) {
-      header { padding: 0.6rem 1rem; flex-direction: column; gap: 8px; }
-      .brand { font-size: 1rem; }
-      .nav-tabs { width: 100%; justify-content: center; }
-      main { margin: 0.8rem auto; padding: 0 0.8rem; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
-      .kpi-val { font-size: 1.4rem; }
-      .movers-grid { grid-template-columns: 1fr; gap: 0.8rem; }
-      .movers-panel { height: 350px; }
-      .toolbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 0.8rem; }
-      .search-box { width: 100%; }
-      .sector-layout { grid-template-columns: 1fr; gap: 1rem; }
-      table { font-size: 0.75rem; }
-      th, td { padding: 0.6rem 0.5rem; }
-    }
+    .bar-track { height: 16px; background: rgba(255,255,255,0.03); border-radius: 4px; position: relative; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
+    .bar-center-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.15); z-index: 2; }
+    .bar-fill { height: 100%; position: absolute; border-radius: 2px; }
+    .bar-fill.green { left: 50%; background: var(--green); }
+    .bar-fill.red { right: 50%; background: var(--red); }
   </style>
 </head>
 <body>
 
   <header>
-    <div class="brand"><div class="dot"></div> Stock Finder PRO <span style="font-size:0.65rem; background:rgba(88,166,255,0.15); color:#58a6ff; padding:2px 6px; border-radius:4px; border:1px solid rgba(88,166,255,0.3);"></span></div>
+    <div class="brand"><div class="dot"></div> Stock Finder PRO</div>
     <div class="nav-tabs">
       <button class="tab-btn active" id="btn-scr" onclick="switchTab('scr')">Live Screener</button>
       <button class="tab-btn" id="btn-sec" onclick="switchTab('sec')">Sector Performance</button>
@@ -166,19 +112,19 @@
     <div id="view-scr">
       <div class="kpi-grid">
         <div class="kpi-card" onclick="setFilter('Long Buildup')">
-          <div class="kpi-title" style="color:#3fb950;">Long Buildup</div>
+          <div class="kpi-title" style="color:var(--green);">Long Buildup</div>
           <div class="kpi-val mono" id="k-lb">0</div>
         </div>
         <div class="kpi-card" onclick="setFilter('Short Buildup')">
-          <div class="kpi-title" style="color:#ff7b72;">Short Buildup</div>
+          <div class="kpi-title" style="color:var(--red);">Short Buildup</div>
           <div class="kpi-val mono" id="k-sb">0</div>
         </div>
         <div class="kpi-card" onclick="setFilter('Short Covering')">
-          <div class="kpi-title" style="color:#58a6ff;">Short Covering</div>
+          <div class="kpi-title" style="color:#38bdf8;">Short Covering</div>
           <div class="kpi-val mono" id="k-sc">0</div>
         </div>
         <div class="kpi-card" onclick="setFilter('Long Unwinding')">
-          <div class="kpi-title" style="color:#d29922;">Long Unwinding</div>
+          <div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div>
           <div class="kpi-val mono" id="k-lu">0</div>
         </div>
       </div>
@@ -186,7 +132,7 @@
       <!-- TOP GAINERS & LOSERS PANEL -->
       <div class="movers-grid">
         <div class="movers-panel">
-          <div class="movers-title" style="color: #3fb950;">
+          <div class="movers-title" style="color: var(--green);">
             <span>🟢 Top 20 Gainers</span>
             <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
           </div>
@@ -195,7 +141,7 @@
           </div>
         </div>
         <div class="movers-panel">
-          <div class="movers-title" style="color: #ff7b72;">
+          <div class="movers-title" style="color: var(--red);">
             <span>🔴 Top 20 Losers</span>
             <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
           </div>
@@ -225,7 +171,7 @@
               <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
               <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
               <th onclick="toggleSort('pricePct')">Price Chg % <span id="th-pricePct">↕</span></th>
-              <th onclick="toggleSort('volume')">Volume & Spike <span id="th-volume">↕</span></th>
+              <th onclick="toggleSort('volume')">Volume <span id="th-volume">↕</span></th>
               <th onclick="toggleSort('oiPct')">OI Chg % <span id="th-oiPct">↕</span></th>
               <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
               <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
@@ -243,7 +189,7 @@
       <div class="sector-layout">
         <div class="panel">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1rem;">Sector Overview (Breadth)</h3>
+            <h3 style="font-size: 1rem;">Sector Overview</h3>
             <span style="font-size: 0.72rem; color: var(--muted);">Click a bar to view stocks</span>
           </div>
           <div id="sectors-list"></div>
@@ -335,6 +281,7 @@
       document.getElementById('k-lu').innerText = counts['Long Unwinding'];
     }
 
+    // Direct TradingView Open Function in New Tab
     function openChart(symbol) {
       const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`;
       window.open(tvUrl, '_blank');
@@ -476,11 +423,6 @@
         const ltpVal = Number(s.ltp || 0).toFixed(2);
         const volVal = Number(s.volume || 0).toLocaleString('en-IN');
         const momVal = s.momentumScore || 0;
-        
-        const spike = s.volSpike || 1.0;
-        let spikeClass = spike >= 2.0 ? 'vol-spike-high' : '';
-        let spikeBadge = spike >= 2.0 ? ` <span style="font-size:0.6rem; background:rgba(46,160,67,0.2); color:#3fb950; padding:1px 4px; border-radius:3px; border:1px solid rgba(46,160,67,0.3);">⚡ ${spike}x</span>` : '';
-        const barW = Math.min((spike / 5.0) * 100, 100);
 
         return `
           <tr>
@@ -490,12 +432,7 @@
             </td>
             <td class="mono">₹${ltpVal}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            <td class="mono ${spikeClass}">
-              ${volVal} ${spikeBadge}
-              <div class="vol-bar-container" title="Volume Spike: ${spike}x">
-                <div class="vol-bar-fill" style="width: ${barW}%; background: ${spike >= 2.0 ? '#3fb950' : '#58a6ff'};"></div>
-              </div>
-            </td>
+            <td class="mono" style="color:var(--muted);">${volVal}</td>
             <td class="mono ${oiCls}">${(s.oiPct || 0) > 0 ? '+' : ''}${s.oiPct || 0}%</td>
             <td><span class="badge ${s.buildup==='Long Buildup'?'badge-green':'badge-red'}">${s.buildup || '-'}</span></td>
             <td class="mono">🔥 ${momVal}</td>
@@ -516,23 +453,22 @@
     function renderSectors() {
       const container = document.getElementById('sectors-list');
       if(!sectorsData.length) return;
+      
+      const maxAbs = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)), 1.0);
 
       container.innerHTML = sectorsData.map(sec => {
         const avg = sec.avgChange || 0;
-        const cls = avg >= 0 ? 'val-up' : 'val-down';
+        const isUp = avg >= 0;
+        const cls = isUp ? 'val-up' : 'val-down';
         const activeCls = selectedSector === sec.sector ? 'active' : '';
-        const advP = sec.advPct || 0;
-        const decP = sec.decPct || 0;
+        const barW = Math.min(Math.max((Math.abs(avg) / maxAbs) * 45, 3), 48);
 
         return `
           <div class="sec-bar-row ${activeCls}" onclick="selectSector('${sec.sector}')">
-            <div>
-              <div class="sec-name" title="${sec.sector}">${sec.sector}</div>
-              <div style="font-size: 0.65rem; color: var(--muted);">🟢 ${sec.advances} | 🔴 ${sec.declines}</div>
-            </div>
-            <div class="bar-track" style="display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);">
-              <div style="width: ${advP}%; background: #2ea043; height: 100%; box-shadow: 0 0 8px var(--glow-green);" title="Advances: ${sec.advances}"></div>
-              <div style="width: ${decP}%; background: #f85149; height: 100%; box-shadow: 0 0 8px var(--glow-red);" title="Declines: ${sec.declines}"></div>
+            <div class="sec-name" title="${sec.sector}">${sec.sector}</div>
+            <div class="bar-track">
+              <div class="bar-center-line"></div>
+              <div class="bar-fill ${isUp ? 'green' : 'red'}" style="width: ${barW}%;"></div>
             </div>
             <div class="mono ${cls}" style="text-align: right; font-size: 0.82rem;">${avg > 0 ? '+' : ''}${avg}%</div>
           </div>

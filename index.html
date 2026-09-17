@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Stock Finder - Pro Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,92 +19,133 @@
       --red: #e74c3c;
       --primary: #f39c12;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; filter: brightness(0.95); }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
     .mono { font-family: 'JetBrains Mono', monospace; }
 
     header {
       background: #181818; border-bottom: 1px solid var(--border);
-      padding: 0.8rem 1.5rem; display: flex; justify-content: space-between; align-items: center;
-      position: sticky; top: 0; z-index: 50;
+      padding: 0.8rem 1rem; display: flex; justify-content: space-between; align-items: center;
+      position: sticky; top: 0; z-index: 50; flex-wrap: wrap; gap: 10px;
     }
-    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; color: var(--primary); }
+    .brand { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; color: var(--primary); }
     .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; box-shadow: 0 0 8px var(--green); }
     
-    .nav-tabs { display: flex; gap: 6px; background: #121212; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
-    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 5px 12px; font-size: 0.8rem; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .nav-tabs { display: flex; gap: 4px; background: #121212; padding: 3px; border-radius: 8px; border: 1px solid var(--border); }
+    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 5px 10px; font-size: 0.75rem; font-weight: 600; border-radius: 6px; cursor: pointer; }
     .tab-btn.active { background: var(--primary); color: #121212; font-weight: 700; }
 
-    main { max-width: 1550px; margin: 1.5rem auto; padding: 0 1.5rem; }
+    /* --- TRADINGVIEW-STYLE TICKER BAR STYLES --- */
+    .market-ticker-container {
+      width: 100%;
+      background-color: #131722;
+      border-bottom: 1px solid #2a2e39;
+      overflow: hidden;
+      white-space: nowrap;
+      box-sizing: border-box;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      position: sticky;
+      top: 57px;
+      z-index: 40;
+    }
+    .market-ticker-track {
+      display: inline-flex;
+      animation: scrollTicker 75s linear infinite;
+    }
+    .market-ticker-container:hover .market-ticker-track {
+      animation-play-state: paused;
+    }
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 16px;
+      border-right: 1px solid #2a2e39;
+      font-size: 11px;
+    }
+    .ticker-symbol { color: #d1d4dc; font-weight: 600; margin-right: 6px; }
+    .ticker-price { color: #d1d4dc; margin-right: 6px; }
+    .ticker-change.positive { color: #089981; font-weight: 600; }
+    .ticker-change.negative { color: #f23645; font-weight: 600; }
 
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
-    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: transform 0.1s; }
+    @keyframes scrollTicker {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    main { max-width: 1550px; width: 100%; margin: 1rem auto; padding: 0 1rem; flex: 1; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem; }
+    @media(max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem; cursor: pointer; transition: transform 0.1s; }
     .kpi-card:hover { border-color: var(--muted); }
-    .kpi-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
-    .kpi-val { font-size: 1.8rem; font-weight: 700; }
+    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.2rem; }
+    .kpi-val { font-size: 1.4rem; font-weight: 700; }
 
-    /* Top Movers Section */
-    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
     @media(max-width: 900px) { .movers-grid { grid-template-columns: 1fr; } }
-    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 420px; }
-    .movers-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    
+    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; height: 380px; }
+    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
     
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.82rem; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.45rem 0.3rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.78rem; }
     .movers-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
 
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; background: var(--card); padding: 0.9rem 1.2rem; border-radius: 10px; border: 1px solid var(--border); }
-    .filter-btn { padding: 0.55rem 1.1rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; background: #181818; color: var(--muted); border: 1px solid var(--border); cursor: pointer; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 1rem; background: var(--card); padding: 0.8rem 1rem; border-radius: 10px; border: 1px solid var(--border); }
+    .filter-btn { padding: 0.5rem 0.9rem; font-size: 0.75rem; font-weight: 600; border-radius: 6px; background: #181818; color: var(--muted); border: 1px solid var(--border); cursor: pointer; }
     .filter-btn.active { background: var(--primary); color: #121212; border-color: var(--primary); font-weight: 700; }
     
-    .search-box { background: #121212; border: 1px solid var(--border); color: #fff; padding: 0.55rem 0.9rem; border-radius: 6px; font-size: 0.85rem; outline: none; width: 220px; }
+    .search-box { background: #121212; border: 1px solid var(--border); color: #fff; padding: 0.5rem 0.8rem; border-radius: 6px; font-size: 0.8rem; outline: none; width: 100%; max-width: 200px; }
+    @media(max-width: 768px) { .search-box { max-width: 100%; width: 100%; } }
 
-    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
-    th { padding: 0.9rem 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: #181818; position: sticky; top: 0; z-index: 10; }
+    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow-y: auto; max-height: 550px; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem; white-space: nowrap; }
+    th { padding: 0.8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: #181818; position: sticky; top: 0; z-index: 10; }
     th:hover { color: #fff; background: #222; }
-    td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: #e0e0e0; }
+    td { padding: 0.75rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: #e0e0e0; }
     tr:hover { background: rgba(255,255,255,0.02); }
 
     .stock-link { color: var(--primary); text-decoration: none; font-weight: 700; cursor: pointer; }
     .stock-link:hover { text-decoration: underline; color: #fff; }
 
-    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.65rem; font-weight: 600; }
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
     
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
 
-    .sector-layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; align-items: start; }
+    .sector-layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1rem; align-items: start; }
     @media(max-width: 1024px) { .sector-layout { grid-template-columns: 1fr; } }
     
-    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
     
-    /* Heatmap Grid Styles */
     .heatmap-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
     }
     .heatmap-card {
       background: #181818;
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 0.9rem;
+      padding: 0.8rem;
       cursor: pointer;
       transition: all 0.15s ease;
     }
-    .heatmap-card:hover {
-      border-color: var(--muted);
-      transform: translateY(-2px);
-    }
-    .heatmap-card.active {
-      border-color: var(--primary);
-      background: rgba(243, 156, 18, 0.08);
-    }
+    .heatmap-card:hover { border-color: var(--muted); transform: translateY(-2px); }
+    .heatmap-card.active { border-color: var(--primary); background: rgba(243, 156, 18, 0.08); }
     .heatmap-card.green-card { border-left: 4px solid var(--green); }
     .heatmap-card.red-card { border-left: 4px solid var(--red); }
+
+    /* Custom Sleek Dark Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #181818; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #2d2d2d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3d3d3d; }
   </style>
 </head>
 <body>
@@ -113,10 +154,17 @@
     <div class="brand"><div class="dot"></div> Stock Finder PRO</div>
     <div class="nav-tabs">
       <button class="tab-btn active" id="btn-scr" onclick="switchTab('scr')">Live Screener</button>
-      <button class="tab-btn" id="btn-sec" onclick="switchTab('sec')">Sector Performance</button>
+      <button class="tab-btn" id="btn-sec" onclick="switchTab('sec')">Sectors</button>
     </div>
-    <div class="mono" style="font-size: 0.8rem; color: var(--muted);">Time: <span id="clock" style="color:#fff;">--:--:--</span></div>
+    <div class="mono" style="font-size: 0.75rem; color: var(--muted);">Time: <span id="clock" style="color:#fff;">--:--:--</span></div>
   </header>
+
+  <!-- TRADINGVIEW-STYLE TICKER BAR -->
+  <div class="market-ticker-container">
+    <div class="market-ticker-track" id="tickerTrack">
+      <div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Market Ticker...</span></div>
+    </div>
+  </div>
 
   <main>
     <!-- SCREENER VIEW -->
@@ -140,12 +188,11 @@
         </div>
       </div>
 
-      <!-- TOP GAINERS & LOSERS PANEL -->
+      <!-- BULLISH & BEARISH MOMENTUM PANELS -->
       <div class="movers-grid">
         <div class="movers-panel">
           <div class="movers-title" style="color: var(--green);">
-            <span>🟢 Top 20 Gainers</span>
-            <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
+            <span>🟢 Bullish Momentum</span>
           </div>
           <div class="movers-list-scroll" id="top-gainers-list">
             <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
@@ -153,8 +200,7 @@
         </div>
         <div class="movers-panel">
           <div class="movers-title" style="color: var(--red);">
-            <span>🔴 Top 20 Losers</span>
-            <span style="font-size:0.7rem; color:var(--muted);">Live Group</span>
+            <span>🔴 Bearish Pressure</span>
           </div>
           <div class="movers-list-scroll" id="top-losers-list">
             <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
@@ -163,14 +209,25 @@
       </div>
 
       <div class="toolbar">
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL STOCKS</button>
-          <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN = LOW</button>
-          <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN = HIGH</button>
-          <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG BUILDUP</button>
-          <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT BUILDUP</button>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; md:width: auto;">
+          <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL</button>
+          <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
+          <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
+          <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
+          <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
+          
+          <!-- F&O CSV UPLOAD BUTTON -->
+          <label style="background: #2a2e39; color: var(--text); padding: 0.5rem 0.8rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border);">
+            📁 Upload
+            <input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" />
+          </label>
+
+          <!-- RESET BUTTON -->
+          <button class="filter-btn" onclick="resetUniverse()" style="background: #2a2e39; border: 1px solid var(--border); color: #e74c3c;">
+            🔄 Reset
+          </button>
         </div>
-        <div>
+        <div style="width: 100%; md:width: auto;">
           <input type="text" id="search" class="search-box mono" placeholder="SEARCH SYMBOL..." oninput="fetchData()" />
         </div>
       </div>
@@ -181,9 +238,9 @@
             <tr>
               <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
               <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
-              <th onclick="toggleSort('pricePct')">Price Chg % <span id="th-pricePct">↕</span></th>
+              <th onclick="toggleSort('pricePct')">Chg % <span id="th-pricePct">↕</span></th>
               <th onclick="toggleSort('volume')">Volume <span id="th-volume">↕</span></th>
-              <th onclick="toggleSort('oiPct')">OI Chg % <span id="th-oiPct">↕</span></th>
+              <th onclick="toggleSort('oiPct')">OI % <span id="th-oiPct">↕</span></th>
               <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
               <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
             </tr>
@@ -199,17 +256,21 @@
     <div id="view-sec" style="display: none;">
       <div class="sector-layout">
         <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 style="font-size: 1rem;">Sector Overview (Heatmap)</h3>
-            <span style="font-size: 0.72rem; color: var(--muted);">Click a sector box</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+            <h3 style="font-size: 0.95rem;">Sector Overview</h3>
+            <span style="font-size: 0.7rem; color: var(--muted);">Click box</span>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--muted); margin-bottom: 0.8rem; display: flex; gap: 1rem; background: #181818; padding: 0.4rem 0.7rem; border-radius: 6px; border: 1px solid var(--border); flex-wrap: wrap;">
+            <span>📊 Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
+            <span>📦 Vol: <strong style="color:#fff;" id="breadth-vol">--</strong></span>
           </div>
           <div id="sectors-list"></div>
         </div>
         
         <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 id="sec-title" style="font-size: 1rem;">Select a sector</h3>
-            <span id="sec-sub" style="font-size: 0.75rem; color: var(--muted);"></span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+            <h3 id="sec-title" style="font-size: 0.95rem;">Select sector</h3>
+            <span id="sec-sub" style="font-size: 0.7rem; color: var(--muted);"></span>
           </div>
           <div class="table-container">
             <table>
@@ -217,12 +278,12 @@
                 <tr>
                   <th onclick="toggleSecSort('symbol')">Symbol <span id="sec-th-symbol">↕</span></th>
                   <th onclick="toggleSecSort('ltp')">Price (₹) <span id="sec-th-ltp">↕</span></th>
-                  <th onclick="toggleSecSort('pricePct')">Change % <span id="sec-th-pricePct">▼</span></th>
+                  <th onclick="toggleSecSort('pricePct')">Chg % <span id="sec-th-pricePct">▼</span></th>
                   <th onclick="toggleSecSort('candleTag')">Setup <span id="sec-th-candleTag">↕</span></th>
                 </tr>
               </thead>
               <tbody id="sec-tbody">
-                <tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">Click any sector on the left.</td></tr>
+                <tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">Click any sector.</td></tr>
               </tbody>
             </table>
           </div>
@@ -230,6 +291,12 @@
       </div>
     </div>
   </main>
+
+  <!-- PROFESSIONAL DISCLAIMER FOOTER -->
+  <footer style="max-width: 1550px; width: 100%; margin: 1.5rem auto 1rem auto; padding: 1rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; text-align: center;">
+    <span style="color: var(--primary); font-weight: 700; text-transform: uppercase;">⚠️ Disclaimer:</span> 
+    Stock Finder PRO is for educational and informational purposes only and does <strong>not</strong> constitute buy/sell recommendations or financial advice. Markets are subject to high risk. Always consult a qualified financial advisor.
+  </footer>
 
   <script>
     let currentTab = 'scr';
@@ -255,12 +322,75 @@
       }
     }
 
+    async function uploadUniverse(input) {
+      if (!input.files || !input.files[0]) return;
+      const formData = new FormData();
+      formData.append("file", input.files[0]);
+
+      try {
+        const res = await fetch('/api/upload-universe', { method: 'POST', body: formData });
+        const result = await res.json();
+        if (result.status === 'success') {
+          alert(result.message);
+          fetchData();
+          fetchTickerBar();
+        } else {
+          alert("Upload failed: " + result.message);
+        }
+      } catch (e) {
+        console.error("Upload error:", e);
+        alert("Error uploading file.");
+      } finally {
+        input.value = '';
+      }
+    }
+
+    async function resetUniverse() {
+      if (!confirm("Reset to default stock list?")) return;
+      try {
+        const res = await fetch('/api/reset-universe', { method: 'POST' });
+        const result = await res.json();
+        if (result.status === 'success') {
+          alert(result.message);
+          fetchData();
+          fetchTickerBar();
+        } else {
+          alert("Reset failed.");
+        }
+      } catch (e) {
+        console.error("Reset error:", e);
+      }
+    }
+
+    async function fetchTickerBar() {
+      try {
+        const res = await fetch('/api/ticker-bar');
+        if(!res.ok) return;
+        const json = await res.json();
+        if(json.status === 'success' && json.data.length > 0) {
+          const track = document.getElementById('tickerTrack');
+          const html = json.data.map(item => `
+            <div class="ticker-item">
+              <span class="ticker-symbol">${item.symbol}</span>
+              <span class="ticker-price">₹${item.price}</span>
+              <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
+            </div>
+          `).join('');
+          track.innerHTML = html + html;
+        }
+      } catch(e) {
+        console.error("Ticker fetch error:", e);
+      }
+    }
+
     async function fetchData() {
       try {
         const [res1, res2] = await Promise.all([
           fetch('/api/screener?filter=ALL'),
           fetch('/api/sectors')
         ]);
+        if(!res1.ok || !res2.ok) return;
+
         const d1 = await res1.json();
         const d2 = await res2.json();
 
@@ -268,18 +398,24 @@
           marketStocks = d1.data || [];
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
           updateKPIs(marketStocks);
-          renderTopMovers(marketStocks);
+          renderExplicitMovers(d1.topGainers, d1.topLosers);
           renderTable();
         }
+
         if(d2 && d2.status === 'success') {
           sectorsData = d2.data || [];
           renderSectors();
+          if(d2.marketBreadth) {
+            document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
+            document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
+            document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
+          }
           if(currentTab === 'sec' && selectedSector) {
             renderSectorStocks();
           }
         }
       } catch(e) {
-        console.error("Error fetching data:", e);
+        console.error("Data fetch error:", e);
       }
     }
 
@@ -293,100 +429,47 @@
     }
 
     function openChart(symbol) {
-      const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`;
-      window.open(tvUrl, '_blank');
+      window.open(`https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`, '_blank');
     }
 
-    function renderTopMovers(stocks) {
-      if (!stocks || !stocks.length) return;
-
-      const sortedByGain = [...stocks].sort((a, b) => Number(b.pricePct || 0) - Number(a.pricePct || 0));
-      const topGainers = sortedByGain.filter(s => Number(s.pricePct || 0) > 0).slice(0, 20);
-      const topLosers = [...stocks].sort((a, b) => Number(a.pricePct || 0) - Number(b.pricePct || 0)).filter(s => Number(s.pricePct || 0) < 0).slice(0, 20);
-
+    function renderExplicitMovers(gainers, losers) {
       const gainersEl = document.getElementById('top-gainers-list');
       const losersEl = document.getElementById('top-losers-list');
 
       if (gainersEl) {
-        gainersEl.innerHTML = topGainers.length ? topGainers.map((s, idx) => {
-          let tag = '';
-          if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=LOW</span>`;
-          if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=HIGH</span>`;
-
-          return `
-            <div class="movers-row">
-              <div>
-                <span style="color:var(--muted); font-size:0.75rem; margin-right:6px;">${idx + 1}.</span>
-                <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a> ${tag}
-                <span style="font-size:0.7rem; color:var(--muted); margin-left:4px;">(${s.sector || ''})</span>
-              </div>
-              <div class="mono val-up">+${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+        gainersEl.innerHTML = gainers && gainers.length ? gainers.map((s, idx) => `
+          <div class="movers-row">
+            <div>
+              <span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span>
+              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
             </div>
-          `;
-        }).join('') : `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:1rem;">No Gainers right now</div>`;
+            <div class="mono val-up">+${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+          </div>
+        `).join('') : `<div style="color:var(--muted); font-size:0.75rem; text-align:center; padding:1rem;">No Data</div>`;
       }
 
       if (losersEl) {
-        losersEl.innerHTML = topLosers.length ? topLosers.map((s, idx) => {
-          let tag = '';
-          if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=LOW</span>`;
-          if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px; font-size:0.6rem; padding:0.1rem 0.4rem;">OPEN=HIGH</span>`;
-
-          return `
-            <div class="movers-row">
-              <div>
-                <span style="color:var(--muted); font-size:0.75rem; margin-right:6px;">${idx + 1}.</span>
-                <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a> ${tag}
-                <span style="font-size:0.7rem; color:var(--muted); margin-left:4px;">(${s.sector || ''})</span>
-              </div>
-              <div class="mono val-down">${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+        losersEl.innerHTML = losers && losers.length ? losers.map((s, idx) => `
+          <div class="movers-row">
+            <div>
+              <span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span>
+              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
             </div>
-          `;
-        }).join('') : `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:1rem;">No Losers right now</div>`;
+            <div class="mono val-down">${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
+          </div>
+        `).join('') : `<div style="color:var(--muted); font-size:0.75rem; text-align:center; padding:1rem;">No Data</div>`;
       }
     }
 
     function toggleSort(col) {
-      if (sortColumn === col) {
-        sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
-      } else {
-        sortColumn = col;
-        sortDirection = 'desc';
-      }
-      
-      ['symbol', 'ltp', 'pricePct', 'volume', 'oiPct', 'buildup', 'momentumScore'].forEach(c => {
-        const el = document.getElementById(`th-${c}`);
-        if(el) {
-          if(c === sortColumn) {
-            el.innerText = sortDirection === 'asc' ? '▲' : '▼';
-          } else {
-            el.innerText = '↕';
-          }
-        }
-      });
-
+      if (sortColumn === col) sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+      else { sortColumn = col; sortDirection = 'desc'; }
       renderTable();
     }
 
     function toggleSecSort(col) {
-      if (secSortColumn === col) {
-        secSortDirection = secSortDirection === 'desc' ? 'asc' : 'desc';
-      } else {
-        secSortColumn = col;
-        secSortDirection = 'desc';
-      }
-
-      ['symbol', 'ltp', 'pricePct', 'candleTag'].forEach(c => {
-        const el = document.getElementById(`sec-th-${c}`);
-        if(el) {
-          if(c === secSortColumn) {
-            el.innerText = secSortDirection === 'asc' ? '▲' : '▼';
-          } else {
-            el.innerText = '↕';
-          }
-        }
-      });
-
+      if (secSortColumn === col) secSortDirection = secSortDirection === 'desc' ? 'asc' : 'desc';
+      else { secSortColumn = col; secSortDirection = 'desc'; }
       renderSectorStocks();
     }
 
@@ -395,26 +478,16 @@
       const search = searchBox ? searchBox.value.toLowerCase() : '';
       let filtered = [...marketStocks];
 
-      if(currentFilter === 'OPEN=LOW') {
-        filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
-      } else if(currentFilter === 'OPEN=HIGH') {
-        filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
-      } else if(currentFilter !== 'ALL') {
-        filtered = filtered.filter(s => s.buildup === currentFilter);
-      }
+      if(currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
+      else if(currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
+      else if(currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
 
-      if(search) {
-        filtered = filtered.filter(s => (s.symbol || '').toLowerCase().includes(search) || (s.name || '').toLowerCase().includes(search));
-      }
+      if(search) filtered = filtered.filter(s => (s.symbol || '').toLowerCase().includes(search) || (s.name || '').toLowerCase().includes(search));
 
       filtered.sort((a, b) => {
-        let valA = a[sortColumn];
-        let valB = b[sortColumn];
-        if (typeof valA === 'string') {
-          return sortDirection === 'asc' ? (valA || '').localeCompare(valB || '') : (valB || '').localeCompare(valA || '');
-        } else {
-          return sortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
-        }
+        let valA = a[sortColumn], valB = b[sortColumn];
+        if (typeof valA === 'string') return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        return sortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
       });
 
       const tbody = document.getElementById('tbody');
@@ -427,25 +500,21 @@
         const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
         const oiCls = (s.oiPct || 0) >= 0 ? 'val-up' : 'val-down';
         let tag = '';
-        if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>`;
-        if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>`;
-
-        const ltpVal = Number(s.ltp || 0).toFixed(2);
-        const volVal = Number(s.volume || 0).toLocaleString('en-IN');
-        const momVal = s.momentumScore || 0;
+        if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px;">OPEN=LOW</span>`;
+        if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px;">OPEN=HIGH</span>`;
 
         return `
           <tr>
             <td>
               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
-              <div style="font-size:0.7rem; color:var(--muted);">${s.name || ''}</div>
+              <div style="font-size:0.65rem; color:var(--muted);">${s.name || ''}</div>
             </td>
-            <td class="mono">₹${ltpVal}</td>
+            <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            <td class="mono" style="color:var(--muted);">${volVal}</td>
+            <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
             <td class="mono ${oiCls}">${(s.oiPct || 0) > 0 ? '+' : ''}${s.oiPct || 0}%</td>
             <td><span class="badge ${s.buildup==='Long Buildup'?'badge-green':'badge-red'}">${s.buildup || '-'}</span></td>
-            <td class="mono">🔥 ${momVal}</td>
+            <td class="mono">🔥 ${s.momentumScore || 0}</td>
           </tr>
         `;
       }).join('');
@@ -460,30 +529,22 @@
       renderTable();
     }
 
-    // Heatmap Grid Rendering Function
     function renderSectors() {
       const container = document.getElementById('sectors-list');
       if(!sectorsData.length) return;
-      
       container.className = "heatmap-grid";
-
       container.innerHTML = sectorsData.map(sec => {
         const avg = sec.avgChange || 0;
-        const isUp = avg >= 0;
-        const cls = isUp ? 'val-up' : 'val-down';
+        const cls = avg >= 0 ? 'val-up' : 'val-down';
         const activeCls = selectedSector === sec.sector ? 'active' : '';
-        const cardTheme = isUp ? 'green-card' : 'red-card';
+        const cardTheme = avg >= 0 ? 'green-card' : 'red-card';
 
         return `
           <div class="heatmap-card ${activeCls} ${cardTheme}" onclick="selectSector('${sec.sector}')">
-            <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0.4rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${sec.sector}">
-              ${sec.sector}
-            </div>
+            <div style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.3rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sec.sector}</div>
             <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-              <div class="mono ${cls}" style="font-size: 1.15rem; font-weight: 700;">
-                ${avg > 0 ? '+' : ''}${avg}%
-              </div>
-              <div style="font-size: 0.65rem; color: var(--muted); text-align: right;">
+              <div class="mono ${cls}" style="font-size: 1.05rem; font-weight: 700;">${avg > 0 ? '+' : ''}${avg}%</div>
+              <div style="font-size: 0.6rem; color: var(--muted); text-align: right;">
                 <div>Tot: ${sec.stocksCount}</div>
                 <div>🟢${sec.advances} 🔴${sec.declines}</div>
               </div>
@@ -492,9 +553,7 @@
         `;
       }).join('');
 
-      if(!selectedSector && sectorsData.length > 0) {
-        selectSector(sectorsData[0].sector);
-      }
+      if(!selectedSector && sectorsData.length > 0) selectSector(sectorsData[0].sector);
     }
 
     function selectSector(name) {
@@ -505,54 +564,39 @@
 
     function renderSectorStocks() {
       const sec = sectorsData.find(s => s.sector === selectedSector);
-      const secTitleEl = document.getElementById('sec-title');
-      if (secTitleEl) secTitleEl.innerText = `${selectedSector || ''} Stocks (${sec ? sec.stocksCount : 0})`;
-      
-      const secSubEl = document.getElementById('sec-sub');
-      if(sec && secSubEl) {
-        secSubEl.innerHTML = `Avg: <span class="${(sec.avgChange || 0) >= 0 ? 'val-up' : 'val-down'}">${sec.avgChange || 0}%</span>`;
-      }
+      document.getElementById('sec-title').innerText = `${selectedSector || ''} (${sec ? sec.stocksCount : 0})`;
+      document.getElementById('sec-sub').innerHTML = `Avg: <span class="${(sec?.avgChange || 0) >= 0 ? 'val-up' : 'val-down'}">${sec?.avgChange || 0}%</span>`;
 
       let stocks = marketStocks.filter(s => s.sector === selectedSector);
-
       stocks.sort((a, b) => {
-        let valA = a[secSortColumn];
-        let valB = b[secSortColumn];
-        if (typeof valA === 'string') {
-          return secSortDirection === 'asc' ? (valA || '').localeCompare(valB || '') : (valB || '').localeCompare(valA || '');
-        } else {
-          return secSortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
-        }
+        let valA = a[secSortColumn], valB = b[secSortColumn];
+        if (typeof valA === 'string') return secSortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        return secSortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
       });
 
       const tbody = document.getElementById('sec-tbody');
       if(!stocks.length) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">No stocks in this sector.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">No stocks in sector.</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = stocks.map(s => {
-        const cls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
-        let setupTag = '-';
-        if(s.candleTag === 'OPEN=LOW') setupTag = `<span class="badge badge-green">OPEN=LOW</span>`;
-        if(s.candleTag === 'OPEN=HIGH') setupTag = `<span class="badge badge-red">OPEN=HIGH</span>`;
-
-        return `
-          <tr>
-            <td>
-              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a>
-              <div style="font-size:0.7rem; color:var(--muted);">${s.name || ''}</div>
-            </td>
-            <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
-            <td class="mono ${cls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            <td>${setupTag}</td>
-          </tr>
-        `;
-      }).join('');
+      tbody.innerHTML = stocks.map(s => `
+        <tr>
+          <td>
+            <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a>
+            <div style="font-size:0.65rem; color:var(--muted);">${s.name || ''}</div>
+          </td>
+          <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
+          <td class="mono ${(s.pricePct || 0) >= 0 ? 'val-up' : 'val-down'}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
+          <td>${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : '-'}</td>
+        </tr>
+      `).join('');
     }
 
+    fetchTickerBar();
     fetchData();
     setInterval(fetchData, 10000);
+    setInterval(fetchTickerBar, 30000);
   </script>
 </body>
 </html>

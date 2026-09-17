@@ -1,16 +1,32 @@
 import os
 import requests
+import csv
+import io
 from datetime import datetime
 import pytz
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from collections import defaultdict
 
-# index.html రూట్ డైరెక్టరీలో ఉంది కాబట్టి static_folder తీసేసి రూట్ నుండి సర్వ్ చేసేలా మార్చాం
 app = Flask(__name__)
 CORS(app)
 
 UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJDTDgwMDQiLCJqdGkiOiI2YTZlZGU0YTdkMDdkYzI0NTcxY2IwNjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlzRXh0ZW5kZWQiOnRydWUsImlhdCI6MTc4NTY1MDc2MiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxODE3MjQ0MDAwfQ.QevX5BwRdiDzZNmuSc0CGqDZcN5VP1qK6GXbvziEAik").strip()
+
+# Ticker Bar Index Instruments
+MARKET_INDICES = [
+    {"symbol": "NIFTY 50", "isin": "NSE_INDEX|Nifty 50"},
+    {"symbol": "NIFTY BANK", "isin": "NSE_INDEX|Nifty Bank"},
+    {"symbol": "SENSEX", "isin": "BSE_INDEX|SENSEX"},
+    {"symbol": "NIFTY FIN SERVICE", "isin": "NSE_INDEX|Nifty Financial Services"},
+    {"symbol": "NIFTY IT", "isin": "NSE_INDEX|Nifty IT"},
+    {"symbol": "NIFTY AUTO", "isin": "NSE_INDEX|Nifty Auto"},
+    {"symbol": "NIFTY PHARMA", "isin": "NSE_INDEX|Nifty Pharma"},
+    {"symbol": "NIFTY METAL", "isin": "NSE_INDEX|Nifty Metal"},
+    {"symbol": "NIFTY ENERGY", "isin": "NSE_INDEX|Nifty Energy"},
+    {"symbol": "NIFTY REALTY", "isin": "NSE_INDEX|Nifty Realty"},
+    {"symbol": "NIFTY FMCG", "isin": "NSE_INDEX|Nifty FMCG"}
+]
 
 CORE_MARKET_UNIVERSE = [
     # --- NIFTY BANK ---
@@ -149,6 +165,8 @@ CORE_MARKET_UNIVERSE = [
     {"symbol": "EMAMILTD", "name": "Emami Limited", "sector": "Nifty Fmcg", "isin": "NSE_EQ|INE548C01032", "is_fo": True}
 ]
 
+GLOBAL_MARKET_UNIVERSE = CORE_MARKET_UNIVERSE.copy()
+
 def calculate_oi_buildup(price_pct, oi_pct, is_fo):
     if not is_fo:
         return "Cash Equity"
@@ -192,8 +210,8 @@ def fetch_live_upstox_quotes():
         "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"
     }
 
-    for i in range(0, len(CORE_MARKET_UNIVERSE), chunk_size):
-        chunk = CORE_MARKET_UNIVERSE[i:i + chunk_size]
+    for i in range(0, len(GLOBAL_MARKET_UNIVERSE), chunk_size):
+        chunk = GLOBAL_MARKET_UNIVERSE[i:i + chunk_size]
         isin_keys = [item["isin"] for item in chunk]
         keys_param = ",".join(isin_keys)
 
@@ -204,7 +222,6 @@ def fetch_live_upstox_quotes():
             res_json = res.json()
             
             if res.status_code != 200 or res_json.get("status") != "success":
-                print(f"[API ERROR] Status: {res.status_code}, Resp: {res.text}")
                 continue
 
             quotes_data = res_json.get("data", {})
@@ -278,14 +295,96 @@ def fetch_live_upstox_quotes():
         except Exception as e:
             print(f"[FETCH EXCEPTION] {e}")
 
-    print(f"[DEBUG] Total stocks successfully fetched: {len(results)}")
     results.sort(key=lambda x: x["momentumScore"], reverse=True)
     return results
 
-# --- హోమ్ పేజీ రూట్ (నేరుగా రూట్ డైరెక్టరీ నుండి index.html ని లోడ్ చేస్తుంది) ---
 @app.route("/")
 def index():
     return send_from_directory('.', 'index.html')
+
+@app.route("/api/upload-universe", methods=["POST"])
+def upload_universe():
+    global GLOBAL_MARKET_UNIVERSE
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "Empty file name"}), 400
+
+    try:
+        stream = io.TextIOWrapper(file.stream, encoding="utf-8-sig")
+        sample_line = stream.readline()
+        stream.seek(0)
+        
+        existing_isin_map = {item["symbol"]: item for item in CORE_MARKET_UNIVERSE}
+        
+        new_universe = []
+        if ',' not in sample_line:
+            reader = csv.reader(stream)
+            for row in reader:
+                if not row or not row[0].strip():
+                    continue
+                sym = row[0].strip().upper()
+                if sym in ["SYMBOL", "TICKER", "STOCK"]:
+                    continue
+                
+                if sym in existing_isin_map:
+                    new_universe.append(existing_isin_map[sym])
+                else:
+                    new_universe.append({
+                        "symbol": sym,
+                        "name": f"{sym} Stock",
+                        "sector": "F&O Universe",
+                        "isin": f"NSE_EQ|{sym}",
+                        "is_fo": True
+                    })
+        else:
+            reader = csv.DictReader(stream)
+            for row in reader:
+                cleaned_row = {k.strip().lower(): v.strip() for k, v in row.items() if k is not None}
+                sym = cleaned_row.get("symbol") or cleaned_row.get("ticker") or cleaned_row.get("stock")
+                if not sym:
+                    continue
+                sym = sym.upper()
+                
+                if sym in existing_isin_map:
+                    item = existing_isin_map[sym].copy()
+                    if cleaned_row.get("sector"):
+                        item["sector"] = cleaned_row.get("sector")
+                    new_universe.append(item)
+                else:
+                    new_universe.append({
+                        "symbol": sym,
+                        "name": cleaned_row.get("name") or sym,
+                        "sector": cleaned_row.get("sector") or "F&O Universe",
+                        "isin": cleaned_row.get("isin") or f"NSE_EQ|{sym}",
+                        "is_fo": True
+                    })
+            
+        if new_universe:
+            GLOBAL_MARKET_UNIVERSE = new_universe
+            print(f"[SUCCESS] Loaded {len(new_universe)} custom stocks into screener universe.")
+            return jsonify({
+                "status": "success", 
+                "message": f"Successfully loaded {len(new_universe)} stocks into screener universe!"
+            })
+        else:
+            return jsonify({"status": "error", "message": "No valid rows found in the uploaded file."}), 400
+
+    except Exception as e:
+        print(f"[UPLOAD ERROR] {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/reset-universe", methods=["POST"])
+def reset_universe():
+    global GLOBAL_MARKET_UNIVERSE
+    GLOBAL_MARKET_UNIVERSE = CORE_MARKET_UNIVERSE.copy()
+    print("[SUCCESS] Screener reset to default market universe.")
+    return jsonify({
+        "status": "success",
+        "message": f"Successfully reset to default universe ({len(GLOBAL_MARKET_UNIVERSE)} stocks)!"
+    })
 
 @app.route("/api/screener", methods=["GET"])
 def screener():
@@ -293,6 +392,15 @@ def screener():
     search_val = request.args.get("search", "").strip().lower()
 
     stocks = fetch_live_upstox_quotes()
+
+    top_gainers = []
+    top_losers = []
+    if stocks:
+        sorted_by_gain = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True)
+        top_gainers = [s for s in sorted_by_gain if float(s.get("pricePct", 0.0)) > 0][:20]
+        
+        sorted_by_loss = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)))
+        top_losers = [s for s in sorted_by_loss if float(s.get("pricePct", 0.0)) < 0][:20]
 
     if filter_val and filter_val != "ALL":
         if filter_val == "OPEN=LOW":
@@ -310,20 +418,91 @@ def screener():
         "status": "success",
         "timestamp": datetime.now(ist).strftime("%H:%M:%S"),
         "count": len(stocks),
-        "data": stocks
+        "data": stocks,
+        "topGainers": top_gainers,
+        "topLosers": top_losers
     })
+
+@app.route("/api/ticker-bar", methods=["GET"])
+def ticker_bar():
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"
+    }
+    
+    ticker_results = []
+    
+    index_isins = [idx["isin"] for idx in MARKET_INDICES]
+    url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={','.join(index_isins)}"
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json().get("data", {})
+            for idx in MARKET_INDICES:
+                q = data.get(idx["isin"]) or data.get(idx["isin"].replace("|", ":"))
+                if q:
+                    ltp = float(q.get("last_price", 0.0))
+                    net_change = float(q.get("net_change", 0.0))
+                    prev_close = float(q.get("prev_close") or (ltp - net_change))
+                    price_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+                    
+                    ticker_results.append({
+                        "symbol": idx["symbol"],
+                        "price": f"{ltp:,.2f}",
+                        "change": f"{net_change:+,.2f} ({price_pct:+.2f}%)",
+                        "isPositive": net_change >= 0
+                    })
+    except Exception as e:
+        print(f"[TICKER INDEX ERROR] {e}")
+
+    stocks = fetch_live_upstox_quotes()
+    if stocks:
+        sorted_by_gain = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True)
+        if len(sorted_by_gain) > 0:
+            top_gainer = sorted_by_gain[0]
+            ticker_results.append({
+                "symbol": f"TOP GAINER: {top_gainer['symbol']}",
+                "price": f"{top_gainer['ltp']:,.2f}",
+                "change": f"{top_gainer['pricePct']:+.2f}%",
+                "isPositive": True
+            })
+            
+            top_loser = sorted_by_gain[-1]
+            ticker_results.append({
+                "symbol": f"TOP LOSER: {top_loser['symbol']}",
+                "price": f"{top_loser['ltp']:,.2f}",
+                "change": f"{top_loser['pricePct']:+.2f}%",
+                "isPositive": False
+            })
+
+    return jsonify({"status": "success", "data": ticker_results})
 
 @app.route("/api/sectors", methods=["GET"])
 def get_sectors():
     stocks = fetch_live_upstox_quotes()
+    fo_stocks = [s for s in stocks if s.get("is_fo", True)]
+    
     sec_map = defaultdict(lambda: {"stocks": 0, "total_pct": 0.0, "total_vol": 0, "advances": 0, "declines": 0})
 
-    for s in stocks:
+    total_market_vol = 0
+    total_market_advances = 0
+    total_market_declines = 0
+
+    for s in fo_stocks:
         sec = s.get("sector", "Others")
         p_pct = float(s.get("pricePct", 0.0))
+        vol = int(s.get("volume", 0))
+        
+        total_market_vol += vol
+        if p_pct >= 0:
+            total_market_advances += 1
+        else:
+            total_market_declines += 1
+
         sec_map[sec]["stocks"] += 1
         sec_map[sec]["total_pct"] += p_pct
-        sec_map[sec]["total_vol"] += int(s.get("volume", 0))
+        sec_map[sec]["total_vol"] += vol
         if p_pct >= 0:
             sec_map[sec]["advances"] += 1
         else:
@@ -342,7 +521,15 @@ def get_sectors():
         })
 
     summary.sort(key=lambda x: x["avgChange"], reverse=True)
-    return jsonify({"status": "success", "data": summary})
-
+    
+    return jsonify({
+        "status": "success", 
+        "data": summary,
+        "marketBreadth": {
+            "totalVolume": total_market_vol,
+            "advances": total_market_advances,
+            "declines": total_market_declines
+        }
+    })
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

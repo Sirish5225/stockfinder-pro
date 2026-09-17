@@ -167,27 +167,29 @@ CORE_MARKET_UNIVERSE = [
 
 GLOBAL_MARKET_UNIVERSE = CORE_MARKET_UNIVERSE.copy()
 
-def calculate_oi_buildup(price_pct, oi_pct, is_fo):
-    if not is_fo:
-        return "Cash Equity"
-    if price_pct > 0 and oi_pct > 0:
-        return "Long Buildup"
-    elif price_pct < 0 and oi_pct > 0:
-        return "Short Buildup"
-    elif price_pct > 0 and oi_pct < 0:
-        return "Short Covering"
-    elif price_pct < 0 and oi_pct < 0:
-        return "Long Unwinding"
-    return "Neutral"
-
 def detect_open_setup(open_p, high_p, low_p):
     if open_p <= 0 or low_p <= 0 or high_p <= 0:
         return None
-    if open_p == low_p:
+    # Fixed: Added a small tolerance threshold (0.05% or 0.05) to catch Open=High/Low reliably
+    if abs(open_p - low_p) <= 0.05 or abs(open_p - low_p) <= (open_p * 0.0005):
         return "OPEN=LOW"
-    elif open_p == high_p:
+    elif abs(open_p - high_p) <= 0.05 or abs(open_p - high_p) <= (open_p * 0.0005):
         return "OPEN=HIGH"
     return None
+
+def calculate_oi_buildup(price_pct, oi_pct, is_fo, candle_tag):
+    if not is_fo:
+        return "Cash Equity"
+    # Fixed: Ensure Open=High and negative price action correctly flag as Short Buildup
+    if candle_tag == "OPEN=HIGH" or price_pct <= -0.3:
+        return "Short Buildup"
+    elif candle_tag == "OPEN=LOW" or price_pct >= 0.3:
+        return "Long Buildup"
+    elif price_pct > 0:
+        return "Short Covering"
+    elif price_pct < 0:
+        return "Long Unwinding"
+    return "Neutral"
 
 def compute_aggressive_momentum(price_pct, volume, average_volume, candle_tag):
     vol_spike = float(volume) / float(average_volume) if average_volume > 0 else 1.0
@@ -270,12 +272,9 @@ def fetch_live_upstox_quotes():
                 if oi > 0 and prev_oi > 0:
                     oi_pct = round(((oi - prev_oi) / prev_oi) * 100, 2)
                 else:
-                    if price_pct < 0:
-                        oi_pct = round(abs(price_pct) * 1.25, 2) if candle_tag == "OPEN=HIGH" else round(price_pct * 1.1, 2)
-                    else:
-                        oi_pct = round(price_pct * 1.35, 2) if candle_tag == "OPEN=LOW" else round(-abs(price_pct) * 0.9, 2)
+                    oi_pct = abs(price_pct) * 1.25
 
-                buildup = calculate_oi_buildup(price_pct, oi_pct, True)
+                buildup = calculate_oi_buildup(price_pct, oi_pct, True, candle_tag)
                 momentum_score = compute_aggressive_momentum(price_pct, volume, average_volume, candle_tag)
 
                 results.append({
@@ -531,5 +530,6 @@ def get_sectors():
             "declines": total_market_declines
         }
     })
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

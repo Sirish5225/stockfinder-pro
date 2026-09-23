@@ -68,6 +68,7 @@
     .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
     .toggle-row:hover { border-color: var(--muted); }
     .toggle-label { font-size: 0.8rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    
     .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 34px; border: 1px solid var(--border); }
@@ -80,14 +81,29 @@
     main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 
     /* --- TICKER BAR --- */
-    .market-ticker-container { width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s; }
-    .hamburger-btn { background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0; }
+    .market-ticker-container {
+      width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); 
+      box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s;
+    }
+    
+    .hamburger-btn {
+      background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
+      height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0;
+    }
     .hamburger-btn:hover { background: var(--hover-bg); color: var(--primary); }
-    .theme-btn { height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border); color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0; }
+
+    .theme-btn {
+      height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border);
+      color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0;
+    }
     .theme-btn:hover { background: var(--hover-bg); }
+
     .ticker-wrapper { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative; }
+    
     .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; position: relative; z-index: 10; white-space: nowrap; }
     .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
+    
     .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
     .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
     .ticker-price { color: var(--strong-text); margin-right: 8px; font-family: 'JetBrains Mono', monospace; }
@@ -95,7 +111,7 @@
     .ticker-change.negative { color: var(--red); font-weight: 600; }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-    /* --- KPI & PANELS --- */
+    /* --- KPI & PANELS (GLASSMORPHISM) --- */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
     .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
@@ -116,6 +132,7 @@
     .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
     .filter-btn:hover { border-color: var(--muted); }
     .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
+    
     .search-wrapper { display: flex; gap: 8px; align-items: center; }
     .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; min-width: 200px; max-width: 250px; transition: border 0.2s; }
     .search-box:focus { border-color: var(--primary); }
@@ -128,9 +145,11 @@
     td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); transition: background-color 0.3s; }
     tr:hover td { background: var(--hover-bg); }
 
+    /* COMPACT MODE MODIFIERS */
     .table-container.compact td { padding: 0.35rem 1rem; font-size: 0.75rem; }
     .table-container.compact th { padding: 0.5rem 1rem; font-size: 0.65rem; }
 
+    /* LIVE FLASH ANIMATIONS */
     @keyframes flashUp { 0% { background-color: rgba(46, 204, 113, 0.35); } 100% { background-color: transparent; } }
     @keyframes flashDown { 0% { background-color: rgba(231, 76, 60, 0.35); } 100% { background-color: transparent; } }
     .flash-up td { animation: flashUp 1.5s ease-out; }
@@ -139,6 +158,7 @@
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; transition: color 0.2s; }
     .stock-link:hover { color: var(--primary); }
 
+    /* --- BADGES --- */
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
@@ -218,28 +238,10 @@
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
     .barchart-val { position: absolute; top: 0; line-height: 20px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); white-space: nowrap; }
 
-    /* --- MOBILE BOTTOM NAVIGATION --- */
-    .bottom-nav {
-      display: none; background: var(--sidebar-bg); border-top: 1px solid var(--border);
-      padding: 0.5rem 1rem; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
-      justify-content: space-around; z-index: 100; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    }
-    .bnav-btn {
-      background: transparent; border: none; color: var(--muted);
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase;
-      transition: color 0.2s;
-    }
-    .bnav-btn.active { color: var(--primary); }
-    .bnav-btn .icon { font-size: 1.2rem; margin-bottom: 2px; }
-
     /* --- RESPONSIVE MEDIA QUERIES --- */
     @media(max-width: 1024px) {
       .sidebar { position: absolute; left: 0; height: 100vh; transform: translateX(-100%); margin-left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.5); opacity: 1; pointer-events: auto; z-index: 1000; }
       .sidebar.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
-      
-      .sidebar-nav { display: none; } /* Hide desktop nav on mobile */
-      .bottom-nav { display: flex; } /* Show Bottom Nav */
       
       .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 1rem; }
@@ -532,22 +534,6 @@
       </div>
 
     </main>
-
-    <!-- MOBILE BOTTOM NAVIGATION -->
-    <nav class="bottom-nav">
-      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')">
-        <span class="icon">📊</span>
-        <span>Screener</span>
-      </button>
-      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')">
-        <span class="icon">🥧</span>
-        <span>Sectors</span>
-      </button>
-      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')">
-        <span class="icon">🎯</span>
-        <span>Zones</span>
-      </button>
-    </nav>
   </div>
 
   <script>
@@ -625,11 +611,6 @@
       document.getElementById('btn-scr').classList.toggle('active', tab === 'scr');
       document.getElementById('btn-sec').classList.toggle('active', tab === 'sec');
       document.getElementById('btn-zones').classList.toggle('active', tab === 'zones');
-      
-      // Update Mobile Bottom Nav active states
-      document.getElementById('bnav-scr').classList.toggle('active', tab === 'scr');
-      document.getElementById('bnav-sec').classList.toggle('active', tab === 'sec');
-      document.getElementById('bnav-zones').classList.toggle('active', tab === 'zones');
       
       document.getElementById('view-scr').style.display = tab === 'scr' ? 'block' : 'none';
       document.getElementById('view-sec').style.display = tab === 'sec' ? 'block' : 'none';

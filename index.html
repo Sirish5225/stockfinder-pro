@@ -8,308 +8,453 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   
+  <script>
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  </script>
+
   <style>
+    /* --- DARK THEME (DEFAULT) --- */
     :root {
-      --bg: #121212;
-      --card: #1e1e1e;
-      --border: #2d2d2d;
+      --bg: #0a0a0c;
+      --card: rgba(24, 24, 28, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
       --text: #e0e0e0;
-      --muted: #9e9e9e;
+      --muted: #8b8b93;
       --green: #2ecc71;
       --red: #e74c3c;
       --primary: #f39c12;
+      
+      --sidebar-bg: rgba(15, 15, 18, 0.95);
+      --ticker-bg: #0f0f12;
+      --th-bg: rgba(20, 20, 24, 0.95);
+      --hover-bg: rgba(255, 255, 255, 0.03);
+      --bar-bg: rgba(0, 0, 0, 0.3);
+      --bar-track: #1a1a1e;
+      --strong-text: #ffffff;
+      --input-bg: rgba(0, 0, 0, 0.3);
     }
+
+    /* --- LIGHT THEME --- */
+    [data-theme="light"] {
+      --bg: #f3f4f6;
+      --card: rgba(255, 255, 255, 0.85);
+      --border: rgba(0, 0, 0, 0.1);
+      --text: #374151;
+      --muted: #6b7280;
+      --green: #059669;
+      --red: #dc2626;
+      --primary: #d97706;
+      
+      --sidebar-bg: rgba(255, 255, 255, 0.95);
+      --ticker-bg: #ffffff;
+      --th-bg: rgba(243, 244, 246, 0.95);
+      --hover-bg: rgba(0, 0, 0, 0.04);
+      --bar-bg: rgba(255, 255, 255, 0.6);
+      --bar-track: #e5e7eb;
+      --strong-text: #111827;
+      --input-bg: rgba(255, 255, 255, 0.5);
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
     .mono { font-family: 'JetBrains Mono', monospace; }
 
-    header {
-      background: #181818; border-bottom: 1px solid var(--border);
-      padding: 0.8rem 1rem; display: flex; justify-content: space-between; align-items: center;
-      position: sticky; top: 0; z-index: 50; flex-wrap: wrap; gap: 10px;
+    /* --- SIDEBAR STYLES & HAMBURGER TOGGLE --- */
+    .sidebar {
+      width: 260px; min-width: 260px; flex-shrink: 0;
+      background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem;
+      z-index: 100; transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
     }
-    .brand { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; color: var(--primary); }
-    .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; box-shadow: 0 0 8px var(--green); }
+    .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
     
-    .nav-tabs { display: flex; gap: 4px; background: #121212; padding: 3px; border-radius: 8px; border: 1px solid var(--border); }
-    .tab-btn { background: transparent; border: none; color: var(--muted); padding: 5px 10px; font-size: 0.75rem; font-weight: 600; border-radius: 6px; cursor: pointer; }
-    .tab-btn.active { background: var(--primary); color: #121212; font-weight: 700; }
+    @media(max-width: 1024px) {
+      .sidebar { position: absolute; left: 0; height: 100vh; transform: translateX(-100%); margin-left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.2); opacity: 1; pointer-events: auto; }
+      .sidebar.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+      .sidebar.collapsed { margin-left: 0; }
+    }
 
-    /* --- TRADINGVIEW-STYLE TICKER BAR STYLES --- */
+    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
+    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); }
+    
+    .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
+    .nav-btn {
+      background: transparent; border: 1px solid transparent; color: var(--muted);
+      padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px;
+      cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px;
+    }
+    .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
+    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
+
+    /* --- PADDLE TOGGLE STYLES --- */
+    .toggle-row {
+      display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg);
+      border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; transition: all 0.2s;
+    }
+    .toggle-row:hover { border-color: var(--muted); }
+    .toggle-label { font-size: 0.8rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    
+    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 34px; border: 1px solid var(--border); }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 50%; }
+    input:checked + .slider { background-color: rgba(243, 156, 18, 0.15); border-color: var(--primary); }
+    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); box-shadow: 0 0 8px rgba(243, 156, 18, 0.5); }
+
+    /* --- MAIN CONTENT AREA --- */
+    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; }
+    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
+
+    /* --- TRADINGVIEW-STYLE TICKER BAR & CORNER TOGGLES --- */
     .market-ticker-container {
-      width: 100%;
-      background-color: #131722;
-      border-bottom: 1px solid #2a2e39;
-      overflow: hidden;
-      white-space: nowrap;
-      box-sizing: border-box;
-      height: 38px;
-      display: flex;
-      align-items: center;
-      position: sticky;
-      top: 57px;
-      z-index: 40;
+      width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); 
+      box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s;
     }
-    .market-ticker-track {
-      display: inline-flex;
-      animation: scrollTicker 75s linear infinite;
+    
+    .hamburger-btn {
+      background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 20px; display: flex; align-items: center; justify-content: center;
+      height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0;
     }
-    .market-ticker-container:hover .market-ticker-track {
-      animation-play-state: paused;
-    }
-    .ticker-item {
-      display: inline-flex;
-      align-items: center;
-      padding: 0 16px;
-      border-right: 1px solid #2a2e39;
-      font-size: 11px;
-    }
-    .ticker-symbol { color: #d1d4dc; font-weight: 600; margin-right: 6px; }
-    .ticker-price { color: #d1d4dc; margin-right: 6px; }
-    .ticker-change.positive { color: #089981; font-weight: 600; }
-    .ticker-change.negative { color: #f23645; font-weight: 600; }
+    .hamburger-btn:hover { background: var(--hover-bg); color: var(--primary); }
 
-    @keyframes scrollTicker {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+    .theme-btn {
+      height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border);
+      color: var(--strong-text); cursor: pointer; padding: 0 20px; display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0;
     }
+    .theme-btn:hover { background: var(--hover-bg); }
 
-    main { max-width: 1550px; width: 100%; margin: 1rem auto; padding: 0 1rem; flex: 1; }
+    /* The wrapper cleanly hides text before it reaches the buttons */
+    .ticker-wrapper { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative; }
+    
+    .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; position: relative; z-index: 10; white-space: nowrap; }
+    .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; } /* Only hovering the text pauses it */
+    
+    .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
+    .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
+    .ticker-price { color: var(--strong-text); margin-right: 8px; font-family: 'JetBrains Mono', monospace; }
+    .ticker-change.positive { color: var(--green); font-weight: 600; }
+    .ticker-change.negative { color: var(--red); font-weight: 600; }
+    @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem; }
+    /* --- KPI & PANELS (GLASSMORPHISM) --- */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
     @media(max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+    .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
+    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; letter-spacing: 0.5px; }
+    .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
 
-    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem; cursor: pointer; transition: transform 0.1s; }
-    .kpi-card:hover { border-color: var(--muted); }
-    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.2rem; }
-    .kpi-val { font-size: 1.4rem; font-weight: 700; }
-
-    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
     @media(max-width: 900px) { .movers-grid { grid-template-columns: 1fr; } }
-    
-    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; height: 380px; }
-    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
-    
+    .movers-panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
+    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; letter-spacing: 0.5px; }
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.45rem 0.3rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.78rem; }
-    .movers-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
 
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 1rem; background: var(--card); padding: 0.8rem 1rem; border-radius: 10px; border: 1px solid var(--border); }
-    .filter-btn { padding: 0.5rem 0.9rem; font-size: 0.75rem; font-weight: 600; border-radius: 6px; background: #181818; color: var(--muted); border: 1px solid var(--border); cursor: pointer; }
-    .filter-btn.active { background: var(--primary); color: #121212; border-color: var(--primary); font-weight: 700; }
-    
-    .search-box { background: #121212; border: 1px solid var(--border); color: #fff; padding: 0.5rem 0.8rem; border-radius: 6px; font-size: 0.8rem; outline: none; width: 100%; max-width: 200px; }
-    @media(max-width: 768px) { .search-box { max-width: 100%; width: 100%; } }
+    /* --- TOOLBAR --- */
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; background: var(--card); backdrop-filter: blur(12px); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
+    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+    .filter-btn:hover { border-color: var(--muted); }
+    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
+    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; max-width: 250px; transition: border 0.2s; }
+    .search-box:focus { border-color: var(--primary); }
 
-    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow-y: auto; max-height: 550px; -webkit-overflow-scrolling: touch; }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem; white-space: nowrap; }
-    th { padding: 0.8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: #181818; position: sticky; top: 0; z-index: 10; }
-    th:hover { color: #fff; background: #222; }
-    td { padding: 0.75rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: #e0e0e0; }
-    tr:hover { background: rgba(255,255,255,0.02); }
+    /* --- MAIN DATA TABLE --- */
+    .table-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; overflow-y: auto; max-height: calc(100vh - 450px); min-height: 400px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
+    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: var(--th-bg); position: sticky; top: 0; z-index: 10; letter-spacing: 0.5px; transition: background-color 0.3s; }
+    th:hover { color: var(--strong-text); }
+    td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); transition: background-color 0.3s; }
+    tr:hover td { background: var(--hover-bg); }
 
-    .stock-link { color: var(--primary); text-decoration: none; font-weight: 700; cursor: pointer; }
-    .stock-link:hover { text-decoration: underline; color: #fff; }
+    /* COMPACT MODE MODIFIERS */
+    .table-container.compact td { padding: 0.35rem 1rem; font-size: 0.75rem; }
+    .table-container.compact th { padding: 0.5rem 1rem; font-size: 0.65rem; }
 
-    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.65rem; font-weight: 600; }
+    /* LIVE FLASH ANIMATIONS */
+    @keyframes flashUp { 0% { background-color: rgba(46, 204, 113, 0.35); } 100% { background-color: transparent; } }
+    @keyframes flashDown { 0% { background-color: rgba(231, 76, 60, 0.35); } 100% { background-color: transparent; } }
+    .flash-up td { animation: flashUp 1.5s ease-out; }
+    .flash-down td { animation: flashDown 1.5s ease-out; }
+
+    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; transition: color 0.2s; }
+    .stock-link:hover { color: var(--primary); }
+
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
     
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
 
-    .sector-layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1rem; align-items: start; }
-    @media(max-width: 1024px) { .sector-layout { grid-template-columns: 1fr; } }
+    /* --- SECTOR GRID STYLES --- */
+    .sector-layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem; align-items: start; }
+    @media(max-width: 1100px) { .sector-layout { grid-template-columns: 1fr; } }
     
-    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+    .panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
     
-    .heatmap-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 8px;
-    }
-    .heatmap-card {
-      background: #181818;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.8rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .heatmap-card:hover { border-color: var(--muted); transform: translateY(-2px); }
-    .heatmap-card.active { border-color: var(--primary); background: rgba(243, 156, 18, 0.08); }
-    .heatmap-card.green-card { border-left: 4px solid var(--green); }
-    .heatmap-card.red-card { border-left: 4px solid var(--red); }
+    #sec-detail-wrapper { position: sticky; top: 0; z-index: 20; }
+    
+    .bar-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; max-height: calc(100vh - 250px); overflow-y: auto; padding-right: 4px; align-content: start; }
+    .bar-row { display: flex; flex-direction: column; padding: 1.2rem; background: var(--bar-bg); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden; }
+    .bar-row:hover { border-color: var(--muted); transform: translateY(-4px); box-shadow: 0 8px 16px rgba(0,0,0,0.15); }
+    .bar-row.active { border-color: var(--primary); background: rgba(243, 156, 18, 0.08); box-shadow: 0 0 20px rgba(243, 156, 18, 0.1); }
+    
+    .bar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .bar-title { font-size: 0.9rem; font-weight: 700; color: var(--strong-text); letter-spacing: 0.3px; }
+    
+    .bar-track-container { display: flex; align-items: center; width: 100%; height: 8px; background: var(--bar-track); border-radius: 99px; overflow: hidden; position: relative; margin-bottom: 14px; box-shadow: inset 0 1px 4px rgba(0,0,0,0.2); }
+    .bar-center-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--muted); z-index: 2; opacity: 0.5;}
+    .bar-fill-neg { position: absolute; right: 50%; top: 0; height: 100%; background: linear-gradient(90deg, var(--red), #c0392b); border-radius: 99px 0 0 99px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+    .bar-fill-pos { position: absolute; left: 50%; top: 0; height: 100%; background: linear-gradient(90deg, #27ae60, var(--green)); border-radius: 0 99px 99px 0; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 
-    /* Custom Sleek Dark Scrollbar */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #181818; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: #2d2d2d; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3d3d3d; }
+    .bar-footer { display: flex; justify-content: space-between; align-items: center; }
+    .bar-stats { font-size: 0.75rem; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 6px;}
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5;}
+    ::-webkit-scrollbar-thumb:hover { background: var(--text); }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="brand"><div class="dot"></div> Stock Finder PRO</div>
-    <div class="nav-tabs">
-      <button class="tab-btn active" id="btn-scr" onclick="switchTab('scr')">Live Screener</button>
-      <button class="tab-btn" id="btn-sec" onclick="switchTab('sec')">Sectors</button>
+  <!-- PROFESSIONAL SIDEBAR -->
+  <aside class="sidebar" id="app-sidebar">
+    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER</div>
+    
+    <div class="sidebar-nav">
+      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')">
+        <span style="font-size:1.1rem;">📊</span> Live Screener
+      </button>
+      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')">
+        <span style="font-size:1.1rem;">🥧</span> Sector Heatmap
+      </button>
     </div>
-    <div class="mono" style="font-size: 0.75rem; color: var(--muted);">Time: <span id="clock" style="color:#fff;">--:--:--</span></div>
-  </header>
 
-  <!-- TRADINGVIEW-STYLE TICKER BAR -->
-  <div class="market-ticker-container">
-    <div class="market-ticker-track" id="tickerTrack">
-      <div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Market Ticker...</span></div>
+    <div style="margin-top: auto;">
+      <!-- PADDLE TOGGLES -->
+      <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
+        <span class="toggle-label"><span style="font-size:1rem;">⚏</span> Compact View</span>
+        <label class="switch" onclick="event.stopPropagation()">
+          <input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
+        <span class="toggle-label"><span style="font-size:1rem;">🔄</span> Auto-Refresh</span>
+        <label class="switch" onclick="event.stopPropagation()">
+          <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">
+        MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span>
+      </div>
     </div>
-  </div>
+  </aside>
 
-  <main>
-    <!-- SCREENER VIEW -->
-    <div id="view-scr">
-      <div class="kpi-grid">
-        <div class="kpi-card" onclick="setFilter('Long Buildup')">
-          <div class="kpi-title" style="color:var(--green);">Long Buildup</div>
-          <div class="kpi-val mono" id="k-lb">0</div>
-        </div>
-        <div class="kpi-card" onclick="setFilter('Short Buildup')">
-          <div class="kpi-title" style="color:var(--red);">Short Buildup</div>
-          <div class="kpi-val mono" id="k-sb">0</div>
-        </div>
-        <div class="kpi-card" onclick="setFilter('Short Covering')">
-          <div class="kpi-title" style="color:#38bdf8;">Short Covering</div>
-          <div class="kpi-val mono" id="k-sc">0</div>
-        </div>
-        <div class="kpi-card" onclick="setFilter('Long Unwinding')">
-          <div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div>
-          <div class="kpi-val mono" id="k-lu">0</div>
+  <!-- MAIN CONTENT AREA -->
+  <div class="main-wrapper">
+    
+    <!-- TICKER BAR WITH HAMBURGER MENU & THEME TOGGLE -->
+    <div class="market-ticker-container">
+      <button class="hamburger-btn" onclick="toggleSidebar()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      
+      <div class="ticker-wrapper">
+        <div class="market-ticker-track" id="tickerTrack">
+          <div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Market Ticker...</span></div>
         </div>
       </div>
 
-      <!-- BULLISH & BEARISH MOMENTUM PANELS -->
-      <div class="movers-grid">
-        <div class="movers-panel">
-          <div class="movers-title" style="color: var(--green);">
-            <span>🟢 Bullish Momentum</span>
+      <!-- CORNER THEME TOGGLE ICON -->
+      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">
+        ☀️
+      </button>
+    </div>
+
+    <main>
+      <!-- SCREENER VIEW -->
+      <div id="view-scr">
+        <div class="kpi-grid">
+          <div class="kpi-card" onclick="setFilter('Long Buildup')">
+            <div class="kpi-title" style="color:var(--green);">Long Buildup</div>
+            <div class="kpi-val mono" id="k-lb">0</div>
           </div>
-          <div class="movers-list-scroll" id="top-gainers-list">
-            <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+          <div class="kpi-card" onclick="setFilter('Short Buildup')">
+            <div class="kpi-title" style="color:var(--red);">Short Buildup</div>
+            <div class="kpi-val mono" id="k-sb">0</div>
+          </div>
+          <div class="kpi-card" onclick="setFilter('Short Covering')">
+            <div class="kpi-title" style="color:#38bdf8;">Short Covering</div>
+            <div class="kpi-val mono" id="k-sc">0</div>
+          </div>
+          <div class="kpi-card" onclick="setFilter('Long Unwinding')">
+            <div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div>
+            <div class="kpi-val mono" id="k-lu">0</div>
           </div>
         </div>
-        <div class="movers-panel">
-          <div class="movers-title" style="color: var(--red);">
-            <span>🔴 Bearish Pressure</span>
+
+        <div class="movers-grid">
+          <div class="movers-panel">
+            <div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div>
+            <div class="movers-list-scroll" id="top-gainers-list">
+              <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+            </div>
           </div>
-          <div class="movers-list-scroll" id="top-losers-list">
-            <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+          <div class="movers-panel">
+            <div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div>
+            <div class="movers-list-scroll" id="top-losers-list">
+              <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+            </div>
           </div>
+        </div>
+
+        <div class="toolbar">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL</button>
+            <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
+            <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
+            <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
+            <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
+            <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
+            
+            <label style="background: var(--input-bg); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); transition: all 0.2s;">
+              📁 Upload CSV
+              <input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" />
+            </label>
+            <button class="filter-btn" onclick="resetUniverse()" style="background: rgba(231, 76, 60, 0.1); border-color: rgba(231, 76, 60, 0.3); color: var(--red);">
+              🔄 Reset
+            </button>
+          </div>
+          <div>
+            <input type="text" id="search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" />
+          </div>
+        </div>
+
+        <div class="table-container" id="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
+                <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
+                <th onclick="toggleSort('pricePct')">Chg % <span id="th-pricePct">↕</span></th>
+                <th onclick="toggleSort('volume')">Volume <span id="th-volume">↕</span></th>
+                <th onclick="toggleSort('oiPct')">OI % <span id="th-oiPct">↕</span></th>
+                <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
+                <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">Loading market data...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div class="toolbar">
-        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; md:width: auto;">
-          <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL</button>
-          <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
-          <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
-          <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
-          <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
+      <!-- SECTOR VIEW -->
+      <div id="view-sec" style="display: none;">
+        <div class="sector-layout">
           
-          <!-- F&O CSV UPLOAD BUTTON -->
-          <label style="background: #2a2e39; color: var(--text); padding: 0.5rem 0.8rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border);">
-            📁 Upload
-            <input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" />
-          </label>
+          <div class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text); letter-spacing: 0.5px;">Sector Performance Overview</h3>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;">
+              <span>📊 Market Breadth: <strong style="color:var(--green); font-size: 0.9rem;" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red); font-size: 0.9rem;" id="breadth-dec">--</strong> Dec</span>
+              <span>📦 Total F&O Volume: <strong style="color:var(--strong-text); font-size: 0.9rem;" id="breadth-vol" class="mono">--</strong></span>
+            </div>
+            <div id="sectors-list"></div>
+          </div>
+          
+          <div class="panel" id="sec-detail-wrapper" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 id="sec-title" style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text); letter-spacing: 0.5px;">Select Sector</h3>
+              <span id="sec-sub" style="font-size: 0.8rem; color: var(--muted);"></span>
+            </div>
+            <div class="table-container" style="max-height: calc(100vh - 250px);">
+              <table>
+                <thead>
+                  <tr>
+                    <th onclick="toggleSecSort('symbol')">Symbol <span id="sec-th-symbol">↕</span></th>
+                    <th onclick="toggleSecSort('ltp')">Price (₹) <span id="sec-th-ltp">↕</span></th>
+                    <th onclick="toggleSecSort('pricePct')">Chg % <span id="sec-th-pricePct">▼</span></th>
+                    <th onclick="toggleSecSort('candleTag')">Setup <span id="sec-th-candleTag">↕</span></th>
+                  </tr>
+                </thead>
+                <tbody id="sec-tbody">
+                  <tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">Click any sector card.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          <!-- RESET BUTTON -->
-          <button class="filter-btn" onclick="resetUniverse()" style="background: #2a2e39; border: 1px solid var(--border); color: #e74c3c;">
-            🔄 Reset
-          </button>
-        </div>
-        <div style="width: 100%; md:width: auto;">
-          <input type="text" id="search" class="search-box mono" placeholder="SEARCH SYMBOL..." oninput="fetchData()" />
-        </div>
-      </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
-              <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
-              <th onclick="toggleSort('pricePct')">Chg % <span id="th-pricePct">↕</span></th>
-              <th onclick="toggleSort('volume')">Volume <span id="th-volume">↕</span></th>
-              <th onclick="toggleSort('oiPct')">OI % <span id="th-oiPct">↕</span></th>
-              <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
-              <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
-            </tr>
-          </thead>
-          <tbody id="tbody">
-            <tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--muted);">Loading market data...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- SECTOR VIEW -->
-    <div id="view-sec" style="display: none;">
-      <div class="sector-layout">
-        <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
-            <h3 style="font-size: 0.95rem;">Sector Overview</h3>
-            <span style="font-size: 0.7rem; color: var(--muted);">Click box</span>
-          </div>
-          <div style="font-size: 0.72rem; color: var(--muted); margin-bottom: 0.8rem; display: flex; gap: 1rem; background: #181818; padding: 0.4rem 0.7rem; border-radius: 6px; border: 1px solid var(--border); flex-wrap: wrap;">
-            <span>📊 Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
-            <span>📦 Vol: <strong style="color:#fff;" id="breadth-vol">--</strong></span>
-          </div>
-          <div id="sectors-list"></div>
-        </div>
-        
-        <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-            <h3 id="sec-title" style="font-size: 0.95rem;">Select sector</h3>
-            <span id="sec-sub" style="font-size: 0.7rem; color: var(--muted);"></span>
-          </div>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th onclick="toggleSecSort('symbol')">Symbol <span id="sec-th-symbol">↕</span></th>
-                  <th onclick="toggleSecSort('ltp')">Price (₹) <span id="sec-th-ltp">↕</span></th>
-                  <th onclick="toggleSecSort('pricePct')">Chg % <span id="sec-th-pricePct">▼</span></th>
-                  <th onclick="toggleSecSort('candleTag')">Setup <span id="sec-th-candleTag">↕</span></th>
-                </tr>
-              </thead>
-              <tbody id="sec-tbody">
-                <tr><td colspan="4" style="text-align:center; padding:2rem; color:var(--muted);">Click any sector.</td></tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
-    </div>
-  </main>
-
-  <!-- PROFESSIONAL DISCLAIMER FOOTER -->
-  <footer style="max-width: 1550px; width: 100%; margin: 1.5rem auto 1rem auto; padding: 1rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; text-align: center;">
-    <span style="color: var(--primary); font-weight: 700; text-transform: uppercase;">⚠️ Disclaimer:</span> 
-    Stock Finder PRO is for educational and informational purposes only and does <strong>not</strong> constitute buy/sell recommendations or financial advice. Markets are subject to high risk. Always consult a qualified financial advisor.
-  </footer>
+    </main>
+  </div>
 
   <script>
     let currentTab = 'scr';
     let currentFilter = 'ALL';
     let marketStocks = [];
+    let prevDataMap = new Map(); 
     let sectorsData = [];
     let selectedSector = null;
+    let isCompact = false;
+    
+    let autoRefreshInterval = null;
+    let tickerInterval = null;
 
     let sortColumn = 'momentumScore';
     let sortDirection = 'desc';
 
     let secSortColumn = 'pricePct';
     let secSortDirection = 'desc';
+    
+    // Theme initialization
+    document.addEventListener("DOMContentLoaded", () => {
+      const themeBtn = document.getElementById('theme-icon-btn');
+      if (localStorage.getItem('theme') === 'light') {
+        if(themeBtn) themeBtn.innerHTML = '🌙'; 
+      } else {
+        if(themeBtn) themeBtn.innerHTML = '☀️';
+      }
+    });
+
+    function toggleThemeBtn() {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const themeBtn = document.getElementById('theme-icon-btn');
+      if (isLight) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'dark');
+        themeBtn.innerHTML = '☀️';
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('theme', 'light');
+        themeBtn.innerHTML = '🌙';
+      }
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.getElementById('app-sidebar');
+      if (window.innerWidth <= 1024) {
+        sidebar.classList.toggle('open');
+      } else {
+        sidebar.classList.toggle('collapsed');
+      }
+    }
 
     function switchTab(tab) {
       currentTab = tab;
@@ -320,29 +465,53 @@
       if(tab === 'sec' && sectorsData.length > 0 && !selectedSector) {
         selectSector(sectorsData[0].sector);
       }
+      
+      if (window.innerWidth <= 1024) {
+        document.getElementById('app-sidebar').classList.remove('open');
+      }
+    }
+
+    function toggleCompactMode(checked) {
+      isCompact = checked;
+      document.getElementById('table-wrapper').classList.toggle('compact', isCompact);
+    }
+
+    function toggleAutoRefresh(checked) {
+      if (checked) {
+        startIntervals();
+        const apiDot = document.getElementById('api-status');
+        if (apiDot) { apiDot.style.background = 'var(--green)'; apiDot.style.boxShadow = '0 0 10px var(--green)'; }
+      } else {
+        stopIntervals();
+        const apiDot = document.getElementById('api-status');
+        if (apiDot) { apiDot.style.background = 'var(--primary)'; apiDot.style.boxShadow = '0 0 10px var(--primary)'; }
+      }
+    }
+
+    function startIntervals() {
+      if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000);
+      if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000);
+    }
+
+    function stopIntervals() {
+      clearInterval(autoRefreshInterval);
+      clearInterval(tickerInterval);
+      autoRefreshInterval = null;
+      tickerInterval = null;
     }
 
     async function uploadUniverse(input) {
       if (!input.files || !input.files[0]) return;
       const formData = new FormData();
       formData.append("file", input.files[0]);
-
       try {
         const res = await fetch('/api/upload-universe', { method: 'POST', body: formData });
         const result = await res.json();
         if (result.status === 'success') {
           alert(result.message);
-          fetchData();
-          fetchTickerBar();
-        } else {
-          alert("Upload failed: " + result.message);
-        }
-      } catch (e) {
-        console.error("Upload error:", e);
-        alert("Error uploading file.");
-      } finally {
-        input.value = '';
-      }
+          fetchData(); fetchTickerBar();
+        } else alert("Upload failed: " + result.message);
+      } catch (e) { alert("Error uploading file."); } finally { input.value = ''; }
     }
 
     async function resetUniverse() {
@@ -350,16 +519,8 @@
       try {
         const res = await fetch('/api/reset-universe', { method: 'POST' });
         const result = await res.json();
-        if (result.status === 'success') {
-          alert(result.message);
-          fetchData();
-          fetchTickerBar();
-        } else {
-          alert("Reset failed.");
-        }
-      } catch (e) {
-        console.error("Reset error:", e);
-      }
+        if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); }
+      } catch (e) {}
     }
 
     async function fetchTickerBar() {
@@ -378,28 +539,56 @@
           `).join('');
           track.innerHTML = html + html;
         }
-      } catch(e) {
-        console.error("Ticker fetch error:", e);
-      }
+      } catch(e) {}
     }
 
     async function fetchData() {
       try {
         const [res1, res2] = await Promise.all([
-          fetch('/api/screener?filter=ALL'),
+          fetch('/api/screener?filter=' + encodeURIComponent(currentFilter)),
           fetch('/api/sectors')
         ]);
         if(!res1.ok || !res2.ok) return;
 
         const d1 = await res1.json();
+
+        if (d1.status === 'error') {
+          const apiDot = document.getElementById('api-status');
+          if (apiDot) { apiDot.style.background = 'var(--red)'; apiDot.style.boxShadow = '0 0 10px var(--red)'; }
+          document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
+          return; 
+        }
+
+        const apiDot = document.getElementById('api-status');
+        if (apiDot && autoRefreshInterval !== null) { apiDot.style.background = 'var(--green)'; apiDot.style.boxShadow = '0 0 10px var(--green)'; }
+
         const d2 = await res2.json();
 
         if(d1 && d1.status === 'success') {
+          if (marketStocks.length > 0) {
+            prevDataMap.clear();
+            marketStocks.forEach(s => prevDataMap.set(s.symbol, s.ltp));
+          }
+          
           marketStocks = d1.data || [];
+          
+          marketStocks.forEach(s => {
+            const prevLtp = prevDataMap.get(s.symbol);
+            if (prevLtp !== undefined) {
+              if (s.ltp > prevLtp) s.flash = 'flash-up';
+              else if (s.ltp < prevLtp) s.flash = 'flash-down';
+              else s.flash = '';
+            }
+          });
+
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
           updateKPIs(marketStocks);
           renderExplicitMovers(d1.topGainers, d1.topLosers);
           renderTable();
+          
+          if(currentTab === 'sec' && selectedSector) {
+             renderSectorStocks();
+          }
         }
 
         if(d2 && d2.status === 'success') {
@@ -410,13 +599,8 @@
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
             document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
           }
-          if(currentTab === 'sec' && selectedSector) {
-            renderSectorStocks();
-          }
         }
-      } catch(e) {
-        console.error("Data fetch error:", e);
-      }
+      } catch(e) { console.error("Data fetch error:", e); }
     }
 
     function updateKPIs(stocks) {
@@ -428,37 +612,14 @@
       document.getElementById('k-lu').innerText = counts['Long Unwinding'];
     }
 
-    function openChart(symbol) {
-      window.open(`https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`, '_blank');
-    }
+    function openChart(symbol) { window.open(`https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`, '_blank'); }
 
     function renderExplicitMovers(gainers, losers) {
       const gainersEl = document.getElementById('top-gainers-list');
       const losersEl = document.getElementById('top-losers-list');
 
-      if (gainersEl) {
-        gainersEl.innerHTML = gainers && gainers.length ? gainers.map((s, idx) => `
-          <div class="movers-row">
-            <div>
-              <span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span>
-              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
-            </div>
-            <div class="mono val-up">+${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
-          </div>
-        `).join('') : `<div style="color:var(--muted); font-size:0.75rem; text-align:center; padding:1rem;">No Data</div>`;
-      }
-
-      if (losersEl) {
-        losersEl.innerHTML = losers && losers.length ? losers.map((s, idx) => `
-          <div class="movers-row">
-            <div>
-              <span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span>
-              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
-            </div>
-            <div class="mono val-down">${s.pricePct}% (₹${Number(s.ltp || 0).toFixed(2)})</div>
-          </div>
-        `).join('') : `<div style="color:var(--muted); font-size:0.75rem; text-align:center; padding:1rem;">No Data</div>`;
-      }
+      if (gainersEl) gainersEl.innerHTML = gainers && gainers.length ? gainers.map((s, idx) => `<div class="movers-row"><div><span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span><a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : `<div style="text-align:center; padding:1rem;">No Data</div>`;
+      if (losersEl) losersEl.innerHTML = losers && losers.length ? losers.map((s, idx) => `<div class="movers-row"><div><span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span><a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : `<div style="text-align:center; padding:1rem;">No Data</div>`;
     }
 
     function toggleSort(col) {
@@ -466,7 +627,7 @@
       else { sortColumn = col; sortDirection = 'desc'; }
       renderTable();
     }
-
+    
     function toggleSecSort(col) {
       if (secSortColumn === col) secSortDirection = secSortDirection === 'desc' ? 'asc' : 'desc';
       else { secSortColumn = col; secSortDirection = 'desc'; }
@@ -480,6 +641,7 @@
 
       if(currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
       else if(currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
+      else if(currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
       else if(currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
 
       if(search) filtered = filtered.filter(s => (s.symbol || '').toLowerCase().includes(search) || (s.name || '').toLowerCase().includes(search));
@@ -491,30 +653,32 @@
       });
 
       const tbody = document.getElementById('tbody');
-      if(!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--muted);">No matching stocks found.</td></tr>`;
-        return;
-      }
+      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
       tbody.innerHTML = filtered.map(s => {
         const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
         const oiCls = (s.oiPct || 0) >= 0 ? 'val-up' : 'val-down';
-        let tag = '';
-        if(s.candleTag === 'OPEN=LOW') tag = `<span class="badge badge-green" style="margin-left:4px;">OPEN=LOW</span>`;
-        if(s.candleTag === 'OPEN=HIGH') tag = `<span class="badge badge-red" style="margin-left:4px;">OPEN=HIGH</span>`;
+        let tag = s.candleTag === 'OPEN=LOW' ? `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>` : s.candleTag === 'OPEN=HIGH' ? `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>` : '';
+        const flashClass = s.flash ? s.flash : '';
+        
+        let volHtml = `<td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}`;
+        if (s.volMultiplier >= 1.5) {
+            volHtml += ` <span style="color:var(--primary); font-size:0.65rem; font-weight:700;">(${s.volMultiplier}x)</span>`;
+        }
+        volHtml += `</td>`;
 
         return `
-          <tr>
+          <tr class="${flashClass}">
             <td>
               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
-              <div style="font-size:0.65rem; color:var(--muted);">${s.name || ''}</div>
+              <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
             </td>
-            <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
+            <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
+            ${volHtml}
             <td class="mono ${oiCls}">${(s.oiPct || 0) > 0 ? '+' : ''}${s.oiPct || 0}%</td>
             <td><span class="badge ${s.buildup==='Long Buildup'?'badge-green':'badge-red'}">${s.buildup || '-'}</span></td>
-            <td class="mono">🔥 ${s.momentumScore || 0}</td>
+            <td class="mono" style="color:var(--primary); font-weight:600;">${s.momentumScore || 0}</td>
           </tr>
         `;
       }).join('');
@@ -532,40 +696,61 @@
     function renderSectors() {
       const container = document.getElementById('sectors-list');
       if(!sectorsData.length) return;
-      container.className = "heatmap-grid";
+
+      const maxChange = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)));
+      const scaleBase = maxChange > 0 ? maxChange : 1; 
+
       container.innerHTML = sectorsData.map(sec => {
         const avg = sec.avgChange || 0;
         const cls = avg >= 0 ? 'val-up' : 'val-down';
         const activeCls = selectedSector === sec.sector ? 'active' : '';
-        const cardTheme = avg >= 0 ? 'green-card' : 'red-card';
+        const barWidth = (Math.abs(avg) / scaleBase) * 50;
+
+        const barHtml = avg >= 0
+          ? `<div class="bar-fill-pos" style="width: ${barWidth}%;"></div>`
+          : `<div class="bar-fill-neg" style="width: ${barWidth}%;"></div>`;
 
         return `
-          <div class="heatmap-card ${activeCls} ${cardTheme}" onclick="selectSector('${sec.sector}')">
-            <div style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.3rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sec.sector}</div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-              <div class="mono ${cls}" style="font-size: 1.05rem; font-weight: 700;">${avg > 0 ? '+' : ''}${avg}%</div>
-              <div style="font-size: 0.6rem; color: var(--muted); text-align: right;">
-                <div>Tot: ${sec.stocksCount}</div>
-                <div>🟢${sec.advances} 🔴${sec.declines}</div>
-              </div>
+          <div class="bar-row ${activeCls}" onclick="selectSector('${sec.sector}')">
+            <div class="bar-header">
+              <div class="bar-title">${sec.sector}</div>
+              <div class="mono ${cls}" style="font-size: 1rem; font-weight: 700;">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</div>
+            </div>
+            <div class="bar-track-container">
+              <div class="bar-center-line"></div>
+              ${barHtml}
+            </div>
+            <div class="bar-footer">
+              <span class="bar-stats"><span style="font-size:10px;">📦</span> ${Number(sec.totalVolume || 0).toLocaleString('en-IN')}</span>
+              <span class="bar-stats">🟢 ${sec.advances} &nbsp; 🔴 ${sec.declines}</span>
             </div>
           </div>
         `;
       }).join('');
-
+      
       if(!selectedSector && sectorsData.length > 0) selectSector(sectorsData[0].sector);
     }
-
+    
     function selectSector(name) {
       selectedSector = name;
-      renderSectors();
-      renderSectorStocks();
+      renderSectors(); 
+      renderSectorStocks(); 
+      
+      if (window.innerWidth <= 1100) {
+        setTimeout(() => {
+          document.getElementById('sec-detail-wrapper').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+      }
     }
 
     function renderSectorStocks() {
+      document.getElementById('sec-detail-wrapper').style.display = 'block';
       const sec = sectorsData.find(s => s.sector === selectedSector);
       document.getElementById('sec-title').innerText = `${selectedSector || ''} (${sec ? sec.stocksCount : 0})`;
-      document.getElementById('sec-sub').innerHTML = `Avg: <span class="${(sec?.avgChange || 0) >= 0 ? 'val-up' : 'val-down'}">${sec?.avgChange || 0}%</span>`;
+      
+      const avg = sec?.avgChange || 0;
+      const cls = avg >= 0 ? 'val-up' : 'val-down';
+      document.getElementById('sec-sub').innerHTML = `Avg Change: <span class="${cls}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span>`;
 
       let stocks = marketStocks.filter(s => s.sector === selectedSector);
       stocks.sort((a, b) => {
@@ -580,23 +765,28 @@
         return;
       }
 
-      tbody.innerHTML = stocks.map(s => `
-        <tr>
+      tbody.innerHTML = stocks.map(s => {
+        const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
+        let tag = s.candleTag === 'OPEN=LOW' ? `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>` : s.candleTag === 'OPEN=HIGH' ? `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>` : '';
+        const flashClass = s.flash ? s.flash : '';
+        
+        return `
+        <tr class="${flashClass}">
           <td>
-            <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a>
-            <div style="font-size:0.65rem; color:var(--muted);">${s.name || ''}</div>
+            <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
+            <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
           </td>
-          <td class="mono">₹${Number(s.ltp || 0).toFixed(2)}</td>
-          <td class="mono ${(s.pricePct || 0) >= 0 ? 'val-up' : 'val-down'}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-          <td>${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : '-'}</td>
+          <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
+          <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
+          <td class="mono" style="color:var(--muted);">${s.candleTag ? s.candleTag : '-'}</td>
         </tr>
-      `).join('');
+      `}).join('');
     }
 
+    // Initialize
     fetchTickerBar();
     fetchData();
-    setInterval(fetchData, 10000);
-    setInterval(fetchTickerBar, 30000);
+    startIntervals();
   </script>
 </body>
 </html>

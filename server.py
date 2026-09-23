@@ -113,6 +113,72 @@ GLOBAL_MARKET_UNIVERSE = load_dynamic_universe()
 CORE_MARKET_UNIVERSE = GLOBAL_MARKET_UNIVERSE.copy()
 
 # =========================================================================
+# NIFTY 500 DYNAMIC LOADER
+# =========================================================================
+
+NIFTY500_UNIVERSE_CACHE = []
+
+def get_nifty_500_data():
+    """Scrapes the live official NIFTY 500 list & sectors from NSE."""
+    try:
+        url = 'https://archives.nseindia.com/content/indices/ind_nifty500list.csv'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            lines = res.text.strip().split('\n')
+            reader = csv.reader(lines)
+            next(reader) # Skip header
+            # Returns { "RELIANCE": "Oil Gas & Consumable Fuels", ... }
+            return {row[2].strip(): row[1].strip() for row in reader if len(row) > 2}
+    except Exception as e:
+        print("NSE Nifty 500 fetch error:", e)
+    return {}
+
+def load_nifty500_universe():
+    global NIFTY500_UNIVERSE_CACHE
+    if NIFTY500_UNIVERSE_CACHE:
+        return NIFTY500_UNIVERSE_CACHE
+
+    nifty_data = get_nifty_500_data()
+    url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
+    universe = []
+    seen = set()
+    
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            with gzip.open(response, 'rt', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader)
+                for row in reader:
+                    if len(row) < 4: continue
+                    inst_key, symbol, name = row[0].strip(), row[2].strip(), row[3].strip()
+                    
+                    if inst_key.startswith("NSE_EQ|") and symbol not in seen:
+                        if nifty_data:
+                            if symbol in nifty_data:
+                                seen.add(symbol)
+                                universe.append({
+                                    "symbol": symbol, "name": name, 
+                                    "sector": nifty_data[symbol], 
+                                    "isin": inst_key, 
+                                    "is_fo": (symbol in TARGET_FO_SYMBOLS)
+                                })
+                        else:
+                            # Fallback if NSE blocks the request: load first 500 NSE Cash stocks
+                            seen.add(symbol)
+                            universe.append({"symbol": symbol, "name": name, "sector": "NSE Cash", "isin": inst_key, "is_fo": False})
+                            if len(universe) >= 500: break
+        if universe:
+            NIFTY500_UNIVERSE_CACHE = universe
+        return universe
+    except Exception as e:
+        print("Error loading Nifty 500 universe:", e)
+        return []
+
+# =========================================================================
 # REFINED INSTITUTIONAL DEMAND & SUPPLY ZONE SCANNER
 # =========================================================================
 
@@ -120,12 +186,10 @@ def classify_candle(o, h, l, c):
     candle_range = h - l
     if candle_range == 0: return "BASE"
     body = abs(c - o)
-    # A base candle body should be <= 55% of the total candle range
     if (body / candle_range) <= 0.55: return "BASE"
     return "RALLY" if c > o else "DROP"
 
 def is_stronger_legout(leg_in, leg_out):
-    """ Allows a 10% margin of error so visually strong explosive candles aren't falsely rejected by a single tick """
     body_in = abs(leg_in[4] - leg_in[1])
     body_out = abs(leg_out[4] - leg_out[1])
     range_in = leg_in[2] - leg_in[3]
@@ -150,7 +214,6 @@ def scan_chart_for_active_zones(candles, current_ltp):
     
     valid_zones = []
 
-    # Scan the entire chart backwards to collect ALL unviolated zones
     for i in range(len(candles) - 1, 2, -1):
         c_out = candles[i]
         t_out = classify_candle(*c_out[1:5])
@@ -237,7 +300,6 @@ def scan_chart_for_active_zones(candles, current_ltp):
                 })
                 
     if valid_zones:
-        # Sort by closest to the current market price and return the best one
         valid_zones.sort(key=lambda x: x["distance_to_ltp"])
         best_zone = valid_zones[0]
         del best_zone["distance_to_ltp"]
@@ -245,16 +307,29 @@ def scan_chart_for_active_zones(candles, current_ltp):
 
     return None
 
+from datetime import datetime, date, timedelta
+
+# --- REPLACE YOUR EXISTING fetch_historical_candles FUNCTION ---
+
 def fetch_historical_candles(instrument_key, interval):
-    to_date = date.today().strftime('%Y-%m-%d')
+    to_date = date.today()
     
-    # Fix for API constraints: Daily limit is usually 1-3 years.
-    if interval == "day": from_date = "2023-01-01"
-    elif interval == "week": from_date = "2020-01-01"
-    else: from_date = "2015-01-01"
+    # Dynamically adjust the lookback period based on the timeframe to avoid Upstox API limits
+    if interval in ["1minute", "5minute", "15minute", "30minute", "60minute"]:
+        if interval == "5minute": from_date = to_date - timedelta(days=10)
+        elif interval == "15minute": from_date = to_date - timedelta(days=25)
+        elif interval == "60minute": from_date = to_date - timedelta(days=60)
+        else: from_date = to_date - timedelta(days=5)
+    else:
+        if interval == "day": from_date = to_date - timedelta(days=730) # 2 years
+        elif interval == "week": from_date = to_date - timedelta(days=1825) # 5 years
+        else: from_date = to_date - timedelta(days=3650)
+        
+    to_date_str = to_date.strftime('%Y-%m-%d')
+    from_date_str = from_date.strftime('%Y-%m-%d')
         
     api_interval = "month" if interval in ["quarter", "halfyear"] else interval
-    url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{api_interval}/{to_date}/{from_date}"
+    url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{api_interval}/{to_date_str}/{from_date_str}"
     headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
     
     for _ in range(2):
@@ -262,7 +337,7 @@ def fetch_historical_candles(instrument_key, interval):
             res = requests.get(url, headers=headers, timeout=6)
             if res.status_code == 200:
                 candles = res.json().get("data", {}).get("candles", [])
-                candles.reverse()
+                candles.reverse() # Reverse to chronological order (oldest to newest)
                 if interval == "quarter": return aggregate_candles(candles, 3)
                 elif interval == "halfyear": return aggregate_candles(candles, 6)
                 return candles
@@ -270,13 +345,19 @@ def fetch_historical_candles(instrument_key, interval):
         except Exception: pass
     return []
 
+
+# --- REPLACE YOUR EXISTING zone_screener API ROUTE ---
+
 @app.route("/api/zone-screener", methods=["GET"])
 def zone_screener():
     global ZONE_CACHE
-    tf = request.args.get("tf", "day").lower()
-    if tf not in ["day", "week", "month", "quarter", "halfyear"]: tf = "day"
+    tf = request.args.get("tf", "15minute").lower()
+    
+    # Added intraday timeframes
+    valid_tfs = ["5minute", "15minute", "30minute", "60minute", "day", "week", "month"]
+    if tf not in valid_tfs: tf = "15minute"
 
-    if time.time() - ZONE_CACHE["last_updated"].get(tf, 0) < 900 and len(ZONE_CACHE.get(tf, [])) > 0:
+    if time.time() - ZONE_CACHE["last_updated"].get(tf, 0) < 300 and len(ZONE_CACHE.get(tf, [])) > 0:
         return jsonify({"status": "success", "data": ZONE_CACHE[tf]})
 
     live_quotes = {s["symbol"]: s["ltp"] for s in (fetch_live_upstox_quotes() if isinstance(fetch_live_upstox_quotes(), list) else [])}
@@ -285,19 +366,28 @@ def zone_screener():
     def worker(item):
         candles = fetch_historical_candles(item["isin"], tf)
         if not candles: return None
-        ltp = live_quotes.get(item["symbol"], candles[-1][4])
+        ltp = live_quotes.get(item["symbol"], candles[-1][4] if candles else 0)
         zone = scan_chart_for_active_zones(candles, ltp)
         if zone:
-            return {"symbol": item["symbol"], "sector": item["sector"], "ltp": ltp, "pattern": zone["pattern"], "bias": zone["bias"], "proximal": zone["proximal"], "distal": zone["distal"], "risk": zone["risk"], "status": zone["status"]}
+            # Convert risk to a percentage of the LTP for better context
+            risk_pct = round((zone["risk"] / ltp) * 100, 2) if ltp > 0 else 0
+            return {
+                "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp, 
+                "pattern": zone["pattern"], "bias": zone["bias"], 
+                "proximal": zone["proximal"], "distal": zone["distal"], 
+                "risk": zone["risk"], "risk_pct": risk_pct, "status": zone["status"]
+            }
         return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    # Reduce max_workers slightly for intraday to prevent Upstox API rate limits
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(worker, stock) for stock in GLOBAL_MARKET_UNIVERSE]
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
             if res: results.append(res)
 
-    results.sort(key=lambda x: (0 if "🎯" in x["status"] else 1 if "⚡" in x["status"] else 2, x["risk"]))
+    # Sort strictly by actionable setups first, then lowest risk percentage
+    results.sort(key=lambda x: (0 if "🎯" in x["status"] else 1 if "⚡" in x["status"] else 2, x["risk_pct"]))
     
     if results:
         ZONE_CACHE[tf] = results
@@ -316,7 +406,14 @@ def detect_open_setup(open_p, high_p, low_p):
     return None
 
 def calculate_oi_buildup(price_pct, oi_pct, is_fo, candle_tag):
-    if not is_fo: return "Cash Equity"
+    # Apply pseudo-buildup logic for cash equities so they still populate your KPI filters
+    if not is_fo:
+        if candle_tag == "OPEN=LOW" or price_pct >= 2.5: return "Long Buildup"
+        elif candle_tag == "OPEN=HIGH" or price_pct <= -2.5: return "Short Buildup"
+        elif price_pct > 0: return "Short Covering"
+        elif price_pct < 0: return "Long Unwinding"
+        return "Neutral"
+        
     if candle_tag == "OPEN=HIGH" or price_pct <= -0.3: return "Short Buildup"
     elif candle_tag == "OPEN=LOW" or price_pct >= 0.3: return "Long Buildup"
     elif price_pct > 0: return "Short Covering"
@@ -383,9 +480,9 @@ def fetch_live_upstox_quotes():
                 results.append({
                     "symbol": sym, "name": item["name"], "sector": item.get("sector", "F&O Universe"),
                     "ltp": ltp, "pricePct": price_pct, "volume": volume, "volMultiplier": round(vol_spike, 2),
-                    "oiPct": oi_pct, "buildup": calculate_oi_buildup(price_pct, oi_pct, True, candle_tag),
+                    "oiPct": oi_pct, "buildup": calculate_oi_buildup(price_pct, oi_pct, item.get("is_fo", True), candle_tag),
                     "momentumScore": compute_aggressive_momentum(price_pct, vol_spike, candle_tag),
-                    "candleTag": candle_tag, "is_fo": True
+                    "candleTag": candle_tag, "is_fo": item.get("is_fo", True)
                 })
         except Exception:
             pass
@@ -400,6 +497,30 @@ def fetch_live_upstox_quotes():
 @app.route("/")
 def index():
     return send_from_directory('.', 'index.html')
+
+@app.route("/api/set-universe", methods=["POST"])
+def set_universe():
+    global GLOBAL_MARKET_UNIVERSE, QUOTE_CACHE
+    data = request.json or {}
+    univ_type = data.get("type", "FO")
+
+    if univ_type == "FO":
+        GLOBAL_MARKET_UNIVERSE = CORE_MARKET_UNIVERSE.copy()
+        QUOTE_CACHE["data"] = [] # Invalidate cache
+        QUOTE_CACHE["last_updated"] = 0
+        return jsonify({"status": "success", "message": "Switched to F&O Universe", "count": len(GLOBAL_MARKET_UNIVERSE)})
+        
+    elif univ_type == "NIFTY500":
+        nifty_univ = load_nifty500_universe()
+        if nifty_univ:
+            GLOBAL_MARKET_UNIVERSE = nifty_univ
+            QUOTE_CACHE["data"] = [] # Invalidate cache
+            QUOTE_CACHE["last_updated"] = 0
+            return jsonify({"status": "success", "message": "Switched to NIFTY 500 Universe", "count": len(GLOBAL_MARKET_UNIVERSE)})
+        else:
+            return jsonify({"status": "error", "message": "Failed to load NIFTY 500 data."}), 500
+            
+    return jsonify({"status": "error", "message": "Invalid universe type."}), 400
 
 @app.route("/api/upload-universe", methods=["POST"])
 def upload_universe():

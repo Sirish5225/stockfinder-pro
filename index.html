@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- Prevents auto-zooming on inputs on iPhones -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Stock Finder - Pro Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -96,7 +95,7 @@
     .ticker-change.negative { color: var(--red); font-weight: 600; }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-    /* --- PANELS & TABLES --- */
+    /* --- KPI & PANELS --- */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
     .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
@@ -268,6 +267,7 @@
       
       .barchart-label { width: 90px; font-size: 0.65rem; }
       .barchart-val { font-size: 0.65rem; }
+      .filter-wrapper { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
     }
   </style>
 </head>
@@ -278,7 +278,9 @@
 
   <!-- PROFESSIONAL SIDEBAR -->
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER pro</div>
+    <div class="brand">
+      <div class="dot" id="api-status"></div> STOCK FINDER pro
+    </div>
     
     <div class="sidebar-nav">
       <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')">
@@ -345,7 +347,10 @@
         </div>
       </div>
 
-      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
+      <!-- CORNER THEME TOGGLE ICON -->
+      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">
+        ☀️
+      </button>
     </div>
 
     <main>
@@ -496,8 +501,8 @@
             <div class="filter-wrapper" id="zone-filters">
               <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
               <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone (Actionable)</button>
-              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand</button>
-              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply</button>
+              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
+              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
             </div>
             <div class="search-wrapper">
               <input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" />
@@ -567,6 +572,7 @@
     let zoneSortDir = 'desc';
     let zonePollingInterval = null;
     
+    // Theme initialization
     document.addEventListener("DOMContentLoaded", () => {
       const themeBtn = document.getElementById('theme-icon-btn');
       if (localStorage.getItem('theme') === 'light') {
@@ -666,7 +672,7 @@
 
     async function switchUniverse(type) {
       currentUniverse = type;
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching Universe & Loading Market Data...</td></tr>`;
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching Universe & Loading Market Data...</td></tr>`;
       marketStocks = []; 
       prevDataMap.clear();
       fetchData();       
@@ -729,7 +735,7 @@
         if (d1.status === 'error') {
           const apiDot = document.getElementById('api-status');
           if (apiDot) { apiDot.style.background = 'var(--red)'; apiDot.style.boxShadow = '0 0 10px var(--red)'; }
-          document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
+          document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
           return; 
         }
 
@@ -821,7 +827,7 @@
       });
 
       const tbody = document.getElementById('tbody');
-      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
       tbody.innerHTML = filtered.map(s => {
         const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
@@ -841,7 +847,6 @@
               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
               <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
             </td>
-            <td><span class="badge badge-muted">${s.sector}</span></td>
             <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
             ${volHtml}

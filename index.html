@@ -65,18 +65,19 @@
       width: 260px; min-width: 260px; flex-shrink: 0;
       background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem;
-      z-index: 100; transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
+      z-index: 1000; transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
     }
     .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
     
+    /* MOBILE & TABLET SIDEBAR */
     @media(max-width: 1024px) {
-      .sidebar { position: absolute; left: 0; height: 100vh; transform: translateX(-100%); margin-left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.2); opacity: 1; pointer-events: auto; }
+      .sidebar { position: absolute; left: 0; height: 100vh; transform: translateX(-100%); margin-left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.5); opacity: 1; pointer-events: auto; }
       .sidebar.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
       .sidebar.collapsed { margin-left: 0; }
     }
 
     .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
-    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); }
+    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; }
     
     .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
     .nav-btn {
@@ -103,24 +104,24 @@
     input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); box-shadow: 0 0 8px rgba(243, 156, 18, 0.5); }
 
     /* --- MAIN CONTENT AREA --- */
-    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; }
-    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
+    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; }
+    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 
-    /* --- TRADINGVIEW-STYLE TICKER BAR & CORNER TOGGLES --- */
+    /* --- TRADINGVIEW-STYLE TICKER BAR --- */
     .market-ticker-container {
       width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); 
       box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s;
     }
     
     .hamburger-btn {
-      background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 20px; display: flex; align-items: center; justify-content: center;
+      background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
       height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0;
     }
     .hamburger-btn:hover { background: var(--hover-bg); color: var(--primary); }
 
     .theme-btn {
       height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border);
-      color: var(--strong-text); cursor: pointer; padding: 0 20px; display: flex; align-items: center; justify-content: center;
+      color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
       font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0;
     }
     .theme-btn:hover { background: var(--hover-bg); }
@@ -139,30 +140,32 @@
 
     /* --- KPI & PANELS (GLASSMORPHISM) --- */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-    @media(max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
     .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
     .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; letter-spacing: 0.5px; }
     .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
 
     .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-    @media(max-width: 900px) { .movers-grid { grid-template-columns: 1fr; } }
     .movers-panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
     .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; letter-spacing: 0.5px; }
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
     .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
     .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
+    .panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
 
     /* --- TOOLBAR --- */
     .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; background: var(--card); backdrop-filter: blur(12px); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
-    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+    .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
+    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
     .filter-btn:hover { border-color: var(--muted); }
     .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; max-width: 250px; transition: border 0.2s; }
+    
+    .search-wrapper { display: flex; gap: 8px; align-items: center; }
+    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; min-width: 200px; max-width: 250px; transition: border 0.2s; }
     .search-box:focus { border-color: var(--primary); }
 
     /* --- MAIN DATA TABLE --- */
-    .table-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; overflow-y: auto; max-height: calc(100vh - 450px); min-height: 400px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+    .table-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 450px); min-height: 400px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
     th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: var(--th-bg); position: sticky; top: 0; z-index: 10; letter-spacing: 0.5px; transition: background-color 0.3s; }
     th:hover { color: var(--strong-text); }
@@ -182,9 +185,14 @@
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; transition: color 0.2s; }
     .stock-link:hover { color: var(--primary); }
 
+    /* --- BADGES --- */
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
+    .badge-demand { background: rgba(8, 153, 129, 0.15); color: var(--green); border: 1px solid var(--green); }
+    .badge-supply { background: rgba(242, 54, 69, 0.15); color: var(--red); border: 1px solid var(--red); }
+    .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
+    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: 1px solid var(--border); }
     
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
@@ -195,6 +203,7 @@
     ::-webkit-scrollbar-thumb:hover { background: var(--text); }
 
     /* --- ADDED SECTOR PERFORMANCE STYLES --- */
+    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
     .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; position: relative; backdrop-filter: blur(12px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     .sector-card.bearish { box-shadow: inset 0 0 50px rgba(231, 76, 60, 0.03); }
     .sector-card.bullish { box-shadow: inset 0 0 50px rgba(46, 204, 113, 0.03); }
@@ -206,7 +215,7 @@
     .strength-bar .fill { height: 100%; transition: width 0.4s ease; }
     .bearish .strength-bar .fill { background-color: var(--red); }
     .bullish .strength-bar .fill { background-color: var(--green); }
-    .sector-table-wrap { overflow-y: auto; max-height: 250px; }
+    .sector-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 250px; -webkit-overflow-scrolling: touch; }
     .sec-table { width: 100%; border-collapse: collapse; }
     .sec-table th, .sec-table td { padding: 10px 16px; text-align: right; font-size: 0.75rem; border-bottom: 1px solid var(--border); }
     .sec-table th:first-child, .sec-table td:first-child { text-align: left; }
@@ -218,7 +227,6 @@
 
     /* --- EXTREMES (HIGH/LOW BARS) STYLES --- */
     .extreme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-    @media(max-width: 768px) { .extreme-grid { grid-template-columns: 1fr; } }
     .extreme-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: center; position: relative;}
     .extreme-card.highest { box-shadow: inset 0 0 60px rgba(46, 204, 113, 0.05); border-color: rgba(46, 204, 113, 0.2); }
     .extreme-card.lowest { box-shadow: inset 0 0 60px rgba(231, 76, 60, 0.05); border-color: rgba(231, 76, 60, 0.2); }
@@ -234,15 +242,15 @@
     .bg-green { background: linear-gradient(90deg, #27ae60, var(--green)); }
     .bg-red { background: linear-gradient(90deg, var(--red), #c0392b); }
 
-    /* --- DIVERGENT BAR CHART (High/Low Performance Ranking) --- */
+    /* --- DIVERGENT BAR CHART --- */
     .barchart-container { 
       background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); 
       border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; 
-      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto;
     }
     .barchart-row { 
       display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8rem; 
-      transition: background 0.2s; border-radius: 6px; padding: 3px 0; 
+      transition: background 0.2s; border-radius: 6px; padding: 3px 0; min-width: 400px;
     }
     .barchart-row:hover { background: var(--hover-bg); }
     .barchart-label { 
@@ -267,13 +275,41 @@
       position: absolute; top: 0; line-height: 20px; font-family: 'JetBrains Mono', monospace; 
       font-size: 0.7rem; font-weight: 700; color: var(--strong-text); white-space: nowrap;
     }
+
+    /* --- RESPONSIVE MEDIA QUERIES --- */
+    @media(max-width: 1024px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media(max-width: 900px) { 
+      .movers-grid { grid-template-columns: 1fr; } 
+    }
+    @media(max-width: 768px) {
+      main { padding: 1rem 0.8rem; }
+      .kpi-val { font-size: 1.3rem; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .filter-wrapper { justify-content: center; }
+      .filter-btn { flex: 1; text-align: center; }
+      .search-wrapper { width: 100%; margin-top: 0.5rem; }
+      .search-box { max-width: 100%; width: 100%; }
+      .extreme-grid { grid-template-columns: 1fr; }
+      .barchart-label { width: 100px; font-size: 0.7rem; }
+    }
+    @media(max-width: 480px) {
+      .kpi-grid { grid-template-columns: 1fr; gap: 0.8rem; }
+      .sectors-grid { grid-template-columns: 1fr; }
+      .barchart-label { width: 90px; font-size: 0.65rem; }
+      .barchart-val { font-size: 0.65rem; }
+      .filter-wrapper { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+    }
   </style>
 </head>
 <body>
 
   <!-- PROFESSIONAL SIDEBAR -->
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER pro</div>
+    <div class="brand">
+      <div class="dot" id="api-status"></div> STOCK FINDER pro
+    </div>
     
     <div class="sidebar-nav">
       <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')">
@@ -282,8 +318,8 @@
       <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')">
         <span style="font-size:1.1rem;">🥧</span> Sector Heatmap
       </button>
-      <!-- ADDED: INTRADAY ZONES BUTTON -->
       <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')">
+        <span style="font-size:1.1rem;">🎯</span> D&S Zones
       </button>
     </div>
 
@@ -347,7 +383,7 @@
     </div>
 
     <main>
-      <!-- SCREENER VIEW -->
+      <!-- ================= SCREENER VIEW ================= -->
       <div id="view-scr">
         <div class="kpi-grid">
           <div class="kpi-card" onclick="setFilter('Long Buildup')">
@@ -384,7 +420,7 @@
         </div>
 
         <div class="toolbar">
-          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <div class="filter-wrapper">
             <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL</button>
             <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
             <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
@@ -392,7 +428,7 @@
             <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
             <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
             
-            <label style="background: var(--input-bg); color: var(--text); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); transition: all 0.2s;">
+            <label class="filter-btn" style="background: var(--input-bg); color: var(--text); border: 1px solid var(--border);">
               📁 Upload CSV
               <input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" />
             </label>
@@ -400,7 +436,7 @@
               🔄 Reset
             </button>
           </div>
-          <div>
+          <div class="search-wrapper">
             <input type="text" id="search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" />
           </div>
         </div>
@@ -425,7 +461,7 @@
         </div>
       </div>
 
-      <!-- SECTOR VIEW -->
+      <!-- ================= SECTOR VIEW ================= -->
       <div id="view-sec" style="display: none;">
         <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
             
@@ -433,9 +469,9 @@
               <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text); letter-spacing: 0.5px;">Sector Performance Overview</h3>
             </div>
             
-            <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;">
+            <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
               <span>📊 Market Breadth: <strong style="color:var(--green); font-size: 0.9rem;" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red); font-size: 0.9rem;" id="breadth-dec">--</strong> Dec</span>
-              <span>📦 Total F&O Volume: <strong style="color:var(--strong-text); font-size: 0.9rem;" id="breadth-vol" class="mono">--</strong></span>
+              <span>📦 Total Volume: <strong style="color:var(--strong-text); font-size: 0.9rem;" id="breadth-vol" class="mono">--</strong></span>
             </div>
             
             <!-- Top and Bottom Sector Extreme Bars -->
@@ -466,17 +502,72 @@
             <div id="sector-bar-chart" class="barchart-container" style="display:none;"></div>
 
             <!-- THE DYNAMIC SECTOR GRID -->
-            <div id="sectors-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px;">
+            <div id="sectors-list" class="sectors-grid">
                 <!-- Sector cards dynamically rendered here -->
             </div>
-
         </div>
       </div>
+
+      <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
+      <div id="view-zones" style="display: none;">
+        <div class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Zones (H2 / H1 Rules)</h3>
+              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated RBR, DBR, RBD, DBD, & V-Reversals.</p>
+            </div>
+            
+            <div class="filter-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
+              <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
+              <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
+              <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
+              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly (Q)</button>
+              <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this, true)">Half-Yearly</button>
+            </div>
+          </div>
+
+          <div class="toolbar" style="margin-bottom: 1rem; padding: 0.8rem; background: transparent; border: none;">
+            <div class="filter-wrapper" id="zone-filters">
+              <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
+              <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone (Actionable)</button>
+              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
+              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
+            </div>
+            <div class="search-wrapper">
+              <input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" />
+            </div>
+          </div>
+
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
+            <table>
+              <thead>
+                <tr>
+                  <th onclick="toggleZoneSort('symbol')">SYMBOL ↕</th>
+                  <th onclick="toggleZoneSort('bias')">BIAS ↕</th>
+                  <th onclick="toggleZoneSort('pattern')">PATTERN ↕</th>
+                  <th onclick="toggleZoneSort('ltp')">CURRENT PRICE ↕</th>
+                  <th onclick="toggleZoneSort('proximal')">ENTRY (H2) ↕</th>
+                  <th onclick="toggleZoneSort('distal')">SL (H1) ↕</th>
+                  <th onclick="toggleZoneSort('status')">ZONE STATUS ↕</th>
+                  <th>CHART</th>
+                </tr>
+              </thead>
+              <tbody id="zones-tbody">
+                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
 
   <script>
     let currentTab = 'scr';
     let currentFilter = 'ALL';
-    let currentZoneTF = '15minute'; // ADDED: Default Zone Timeframe
+    let currentUniverse = 'FO';
+    let currentZoneTF = 'day'; 
     let marketStocks = [];
     let prevDataMap = new Map(); 
     let sectorsData = [];
@@ -487,6 +578,12 @@
 
     let sortColumn = 'momentumScore';
     let sortDirection = 'desc';
+    
+    let rawZonesData = [];
+    let currentZoneFilter = 'ALL';
+    let zoneSortCol = 'status';
+    let zoneSortDir = 'desc';
+    let zonePollingInterval = null;
     
     // Theme initialization
     document.addEventListener("DOMContentLoaded", () => {
@@ -521,7 +618,6 @@
       }
     }
 
-    // UPDATED: switchTab to include Zones view
     function switchTab(tab) {
       currentTab = tab;
       document.getElementById('btn-scr').classList.toggle('active', tab === 'scr');
@@ -532,16 +628,15 @@
       document.getElementById('view-sec').style.display = tab === 'sec' ? 'block' : 'none';
       document.getElementById('view-zones').style.display = tab === 'zones' ? 'block' : 'none';
       
-      if (tab === 'zones' && document.getElementById('zones-tbody').innerHTML.includes('Select a timeframe')) {
-        fetchZones(currentZoneTF, document.getElementById('tf-15m'));
-      }
+      if (tab === 'sec') renderSectors();
+      if (tab === 'zones' && rawZonesData.length === 0) fetchZones(currentZoneTF, document.getElementById('tf-btn-day'));
       
       if (window.innerWidth <= 1024) document.getElementById('app-sidebar').classList.remove('open');
     }
 
     function toggleCompactMode(checked) {
       isCompact = checked;
-      document.getElementById('table-wrapper').classList.toggle('compact', isCompact);
+      document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', isCompact));
     }
 
     function toggleAutoRefresh(checked) {
@@ -569,28 +664,12 @@
     }
 
     async function switchUniverse(type) {
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching Universe & Loading Market Data...</td></tr>`;
-      try {
-        const res = await fetch('/api/set-universe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: type })
-        });
-        const result = await res.json();
-        
-        if (result.status === 'success') {
-          marketStocks = []; 
-          prevDataMap.clear();
-          fetchData();       
-          fetchTickerBar();  
-        } else {
-          alert("Failed to switch universe: " + result.message);
-          document.getElementById('universe-selector').value = type === 'FO' ? 'NIFTY500' : 'FO';
-        }
-      } catch (e) {
-        console.error("Universe switch error:", e);
-        document.getElementById('universe-selector').value = type === 'FO' ? 'NIFTY500' : 'FO';
-      }
+      currentUniverse = type;
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching Universe & Loading Market Data...</td></tr>`;
+      marketStocks = []; 
+      prevDataMap.clear();
+      fetchData();       
+      fetchTickerBar();  
     }
 
     async function uploadUniverse(input) {
@@ -638,8 +717,8 @@
     async function fetchData() {
       try {
         const [res1, res2] = await Promise.all([
-          fetch('/api/screener?filter=' + encodeURIComponent(currentFilter)),
-          fetch('/api/sectors')
+          fetch(`/api/screener?filter=${encodeURIComponent(currentFilter)}&universe=${currentUniverse}`),
+          fetch(`/api/sectors?universe=${currentUniverse}`)
         ]);
         if(!res1.ok || !res2.ok) return;
 
@@ -648,7 +727,7 @@
         if (d1.status === 'error') {
           const apiDot = document.getElementById('api-status');
           if (apiDot) { apiDot.style.background = 'var(--red)'; apiDot.style.boxShadow = '0 0 10px var(--red)'; }
-          document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
+          document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
           return; 
         }
 
@@ -679,16 +758,12 @@
           renderExplicitMovers(d1.topGainers, d1.topLosers);
           renderTable();
           
-          if(currentTab === 'sec') {
-            renderSectors();
-          }
+          if(currentTab === 'sec') renderSectors();
         }
 
         if(d2 && d2.status === 'success') {
           sectorsData = d2.data || [];
-          if (currentTab === 'sec') {
-              renderSectors();
-          }
+          if (currentTab === 'sec') renderSectors();
           if(d2.marketBreadth) {
             document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
@@ -697,6 +772,8 @@
         }
       } catch(e) { console.error("Data fetch error:", e); }
     }
+
+    // --- SCREENER LOGIC --- //
 
     function updateKPIs(stocks) {
       let counts = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
@@ -742,7 +819,7 @@
       });
 
       const tbody = document.getElementById('tbody');
-      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
       tbody.innerHTML = filtered.map(s => {
         const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
@@ -762,6 +839,7 @@
               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
               <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
             </td>
+            <td><span class="badge badge-muted">${s.sector}</span></td>
             <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
             ${volHtml}
@@ -782,7 +860,8 @@
       renderTable();
     }
 
-    // Scroll helper for heatmap clicks
+    // --- SECTOR LOGIC --- //
+
     function selectSector(sectorName) {
       const cards = document.querySelectorAll('.sector-card');
       for (const card of cards) {
@@ -826,9 +905,9 @@
           document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%';
       }
 
-      // 2. RENDER DIVERGENT BAR CHART (High/Low Ranking)
+      // 2. RENDER DIVERGENT BAR CHART
       if (chartContainer) {
-          let chartHtml = '<div style="margin-bottom: 16px; font-size: 1rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>';
+          let chartHtml = `<div style="margin-bottom: 16px; font-size: 1rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
           
           sortedSectors.forEach(sec => {
               const isPos = sec.avgChange >= 0;
@@ -901,56 +980,111 @@
       }).join('');
     }
 
-    // ADDED: Logic to fetch and populate the Intraday S&D Zones
-    async function fetchZones(tf, btnElement, forceRefresh = false) {
+    // --- ZONES LOGIC --- //
+
+    async function fetchZones(tf, btnElement = null, forceRefresh = false) {
       currentZoneTF = tf;
       
       if(btnElement) {
-        document.querySelectorAll('#view-zones .filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#zone-filters .filter-btn').forEach(b => b.classList.remove('active')); // Reset subfilters
+        document.querySelectorAll('#view-zones .filter-wrapper:not(#zone-filters) .filter-btn').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
       }
 
       const tbody = document.getElementById('zones-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning ${tf} charts for all symbols... This takes a few seconds.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow... This takes a few seconds.</td></tr>`;
 
       try {
         const url = forceRefresh ? `/api/zone-screener?tf=${tf}&t=${Date.now()}` : `/api/zone-screener?tf=${tf}`;
         const res = await fetch(url);
         const data = await res.json();
-
+        
         if (data.status === 'success') {
-          if (data.data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active, unviolated zones found on this timeframe.</td></tr>`;
-            return;
+          if (data.data && data.data.length > 0) {
+              rawZonesData = data.data;
+              renderZonesTable();
+          } 
+          else if (data.is_scanning) {
+              tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">🔄 Scanning Institutional Orderflow for ${tf.toUpperCase()} timeframe...<br><span style="font-size:0.75rem; color:var(--muted);">Safely throttling API to prevent limits. Estimated time: 40 seconds.</span></td></tr>`;
+          } else {
+              tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active institutional zones found on the ${tf.toUpperCase()} timeframe.</td></tr>`;
           }
 
-          tbody.innerHTML = data.data.map(z => {
-            const biasCls = z.bias === 'DEMAND' ? 'badge-green' : 'badge-red';
-            const actionCls = z.status.includes('🎯') ? 'font-weight: 700; color: var(--strong-text); background: rgba(243, 156, 18, 0.15);' : 'color: var(--muted);';
-            
-            return `
-              <tr style="${z.status.includes('🎯') ? 'border-left: 3px solid var(--primary);' : ''}">
-                <td>
-                  <a onclick="openChart('${z.symbol}')" class="stock-link">${z.symbol}</a>
-                  <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${z.sector}</div>
-                </td>
-                <td class="mono" style="font-weight:600;">₹${Number(z.ltp).toFixed(2)}</td>
-                <td><span class="badge ${biasCls}">${z.bias}</span></td>
-                <td class="mono" style="color:var(--text);">${z.pattern}</td>
-                <td class="mono" style="color:var(--strong-text);">₹${Number(z.proximal).toFixed(2)}</td>
-                <td class="mono" style="color:var(--strong-text);">₹${Number(z.distal).toFixed(2)}</td>
-                <td class="mono" style="${z.risk_pct <= 1.0 ? 'color:var(--green);' : 'color:var(--red);'}">${z.risk_pct}%</td>
-                <td style="font-size:0.75rem; ${actionCls}">${z.status}</td>
-              </tr>
-            `;
-          }).join('');
-        }
+          if (data.is_scanning) {
+              if (zonePollingInterval) clearTimeout(zonePollingInterval);
+              zonePollingInterval = setTimeout(() => fetchZones(tf), 5000);
+          }
+        } 
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red);">Error scanning zones. Check backend connection.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red); font-weight:700;">⚠️ Network Error: Unable to connect to zone scanner. Check if backend is running.</td></tr>`;
       }
     }
 
-    // Initialize
+    function setZoneFilter(flt, el) {
+      currentZoneFilter = flt;
+      if (el) {
+        el.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+      }
+      renderZonesTable();
+    }
+
+    function toggleZoneSort(col) {
+      if (zoneSortCol === col) zoneSortDir = zoneSortDir === 'desc' ? 'asc' : 'desc';
+      else { zoneSortCol = col; zoneSortDir = 'desc'; }
+      renderZonesTable();
+    }
+
+    function renderZonesTable() {
+      let filtered = [...rawZonesData];
+      
+      if (currentZoneFilter === 'DEMAND') filtered = filtered.filter(z => z.bias === 'DEMAND');
+      else if (currentZoneFilter === 'SUPPLY') filtered = filtered.filter(z => z.bias === 'SUPPLY');
+      else if (currentZoneFilter === 'IN_ZONE') filtered = filtered.filter(z => z.status.includes('In Zone'));
+
+      const searchBox = document.getElementById('search-zones');
+      const searchVal = searchBox ? searchBox.value.toLowerCase().trim() : '';
+      if (searchVal) filtered = filtered.filter(z => (z.symbol || '').toLowerCase().includes(searchVal) || (z.sector || '').toLowerCase().includes(searchVal));
+
+      filtered.sort((a, b) => {
+        let valA = a[zoneSortCol], valB = b[zoneSortCol];
+        if (typeof valA === 'string') return zoneSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        return zoneSortDir === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+      });
+
+      const tbody = document.getElementById('zones-tbody');
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No institutional zones match the current filter.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(z => {
+        const biasCls = z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply';
+        const statusBadge = z.status.includes('In Zone') ? 'badge-gold' : z.status.includes('Approaching') ? 'badge-green' : 'badge-muted';
+        
+        return `
+          <tr>
+            <td>
+              <div style="display:flex; align-items:center;">
+                <span class="stock-link" onclick="openChart('${z.symbol}')">${z.symbol}</span>
+              </div>
+              <div style="font-size:0.65rem; color:var(--muted); margin-top:4px;">${z.sector || ''}</div>
+            </td>
+            <td><span class="${biasCls} badge">${z.bias}</span></td>
+            <td class="mono" style="font-weight:700; font-size:0.85rem;">${z.pattern}</td>
+            <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
+            <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${z.proximal.toFixed(2)}</td>
+            <td class="mono" style="color:var(--muted);">₹${z.distal.toFixed(2)}</td>
+            <td><span class="badge ${statusBadge}">${z.status}</span></td>
+            <td>
+                <button class="filter-btn" style="padding:4px 8px; font-size:0.65rem; background:transparent;" onclick="openChart('${z.symbol}')">Chart ↗</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Application Bootstrap
     fetchTickerBar();
     fetchData();
     startIntervals();

@@ -21,9 +21,9 @@ CORS(app)
 # Persistent HTTP Session Pool to prevent Windows Socket [WinError 10038] crashes
 HTTP_SESSION = requests.Session()
 adapter = HTTPAdapter(
-    pool_connections=25,
-    pool_maxsize=25,
-    max_retries=Retry(total=2, backoff_factor=0.3, status_forcelist=[502, 503, 504])
+    pool_connections=50,
+    pool_maxsize=50,
+    max_retries=Retry(total=3, backoff_factor=0.2, status_forcelist=[502, 503, 504])
 )
 HTTP_SESSION.mount("https://", adapter)
 HTTP_SESSION.mount("http://", adapter)
@@ -154,7 +154,6 @@ def load_dynamic_universe():
 
 GLOBAL_MARKET_UNIVERSE = load_dynamic_universe()
 CORE_MARKET_UNIVERSE = GLOBAL_MARKET_UNIVERSE.copy()
-
 NIFTY500_UNIVERSE_CACHE = []
 
 def get_nifty_500_data():
@@ -229,20 +228,7 @@ def get_active_universe_list(univ_type=None):
         return "NIFTY500", load_nifty500_universe()
     return "FO", GLOBAL_MARKET_UNIVERSE
 
-# =========================================================================
-# STRICT INSTITUTIONAL ZONE SCANNER
-# Fixes CDSL & DELHIVERY false setups by enforcing:
-#   1. 50-Candle Chart Benchmark (so local small consolidation candles never lower the average!).
-#   2. Leg-In SOLID BODY must be >= 2.2x the ENTIRE Base Range (High-Low) and >= 3.5x Base Body!
-#   3. Leg-In must be a visibly large exciting candle on the 50-candle chart (>= 1.15x 50-bar avg).
-#   4. 1st Leg-Out candle (c_out1) ALONE must be a giant Marubozu stronger than Leg-In!
-# =========================================================================
-
 def get_chart_benchmark(candles, idx, lookback=50):
-    """
-    Uses a 50-candle window (instead of 8 candles) so a tight consolidation cluster
-    never tricks the scanner into thinking a tiny candle is a 'large' Leg-In candle.
-    """
     start = max(0, idx - lookback)
     subset = candles[start:idx]
     if not subset:
@@ -274,7 +260,7 @@ def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
     raw_valid_zones = []
     start_idx = max(5, len(candles) - 150)
 
-    for i in range(len(candles) - 2, start_idx, -1):
+    for i in range(len(candles) - 1, start_idx, -1):
         c_out1 = candles[i]
         out1_o, out1_h, out1_l, out1_c = c_out1[1], c_out1[2], c_out1[3], c_out1[4]
         out1_range = out1_h - out1_l
@@ -283,163 +269,131 @@ def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
         out1_body = abs(out1_c - out1_o)
         out1_body_pct = out1_body / out1_range
 
-        # 50-candle chart benchmark before the setup
-        chart_avg_body, chart_avg_range = get_chart_benchmark(candles, max(1, i - 2), lookback=50)
+        chart_avg_body, chart_avg_range = get_chart_benchmark(candles, max(1, i - 4), lookback=50)
 
-        # 1st Leg-Out candle (c_out1) BY ITSELF must be a giant exciting candle on the chart
-        if out1_body_pct < 0.62 or out1_body < (chart_avg_body * 1.35) or out1_range < (chart_avg_range * 1.15):
+        if out1_body_pct < 0.48 or out1_body < (chart_avg_body * 0.75):
             continue
 
         t_out1 = "RALLY" if out1_c > out1_o else "DROP"
         bias = "DEMAND" if t_out1 == "RALLY" else "SUPPLY"
 
-        # Check if next candle (i + 1) is ALSO a giant exciting candle in the same direction (R-R or D-D)
         leg_outs = [c_out1]
         if i + 1 < len(candles):
             c_out2 = candles[i + 1]
             out2_o, out2_h, out2_l, out2_c = c_out2[1], c_out2[2], c_out2[3], c_out2[4]
             out2_range = out2_h - out2_l
             out2_body = abs(out2_c - out2_o)
-            if out2_range > 0 and (out2_body / out2_range) >= 0.58 and out2_body >= (chart_avg_body * 1.10):
+            if out2_range > 0 and (out2_body / out2_range) >= 0.48 and out2_body >= (chart_avg_body * 0.75):
                 t_out2 = "RALLY" if out2_c > out2_o else "DROP"
                 if t_out2 == t_out1:
                     if (bias == "DEMAND" and out2_c > out1_c) or (bias == "SUPPLY" and out2_c < out1_c):
                         leg_outs.append(c_out2)
 
         out_str = "-".join(["R" if t_out1 == "RALLY" else "D"] * len(leg_outs))
+        total_out_body = sum(abs(c[4] - c[1]) for c in leg_outs)
         pattern = None
         proximal, distal = 0.0, 0.0
         ratio_vs_legin = 1.0
 
-        c_prev1 = candles[i - 1]
+        for num_bases in (2, 1):
+            if i - num_bases - 1 < 0:
+                continue
 
-        # =====================================================================
-        # 1. SINGLE DOJI-BASE SETUPS:
-        #    R-B-R, R-B-R-R, D-B-R, D-B-R-R (Demand)
-        #    D-B-D, D-B-D-D, R-B-D, R-B-D-D (Supply)
-        # =====================================================================
-        if i - 3 >= 0:
-            c_base = c_prev1
-            c_in = candles[i - 2]
-
-            b_o, b_h, b_l, b_c = c_base[1], c_base[2], c_base[3], c_base[4]
-            base_range = b_h - b_l
-            base_body = abs(b_c - b_o)
+            base_candles = candles[i - num_bases : i]
+            c_in = candles[i - num_bases - 1]
 
             in_o, in_h, in_l, in_c = c_in[1], c_in[2], c_in[3], c_in[4]
             in_range = in_h - in_l
             in_body = abs(in_c - in_o)
+            if in_range <= 0:
+                continue
+            in_body_pct = in_body / in_range
 
-            if base_range > 0 and in_range > 0:
-                base_body_pct = base_body / base_range
-                in_body_pct = in_body / in_range
+            if in_body_pct < 0.48 or in_body < (chart_avg_body * 0.75):
+                continue
 
-                # A. Base Candle MUST be a tiny Doji (both vs its own range AND vs the 50-candle chart!)
-                is_tiny_doji_base = (
-                    base_body_pct <= 0.35
-                    and base_body <= (chart_avg_body * 0.35)
-                    and base_range <= (chart_avg_range * 0.60)
+            if num_bases == 1 and i - 3 >= 0:
+                prev_c = candles[i - 3]
+                prev_body = abs(prev_c[4] - prev_c[1])
+                if in_body <= (chart_avg_body * 0.80) and prev_body >= (in_body * 1.40):
+                    continue
+
+            all_bases_valid = True
+            for bc in base_candles:
+                bc_o, bc_h, bc_l, bc_c = bc[1], bc[2], bc[3], bc[4]
+                bc_rng = bc_h - bc_l
+                bc_body = abs(bc_c - bc_o)
+                if bc_rng <= 0:
+                    all_bases_valid = False
+                    break
+                bc_body_pct = bc_body / bc_rng
+
+                is_small_base_candle = (
+                    bc_body <= (in_body * 0.55)
+                    and bc_body <= (out1_body * 0.55)
+                    and bc_body <= (chart_avg_body * 0.85)
+                    and (bc_body_pct <= 0.55 or bc_body <= (in_body * 0.35))
                 )
+                if not is_small_base_candle:
+                    all_bases_valid = False
+                    break
 
-                # B. Leg-In Candle MUST be a big, solid exciting candle (NEVER a base-like candle!)
-                #    - Solid body >= 58% of its range
-                #    - Body >= 1.15x the 50-candle chart average body
-                #    - Body >= 3.5x the Base body AND >= 2.0x the ENTIRE Base High-Low range!
-                #    - Total range >= 2.2x the Base High-Low range!
-                is_big_exciting_legin = (
-                    in_body_pct >= 0.58
-                    and in_body >= (chart_avg_body * 1.15)
-                    and in_body >= (base_body * 3.5)
-                    and in_body >= (base_range * 2.0)
-                    and in_range >= (base_range * 2.2)
-                )
+            if not all_bases_valid:
+                continue
 
-                # C. Base wicks must be small (neither upper nor lower wick > 35% of Leg-In body)
-                base_upper_wick = b_h - max(b_o, b_c)
-                base_lower_wick = min(b_o, b_c) - b_l
-                wicks_clean = max(base_upper_wick, base_lower_wick) <= (in_body * 0.35)
+            # Strict Proximal & Distal calculations
+            if bias == "DEMAND":
+                proximal = max(max(bc[1], bc[4]) for bc in base_candles)
+                distal = min(bc[3] for bc in base_candles)
+            else:
+                proximal = min(min(bc[1], bc[4]) for bc in base_candles)
+                distal = max(bc[2] for bc in base_candles)
 
-                # D. Leg-Out 1 ALONE must be stronger than Leg-In and >= 3x Base range!
-                total_out_body = sum(abs(c[4] - c[1]) for c in leg_outs)
-                is_stronger_legout = (
-                    out1_body >= (in_body * 1.10)
-                    and out1_range >= (base_range * 2.5)
-                    and (
-                        (bias == "DEMAND" and out1_o <= b_h + out1_body * 0.15 and out1_c > max(b_h, in_o))
-                        or (bias == "SUPPLY" and out1_o >= b_l - out1_body * 0.15 and out1_c < min(b_l, in_o))
+            cluster_high = max(bc[2] for bc in base_candles)
+            cluster_low = min(bc[3] for bc in base_candles)
+            cluster_range = cluster_high - cluster_low
+            if cluster_range <= 0:
+                continue
+
+            max_cluster_mult = 1.20 if num_bases == 1 else 1.45
+            if cluster_range > (chart_avg_range * max_cluster_mult):
+                continue
+
+            in_prefix = "R" if in_c > in_o else "D"
+            structure_ok = False
+
+            if bias == "DEMAND":
+                if in_prefix == "R":
+                    base_holds_gains = (
+                        cluster_low >= in_l + (in_range * 0.20)
+                        and min( min(bc[1], bc[4]) for bc in base_candles ) >= in_o + (in_body * 0.30)
                     )
-                )
-
-                if is_tiny_doji_base and is_big_exciting_legin and wicks_clean and is_stronger_legout:
-                    in_prefix = "R" if in_c > in_o else "D"
-
-                    # For D-B-R / R-B-D reversals, verify true 6-candle swing high/low
-                    swing_ok = True
-                    if in_prefix == "D" and bias == "DEMAND":
-                        swing_win = candles[max(0, i - 6):i + 1]
-                        if min(in_l, b_l) > min(c[3] for c in swing_win):
-                            swing_ok = False
-                    elif in_prefix == "R" and bias == "SUPPLY":
-                        swing_win = candles[max(0, i - 6):i + 1]
-                        if max(in_h, b_h) < max(c[2] for c in swing_win):
-                            swing_ok = False
-
-                    if swing_ok:
-                        pattern = f"{in_prefix}-B-{out_str}"
-                        ratio_vs_legin = round(total_out_body / in_body, 2)
-                        if bias == "DEMAND":
-                            proximal = max(b_o, b_c)
-                            distal = b_l if in_prefix == "R" else min(in_l, b_l)
-                        else:
-                            proximal = min(b_o, b_c)
-                            distal = b_h if in_prefix == "D" else max(in_h, b_h)
-
-        # =====================================================================
-        # 2. DIRECT V-REVERSAL SETUPS: D-R, D-R-R, R-D, R-D-D (No Base Candle)
-        #    Both Leg-In (c_prev1) and 1st Leg-Out (c_out1) MUST be giant
-        #    candles on the 50-candle chart (eliminates CDSL & DELHIVERY D-R-R bug!)
-        # =====================================================================
-        if not pattern and i - 2 >= 0:
-            c_in = c_prev1
-            in_o, in_h, in_l, in_c = c_in[1], c_in[2], c_in[3], c_in[4]
-            in_range = in_h - in_l
-            in_body = abs(in_c - in_o)
-
-            if in_range > 0:
-                in_body_pct = in_body / in_range
-                t_in = "RALLY" if in_c > in_o else "DROP"
-
-                # Leg-In in a V-Reversal must be a HUGE exciting candle (>= 1.35x 50-bar avg body, >= 62% body)
-                # AND 1st Leg-Out (c_out1) ALONE must be >= 1.20x larger than Leg-In!
-                if (
-                    t_in != t_out1
-                    and in_body_pct >= 0.62
-                    and in_body >= (chart_avg_body * 1.35)
-                    and out1_body >= (in_body * 1.20)
-                ):
-                    # No big Gap-Up / Gap-Down on V-Reversal open
-                    gap_ok = (
-                        (bias == "DEMAND" and out1_o <= in_c + out1_body * 0.15 and out1_c > in_h)
-                        or (bias == "SUPPLY" and out1_o >= in_c - out1_body * 0.15 and out1_c < in_l)
+                    clean_breakout = out1_c > cluster_high and out1_c > in_h
+                    if base_holds_gains and clean_breakout:
+                        structure_ok = True
+                else:
+                    swing_win = candles[max(0, i - num_bases - 5) : i + 1]
+                    if out1_c > cluster_high and min(in_l, cluster_low) <= min(c[3] for c in swing_win):
+                        structure_ok = True
+            else:
+                if in_prefix == "D":
+                    base_holds_drop = (
+                        cluster_high <= in_h - (in_range * 0.20)
+                        and max( max(bc[1], bc[4]) for bc in base_candles ) <= in_o - (in_body * 0.30)
                     )
-                    swing_win = candles[max(0, i - 6):i + 1]
-                    swing_ok = (
-                        (bias == "DEMAND" and min(in_l, out1_l) <= min(c[3] for c in swing_win))
-                        or (bias == "SUPPLY" and max(in_h, out1_h) >= max(c[2] for c in swing_win))
-                    )
+                    clean_breakdown = out1_c < cluster_low and out1_c < in_l
+                    if base_holds_drop and clean_breakdown:
+                        structure_ok = True
+                else:
+                    swing_win = candles[max(0, i - num_bases - 5) : i + 1]
+                    if out1_c < cluster_low and max(in_h, cluster_high) >= max(c[2] for c in swing_win):
+                        structure_ok = True
 
-                    if gap_ok and swing_ok:
-                        in_prefix = "R" if t_in == "RALLY" else "D"
-                        pattern = f"{in_prefix}-{out_str}"
-                        total_out_body = sum(abs(c[4] - c[1]) for c in leg_outs)
-                        ratio_vs_legin = round(total_out_body / in_body, 2)
-
-                        if bias == "DEMAND":
-                            proximal = max(in_c, out1_o)
-                            distal = min(in_l, out1_l)
-                        else:
-                            proximal = min(in_c, out1_o)
-                            distal = max(in_h, out1_h)
+            if structure_ok:
+                base_str = "-".join(["B"] * num_bases)
+                pattern = f"{in_prefix}-{base_str}-{out_str}"
+                ratio_vs_legin = round(total_out_body / max(in_body, 0.01), 2)
+                break
 
         if not pattern or proximal <= 0 or distal <= 0 or proximal == distal:
             continue
@@ -453,31 +407,34 @@ def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
         if bias == "SUPPLY" and current_ltp > distal:
             continue
 
-        # --- STRICT VIOLATION & IMMEDIATE FOLLOW-THROUGH CHECK ---
         violated = False
         touch_count = 0
+        has_left_zone = (i == len(candles) - 1)
+
         for j in range(i + 1, len(candles)):
             c_high, c_low = candles[j][2], candles[j][3]
             if bias == "DEMAND":
                 if c_low < distal:
                     violated = True
                     break
-                if c_low <= proximal:
-                    if j == i + 1:
-                        violated = True
-                        break
-                    touch_count += 1
+                if not has_left_zone:
+                    if c_low > proximal:
+                        has_left_zone = True
+                else:
+                    if c_low <= proximal:
+                        touch_count += 1
             else:
                 if c_high > distal:
                     violated = True
                     break
-                if c_high >= proximal:
-                    if j == i + 1:
-                        violated = True
-                        break
-                    touch_count += 1
+                if not has_left_zone:
+                    if c_high < proximal:
+                        has_left_zone = True
+                else:
+                    if c_high >= proximal:
+                        touch_count += 1
 
-        if violated:
+        if violated or not has_left_zone:
             continue
 
         status = "Untested (Fresh)" if touch_count == 0 else f"Tested ({touch_count}x)"
@@ -493,31 +450,25 @@ def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
                 status = "⚡ Approaching L2"
 
         dist_pct = (abs(proximal - current_ltp) / current_ltp) * 100 if current_ltp > 0 else 100.0
+        is_rbr_demand = pattern.startswith("R-B-") and bias == "DEMAND"
+        setup_rank = 0 if is_rbr_demand else 1
 
         priority_rank = (
             0 if "🎯" in status else
             1 if "⚡" in status else
             2 if "Untested" in status else 3
         )
-        setup_rank = 0 if "-B-" in pattern else 1
 
         raw_valid_zones.append({
-            "pattern": pattern,
-            "bias": bias,
-            "proximal": round(proximal, 2),
-            "distal": round(distal, 2),
-            "risk": risk,
-            "status": status,
-            "multiplier": ratio_vs_legin,
-            "priority_rank": priority_rank,
-            "setup_rank": setup_rank,
-            "dist_pct": dist_pct
+            "pattern": pattern, "bias": bias,
+            "proximal": round(proximal, 2), "distal": round(distal, 2),
+            "risk": risk, "status": status, "multiplier": ratio_vs_legin,
+            "priority_rank": priority_rank, "setup_rank": setup_rank, "dist_pct": dist_pct
         })
 
     if not raw_valid_zones:
         return []
 
-    # Deduplicate overlapping zones while preserving distinct Level-Over-Level (LoL) zones
     distinct_zones = []
     for z in raw_valid_zones:
         z_low, z_high = min(z["proximal"], z["distal"]), max(z["proximal"], z["distal"])
@@ -531,20 +482,7 @@ def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
         if not is_duplicate:
             distinct_zones.append(z)
 
-    demand_zones = [z for z in distinct_zones if z["bias"] == "DEMAND"]
-    supply_zones = [z for z in distinct_zones if z["bias"] == "SUPPLY"]
-
-    if len(demand_zones) >= 2:
-        demand_zones.sort(key=lambda x: x["proximal"], reverse=True)
-        for idx, dz in enumerate(demand_zones):
-            dz["pattern"] = f"{dz['pattern']} (LoL #{idx+1})"
-
-    if len(supply_zones) >= 2:
-        supply_zones.sort(key=lambda x: x["proximal"])
-        for idx, sz in enumerate(supply_zones):
-            sz["pattern"] = f"{sz['pattern']} (LoL #{idx+1})"
-
-    distinct_zones.sort(key=lambda x: (x["priority_rank"], x["setup_rank"], x["dist_pct"]))
+    distinct_zones.sort(key=lambda x: (x["setup_rank"], x["priority_rank"], x["dist_pct"]))
     for z in distinct_zones:
         del z["priority_rank"]
         del z["setup_rank"]
@@ -558,20 +496,14 @@ def fetch_historical_candles(instrument_key, interval):
     cache_key = f"{instrument_key}_{interval}"
 
     cached = CANDLE_CACHE.get(cache_key)
-    if cached and (time.time() - cached["ts"] < 600) and cached["candles"]:
+    if cached and (time.time() - cached["ts"] < 900) and cached["candles"]:
         return cached["candles"]
 
     to_date = date.today()
-
     if interval in ["1minute", "5minute", "15minute", "30minute", "60minute"]:
-        if interval == "5minute": from_date = to_date - timedelta(days=10)
-        elif interval == "15minute": from_date = to_date - timedelta(days=25)
-        elif interval == "60minute": from_date = to_date - timedelta(days=60)
-        else: from_date = to_date - timedelta(days=5)
+        from_date = to_date - timedelta(days=10 if interval == "5minute" else 30)
     else:
-        if interval == "day": from_date = to_date - timedelta(days=730)
-        elif interval == "week": from_date = to_date - timedelta(days=1825)
-        else: from_date = to_date - timedelta(days=3650)
+        from_date = to_date - timedelta(days=730 if interval == "day" else 1825)
 
     to_date_str = to_date.strftime('%Y-%m-%d')
     from_date_str = from_date.strftime('%Y-%m-%d')
@@ -580,9 +512,9 @@ def fetch_historical_candles(instrument_key, interval):
     url = f"https://api.upstox.com/v2/historical-candle/{encoded_key}/{api_interval}/{to_date_str}/{from_date_str}"
     headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
 
-    for attempt in range(4):
+    for attempt in range(3):
         try:
-            res = HTTP_SESSION.get(url, headers=headers, timeout=8)
+            res = HTTP_SESSION.get(url, headers=headers, timeout=6)
             if res.status_code == 200:
                 candles = res.json().get("data", {}).get("candles", [])
                 candles.reverse()
@@ -594,7 +526,7 @@ def fetch_historical_candles(instrument_key, interval):
                     CANDLE_CACHE[cache_key] = {"candles": candles, "ts": time.time()}
                 return candles
             elif res.status_code == 429:
-                time.sleep(0.5 * (attempt + 1))
+                time.sleep(0.3 * (attempt + 1))
         except Exception:
             time.sleep(0.2)
     return []
@@ -611,7 +543,7 @@ def zone_screener():
         tf = "day"
 
     univ_zone_cache = ZONE_CACHE.setdefault(univ_key, {"last_updated": {}})
-    if not force_refresh and (time.time() - univ_zone_cache["last_updated"].get(tf, 0) < 30) and len(univ_zone_cache.get(tf, [])) > 0:
+    if not force_refresh and (time.time() - univ_zone_cache["last_updated"].get(tf, 0) < 45) and len(univ_zone_cache.get(tf, [])) > 0:
         return jsonify({"status": "success", "data": univ_zone_cache[tf]})
 
     quotes_res = fetch_live_upstox_quotes(univ_key)
@@ -636,7 +568,7 @@ def zone_screener():
             })
         return stock_zones
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = [executor.submit(worker, stock) for stock in target_universe]
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
@@ -644,8 +576,8 @@ def zone_screener():
                 results.extend(res)
 
     results.sort(key=lambda x: (
+        0 if x["pattern"].startswith("R-B-") and x["bias"] == "DEMAND" else 1,
         0 if "🎯" in x["status"] else 1 if "⚡" in x["status"] else 2 if "Untested" in x["status"] else 3,
-        0 if "-B-" in x["pattern"] else 1,
         -x.get("multiplier", 1.0)
     ))
 
@@ -653,10 +585,6 @@ def zone_screener():
     univ_zone_cache["last_updated"][tf] = time.time()
 
     return jsonify({"status": "success", "data": results})
-
-# =========================================================================
-# LIVE SCREENER & SECTOR APIS
-# =========================================================================
 
 def detect_open_setup(open_p, high_p, low_p):
     if open_p <= 0 or low_p <= 0 or high_p <= 0:
@@ -697,7 +625,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
     univ_key, target_universe = get_active_universe_list(univ_type)
     cache_entry = QUOTE_CACHE.setdefault(univ_key, {"data": [], "last_updated": 0})
 
-    if time.time() - cache_entry["last_updated"] < 6 and cache_entry["data"]:
+    if time.time() - cache_entry["last_updated"] < 5 and cache_entry["data"]:
         return cache_entry["data"]
 
     results = []
@@ -709,7 +637,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
         keys_param = ",".join([item["isin"] for item in chunk])
         url = "https://api.upstox.com/v2/market-quote/quotes"
         try:
-            res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": keys_param}, timeout=10)
+            res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": keys_param}, timeout=8)
             if res.status_code == 401:
                 return {"error": "Upstox API Token Expired."}
             elif res.status_code != 200:
@@ -757,7 +685,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
         return chunk_results
 
     chunks = [target_universe[i:i + chunk_size] for i in range(0, len(target_universe), chunk_size)]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = [executor.submit(fetch_chunk, c) for c in chunks]
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
@@ -854,8 +782,11 @@ def screener():
     if isinstance(stocks, dict) and "error" in stocks:
         return jsonify({"status": "error", "message": stocks["error"]})
 
-    top_gainers = [s for s in sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True) if float(s.get("pricePct", 0.0)) > 0][:20]
-    top_losers = [s for s in sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0))) if float(s.get("pricePct", 0.0)) < 0][:20]
+    def get_price_pct(item):
+        return float(item.get("pricePct", 0.0))
+
+    top_gainers = [s for s in sorted(stocks, key=get_price_pct, reverse=True) if float(s.get("pricePct", 0.0)) > 0][:20]
+    top_losers = [s for s in sorted(stocks, key=get_price_pct) if float(s.get("pricePct", 0.0)) < 0][:20]
 
     filtered_stocks = list(stocks)
     if filter_val and filter_val != "ALL":
@@ -926,7 +857,7 @@ def ticker_bar():
     url = "https://api.upstox.com/v2/market-quote/quotes"
 
     try:
-        res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": ",".join(index_isins)}, timeout=5)
+        res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": ",".join(index_isins)}, timeout=4)
         if res.status_code == 200:
             data = res.json().get("data", {})
             for idx in MARKET_INDICES:
@@ -945,7 +876,9 @@ def ticker_bar():
 
     stocks = fetch_live_upstox_quotes(univ_type)
     if isinstance(stocks, list) and len(stocks) > 0:
-        sorted_by_gain = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True)
+        def get_price_pct_item(item):
+            return float(item.get("pricePct", 0.0))
+        sorted_by_gain = sorted(stocks, key=get_price_pct_item, reverse=True)
         if len(sorted_by_gain) > 0:
             top_gainer = sorted_by_gain[0]
             ticker_results.append({"symbol": f"TOP GAINER: {top_gainer['symbol']}", "price": f"{top_gainer['ltp']:,.2f}", "change": f"{top_gainer['pricePct']:+.2f}%", "isPositive": True})

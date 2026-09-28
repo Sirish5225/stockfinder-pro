@@ -36,6 +36,18 @@
     body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
     .mono { font-family: 'JetBrains Mono', monospace; }
 
+    /* --- SKELETON ANIMATIONS --- */
+    @keyframes pulse {
+      0% { opacity: 0.5; }
+      50% { opacity: 1; }
+      100% { opacity: 0.5; }
+    }
+    .skeleton {
+      background: var(--border);
+      border-radius: 6px;
+      animation: pulse 1.4s infinite ease-in-out;
+    }
+
     /* --- SIDEBAR STYLES --- */
     .sidebar {
       width: 260px; min-width: 260px; flex-shrink: 0;
@@ -356,19 +368,19 @@
         <div class="kpi-grid">
           <div class="kpi-card" onclick="setFilter('Long Buildup')">
             <div class="kpi-title" style="color:var(--green);">Long Buildup</div>
-            <div class="kpi-val mono" id="k-lb">0</div>
+            <div class="kpi-val mono" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
           </div>
           <div class="kpi-card" onclick="setFilter('Short Buildup')">
             <div class="kpi-title" style="color:var(--red);">Short Buildup</div>
-            <div class="kpi-val mono" id="k-sb">0</div>
+            <div class="kpi-val mono" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
           </div>
           <div class="kpi-card" onclick="setFilter('Short Covering')">
             <div class="kpi-title" style="color:#38bdf8;">Short Covering</div>
-            <div class="kpi-val mono" id="k-sc">0</div>
+            <div class="kpi-val mono" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
           </div>
           <div class="kpi-card" onclick="setFilter('Long Unwinding')">
             <div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div>
-            <div class="kpi-val mono" id="k-lu">0</div>
+            <div class="kpi-val mono" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
           </div>
         </div>
 
@@ -376,13 +388,13 @@
           <div class="movers-panel">
             <div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div>
             <div class="movers-list-scroll" id="top-gainers-list">
-              <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+              <div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div>
             </div>
           </div>
           <div class="movers-panel">
             <div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div>
             <div class="movers-list-scroll" id="top-losers-list">
-              <div style="color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Loading...</div>
+              <div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div>
             </div>
           </div>
         </div>
@@ -423,7 +435,14 @@
               </tr>
             </thead>
             <tbody id="tbody">
-              <tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">Loading market data...</td></tr>
+              <tr>
+                <td colspan="7" style="padding: 2rem;">
+                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
+                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
+                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
+                  <div class="skeleton" style="width: 100%; height: 38px;"></div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -481,11 +500,11 @@
         <div class="panel">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
             <div>
-              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Zones (H2 / H1 Rules)</h3>
-              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated RBR, DBR, RBD, DBD, & V-Reversals.</p>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
+              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
             </div>
             
-            <div class="filter-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
+            <div class="filter-wrapper" id="tf-buttons-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
               <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
               <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
               <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
@@ -497,12 +516,12 @@
           <div class="toolbar" style="margin-bottom: 1rem; padding: 0.8rem; background: transparent; border: none;">
             <div class="filter-wrapper" id="zone-filters">
               <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
-              <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone (Actionable)</button>
+              <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone</button>
               <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
               <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
             </div>
             <div class="search-wrapper">
-              <input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" />
+              <input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SYMBOL OR PATTERN..." oninput="renderZonesTable()" />
             </div>
           </div>
 
@@ -514,8 +533,8 @@
                   <th onclick="toggleZoneSort('bias')">BIAS ↕</th>
                   <th onclick="toggleZoneSort('pattern')">PATTERN ↕</th>
                   <th onclick="toggleZoneSort('ltp')">CURRENT PRICE ↕</th>
-                  <th onclick="toggleZoneSort('proximal')">ENTRY (H2) ↕</th>
-                  <th onclick="toggleZoneSort('distal')">SL (H1) ↕</th>
+                  <th onclick="toggleZoneSort('proximal')">PROXIMAL LINE ↕</th>
+                  <th onclick="toggleZoneSort('distal')">DISTAL LINE ↕</th>
                   <th onclick="toggleZoneSort('status')">ZONE STATUS ↕</th>
                   <th>CHART</th>
                 </tr>
@@ -565,11 +584,10 @@
     
     let rawZonesData = [];
     let currentZoneFilter = 'ALL';
-    let zoneSortCol = 'status';
+    let zoneSortCol = null;
     let zoneSortDir = 'desc';
     let zonePollingInterval = null;
     
-    // Theme initialization
     document.addEventListener("DOMContentLoaded", () => {
       const themeBtn = document.getElementById('theme-icon-btn');
       if (localStorage.getItem('theme') === 'light') {
@@ -668,7 +686,6 @@
     async function switchUniverse(type) {
       currentUniverse = type;
 
-      // NIFTY500 ki switch chesinappudu F&O buildup filters active ga unte 'ALL' ki reset cheyali
       const foOnlyFilters = ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'];
       if (type === 'NIFTY500' && foOnlyFilters.includes(currentFilter)) {
         currentFilter = 'ALL';
@@ -684,7 +701,6 @@
       sectorsData = [];
       rawZonesData = [];
 
-      // Timer reset chesi fresh ga fetch cheyali
       if (document.getElementById('auto-refresh-toggle').checked) {
         stopIntervals();
         startIntervals();
@@ -745,13 +761,11 @@
       const ts = Date.now();
 
       try {
-        // Backend ki 'ALL' pampinchi client-side lo filter chesthe Sector Heatmap ki eppudu full stocks list untundi
         const [res1, res2] = await Promise.all([
           fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' }),
           fetch(`/api/sectors?universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' })
         ]);
         
-        // Universe madhyalo marithe patha request response ignore cheyali
         if (reqId !== fetchRequestId || requestedUniverse !== currentUniverse) return;
         if(!res1.ok || !res2.ok) return;
 
@@ -790,8 +804,6 @@
         if (currentTab === 'sec') renderSectors();
       } catch(e) { console.error("Data fetch error:", e); }
     }
-
-    // --- SCREENER LOGIC --- //
 
     function updateKPIs(stocks) {
       let counts = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
@@ -884,8 +896,6 @@
       renderTable();
     }
 
-    // --- SECTOR LOGIC --- //
-
     function selectSector(sectorName) {
       const cards = document.querySelectorAll('.sector-card');
       for (const card of cards) {
@@ -913,7 +923,6 @@
 
       let sortedSectors = [...sectorsData].sort((a,b) => b.avgChange - a.avgChange);
       
-      // 1. UPDATE EXTREMES (TOP & BOTTOM SECTOR CARDS)
       const topSec = sortedSectors[0];
       if(topSec) {
           document.getElementById('top-sec-name').innerText = topSec.sector;
@@ -929,7 +938,6 @@
           document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%';
       }
 
-      // 2. RENDER DIVERGENT BAR CHART
       if (chartContainer) {
           let chartHtml = `<div style="margin-bottom: 16px; font-size: 1rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
           
@@ -956,7 +964,6 @@
           chartContainer.style.display = 'block';
       }
 
-      // 3. RENDER THE HEATMAP GRID
       container.innerHTML = sectorsData.map(sec => {
         const avg = sec.avgChange || 0;
         const isBullish = avg >= 0;
@@ -964,7 +971,6 @@
         const textClass = isBullish ? 'text-green' : 'text-red';
         const barWidth = Math.min((Math.abs(avg) / scaleBase) * 100, 100);
 
-        // Backend sec.stocks isthe adi vadutundi, lekapothe marketStocks nundi filter chesthundi
         let stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
         stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0)); 
 
@@ -977,7 +983,7 @@
              </td>
              <td class="mono" style="color:var(--strong-text);">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td>
              <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-           </tr>`;
+            </tr>`;
         }).join('');
 
         return `
@@ -1004,14 +1010,11 @@
       }).join('');
     }
 
-    // --- ZONES LOGIC --- //
-
     async function fetchZones(tf, btnElement = null, forceRefresh = false) {
       currentZoneTF = tf;
       
       if(btnElement) {
-        document.querySelectorAll('#zone-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('#view-zones .filter-wrapper:not(#zone-filters) .filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#tf-buttons-wrapper .filter-btn').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
       }
 
@@ -1055,26 +1058,39 @@
 
     function toggleZoneSort(col) {
       if (zoneSortCol === col) zoneSortDir = zoneSortDir === 'desc' ? 'asc' : 'desc';
-      else { zoneSortCol = col; zoneSortDir = 'desc'; }
+      else { zoneSortCol = col; zoneSortDir = 'asc'; }
       renderZonesTable();
     }
 
     function renderZonesTable() {
       let filtered = [...rawZonesData];
       
-      if (currentZoneFilter === 'DEMAND') filtered = filtered.filter(z => z.bias === 'DEMAND');
-      else if (currentZoneFilter === 'SUPPLY') filtered = filtered.filter(z => z.bias === 'SUPPLY');
-      else if (currentZoneFilter === 'IN_ZONE') filtered = filtered.filter(z => z.status.includes('In Zone'));
+      if (currentZoneFilter === 'DEMAND') {
+        filtered = filtered.filter(z => z.bias === 'DEMAND');
+      } else if (currentZoneFilter === 'SUPPLY') {
+        filtered = filtered.filter(z => z.bias === 'SUPPLY');
+      } else if (currentZoneFilter === 'IN_ZONE') {
+        filtered = filtered.filter(z => z.status.includes('In Zone'));
+      }
 
       const searchBox = document.getElementById('search-zones');
       const searchVal = searchBox ? searchBox.value.toLowerCase().trim() : '';
-      if (searchVal) filtered = filtered.filter(z => (z.symbol || '').toLowerCase().includes(searchVal) || (z.sector || '').toLowerCase().includes(searchVal));
+      if (searchVal) {
+        filtered = filtered.filter(z =>
+          (z.symbol || '').toLowerCase().includes(searchVal) ||
+          (z.sector || '').toLowerCase().includes(searchVal) ||
+          (z.pattern || '').toLowerCase().includes(searchVal) ||
+          (z.pattern || '').replace(/-/g, '').toLowerCase().includes(searchVal)
+        );
+      }
 
-      filtered.sort((a, b) => {
-        let valA = a[zoneSortCol], valB = b[zoneSortCol];
-        if (typeof valA === 'string') return zoneSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-        return zoneSortDir === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
-      });
+      if (zoneSortCol) {
+        filtered.sort((a, b) => {
+          let valA = a[zoneSortCol], valB = b[zoneSortCol];
+          if (typeof valA === 'string') return zoneSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+          return zoneSortDir === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+        });
+      }
 
       const tbody = document.getElementById('zones-tbody');
       if (!filtered.length) {
@@ -1086,6 +1102,9 @@
         const biasCls = z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply';
         const statusBadge = z.status.includes('In Zone') ? 'badge-gold' : z.status.includes('Approaching') ? 'badge-green' : 'badge-muted';
         
+        let proximalVal = z.proximal;
+        let distalVal = z.distal;
+
         return `
           <tr>
             <td>
@@ -1097,8 +1116,8 @@
             <td><span class="${biasCls} badge">${z.bias}</span></td>
             <td class="mono" style="font-weight:700; font-size:0.85rem;">${z.pattern}</td>
             <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
-            <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${z.proximal.toFixed(2)}</td>
-            <td class="mono" style="color:var(--muted);">₹${z.distal.toFixed(2)}</td>
+            <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(proximalVal || 0).toFixed(2)}</td>
+            <td class="mono" style="color:var(--strong-text);">₹${Number(distalVal || 0).toFixed(2)}</td>
             <td><span class="badge ${statusBadge}">${z.status}</span></td>
             <td>
                 <button class="filter-btn" style="padding:4px 8px; font-size:0.65rem; background:transparent;" onclick="openChart('${z.symbol}')">Chart ↗</button>
@@ -1108,7 +1127,6 @@
       }).join('');
     }
 
-    // Application Bootstrap
     fetchTickerBar();
     fetchData();
     startIntervals();

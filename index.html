@@ -68,7 +68,6 @@
     .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
     .toggle-row:hover { border-color: var(--muted); }
     .toggle-label { font-size: 0.8rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
-    
     .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 34px; border: 1px solid var(--border); }
@@ -81,29 +80,14 @@
     main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 
     /* --- TICKER BAR --- */
-    .market-ticker-container {
-      width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); 
-      box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s;
-    }
-    
-    .hamburger-btn {
-      background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
-      height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0;
-    }
+    .market-ticker-container { width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s; }
+    .hamburger-btn { background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0; }
     .hamburger-btn:hover { background: var(--hover-bg); color: var(--primary); }
-
-    .theme-btn {
-      height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border);
-      color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center;
-      font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0;
-    }
+    .theme-btn { height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border); color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0; }
     .theme-btn:hover { background: var(--hover-bg); }
-
     .ticker-wrapper { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative; }
-    
     .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; position: relative; z-index: 10; white-space: nowrap; }
     .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
-    
     .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
     .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
     .ticker-price { color: var(--strong-text); margin-right: 8px; font-family: 'JetBrains Mono', monospace; }
@@ -111,7 +95,7 @@
     .ticker-change.negative { color: var(--red); font-weight: 600; }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-    /* --- KPI & PANELS (GLASSMORPHISM) --- */
+    /* --- KPI & PANELS --- */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
     .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
@@ -132,7 +116,6 @@
     .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
     .filter-btn:hover { border-color: var(--muted); }
     .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    
     .search-wrapper { display: flex; gap: 8px; align-items: center; }
     .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; min-width: 200px; max-width: 250px; transition: border 0.2s; }
     .search-box:focus { border-color: var(--primary); }
@@ -142,26 +125,20 @@
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
     th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: var(--th-bg); position: sticky; top: 0; z-index: 10; letter-spacing: 0.5px; transition: background-color 0.3s; }
     th:hover { color: var(--strong-text); }
-    td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); transition: background-color 0.3s; }
+    td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
     tr:hover td { background: var(--hover-bg); }
 
-    /* COMPACT MODE MODIFIERS */
     .table-container.compact td { padding: 0.35rem 1rem; font-size: 0.75rem; }
     .table-container.compact th { padding: 0.5rem 1rem; font-size: 0.65rem; }
-
-    /* LIVE FLASH ANIMATIONS */
-    @keyframes flashUp { 0% { background-color: rgba(46, 204, 113, 0.35); } 100% { background-color: transparent; } }
-    @keyframes flashDown { 0% { background-color: rgba(231, 76, 60, 0.35); } 100% { background-color: transparent; } }
-    .flash-up td { animation: flashUp 1.5s ease-out; }
-    .flash-down td { animation: flashDown 1.5s ease-out; }
 
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; transition: color 0.2s; }
     .stock-link:hover { color: var(--primary); }
 
-    /* --- BADGES --- */
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
+    .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-yellow { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
     .badge-demand { background: rgba(8, 153, 129, 0.15); color: var(--green); border: 1px solid var(--green); }
     .badge-supply { background: rgba(242, 54, 69, 0.15); color: var(--red); border: 1px solid var(--red); }
     .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
@@ -238,10 +215,28 @@
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
     .barchart-val { position: absolute; top: 0; line-height: 20px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); white-space: nowrap; }
 
+    /* --- MOBILE BOTTOM NAVIGATION --- */
+    .bottom-nav {
+      display: none; background: var(--sidebar-bg); border-top: 1px solid var(--border);
+      padding: 0.5rem 1rem; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+      justify-content: space-around; z-index: 100; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    }
+    .bnav-btn {
+      background: transparent; border: none; color: var(--muted);
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .bnav-btn.active { color: var(--primary); }
+    .bnav-btn .icon { font-size: 1.2rem; margin-bottom: 2px; }
+
     /* --- RESPONSIVE MEDIA QUERIES --- */
     @media(max-width: 1024px) {
       .sidebar { position: absolute; left: 0; height: 100vh; transform: translateX(-100%); margin-left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.5); opacity: 1; pointer-events: auto; z-index: 1000; }
       .sidebar.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+      
+      .sidebar-nav { display: none; }
+      .bottom-nav { display: flex; }
       
       .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 1rem; }
@@ -393,8 +388,8 @@
         </div>
 
         <div class="toolbar">
-          <div class="filter-wrapper">
-            <button class="filter-btn active" onclick="setFilter('ALL', this)">ALL</button>
+          <div class="filter-wrapper" id="screener-filters">
+            <button class="filter-btn active" id="flt-all-btn" onclick="setFilter('ALL', this)">ALL</button>
             <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
             <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
             <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
@@ -534,6 +529,22 @@
       </div>
 
     </main>
+
+    <!-- MOBILE BOTTOM NAVIGATION -->
+    <nav class="bottom-nav">
+      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')">
+        <span class="icon">📊</span>
+        <span>Screener</span>
+      </button>
+      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')">
+        <span class="icon">🥧</span>
+        <span>Sectors</span>
+      </button>
+      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')">
+        <span class="icon">🎯</span>
+        <span>Zones</span>
+      </button>
+    </nav>
   </div>
 
   <script>
@@ -542,12 +553,12 @@
     let currentUniverse = 'FO';
     let currentZoneTF = 'day'; 
     let marketStocks = [];
-    let prevDataMap = new Map(); 
     let sectorsData = [];
     let isCompact = false;
     
     let autoRefreshInterval = null;
     let tickerInterval = null;
+    let fetchRequestId = 0;
 
     let sortColumn = 'momentumScore';
     let sortDirection = 'desc';
@@ -607,10 +618,13 @@
     function switchTab(tab) {
       currentTab = tab;
       
-      // Update Desktop Sidebar active states
       document.getElementById('btn-scr').classList.toggle('active', tab === 'scr');
       document.getElementById('btn-sec').classList.toggle('active', tab === 'sec');
       document.getElementById('btn-zones').classList.toggle('active', tab === 'zones');
+      
+      document.getElementById('bnav-scr').classList.toggle('active', tab === 'scr');
+      document.getElementById('bnav-sec').classList.toggle('active', tab === 'sec');
+      document.getElementById('bnav-zones').classList.toggle('active', tab === 'zones');
       
       document.getElementById('view-scr').style.display = tab === 'scr' ? 'block' : 'none';
       document.getElementById('view-sec').style.display = tab === 'sec' ? 'block' : 'none';
@@ -653,11 +667,32 @@
 
     async function switchUniverse(type) {
       currentUniverse = type;
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching Universe & Loading Market Data...</td></tr>`;
+
+      // NIFTY500 ki switch chesinappudu F&O buildup filters active ga unte 'ALL' ki reset cheyali
+      const foOnlyFilters = ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'];
+      if (type === 'NIFTY500' && foOnlyFilters.includes(currentFilter)) {
+        currentFilter = 'ALL';
+        document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
+        const allBtn = document.getElementById('flt-all-btn');
+        if (allBtn) allBtn.classList.add('active');
+      }
+
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching to ${type === 'NIFTY500' ? 'NIFTY 500' : 'F&O'} Universe & Loading Market Data...</td></tr>`;
+      document.getElementById('sectors-list').innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Loading ${type === 'NIFTY500' ? 'NIFTY 500' : 'F&O'} Sectors...</div>`;
+      
       marketStocks = []; 
-      prevDataMap.clear();
-      fetchData();       
+      sectorsData = [];
+      rawZonesData = [];
+
+      // Timer reset chesi fresh ga fetch cheyali
+      if (document.getElementById('auto-refresh-toggle').checked) {
+        stopIntervals();
+        startIntervals();
+      }
+
+      await fetchData();        
       fetchTickerBar();  
+      if (currentTab === 'zones') fetchZones(currentZoneTF, null, true);
       closeSidebarMobile();
     }
 
@@ -665,8 +700,9 @@
       if (!input.files || !input.files[0]) return;
       const formData = new FormData();
       formData.append("file", input.files[0]);
+      formData.append("universe", currentUniverse);
       try {
-        const res = await fetch('/api/upload-universe', { method: 'POST', body: formData });
+        const res = await fetch(`/api/upload-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST', body: formData });
         const result = await res.json();
         if (result.status === 'success') {
           alert(result.message);
@@ -678,7 +714,7 @@
     async function resetUniverse() {
       if (!confirm("Reset to default stock list?")) return;
       try {
-        const res = await fetch('/api/reset-universe', { method: 'POST' });
+        const res = await fetch(`/api/reset-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST' });
         const result = await res.json();
         if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); }
       } catch (e) {}
@@ -686,7 +722,7 @@
 
     async function fetchTickerBar() {
       try {
-        const res = await fetch('/api/ticker-bar');
+        const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
         if(!res.ok) return;
         const json = await res.json();
         if(json.status === 'success' && json.data.length > 0) {
@@ -704,11 +740,19 @@
     }
 
     async function fetchData() {
+      const reqId = ++fetchRequestId;
+      const requestedUniverse = currentUniverse;
+      const ts = Date.now();
+
       try {
+        // Backend ki 'ALL' pampinchi client-side lo filter chesthe Sector Heatmap ki eppudu full stocks list untundi
         const [res1, res2] = await Promise.all([
-          fetch(`/api/screener?filter=${encodeURIComponent(currentFilter)}&universe=${currentUniverse}`),
-          fetch(`/api/sectors?universe=${currentUniverse}`)
+          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' }),
+          fetch(`/api/sectors?universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' })
         ]);
+        
+        // Universe madhyalo marithe patha request response ignore cheyali
+        if (reqId !== fetchRequestId || requestedUniverse !== currentUniverse) return;
         if(!res1.ok || !res2.ok) return;
 
         const d1 = await res1.json();
@@ -726,39 +770,24 @@
         const d2 = await res2.json();
 
         if(d1 && d1.status === 'success') {
-          if (marketStocks.length > 0) {
-            prevDataMap.clear();
-            marketStocks.forEach(s => prevDataMap.set(s.symbol, s.ltp));
-          }
-          
           marketStocks = d1.data || [];
-          
-          marketStocks.forEach(s => {
-            const prevLtp = prevDataMap.get(s.symbol);
-            if (prevLtp !== undefined) {
-              if (s.ltp > prevLtp) s.flash = 'flash-up';
-              else if (s.ltp < prevLtp) s.flash = 'flash-down';
-              else s.flash = '';
-            }
-          });
 
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
           updateKPIs(marketStocks);
           renderExplicitMovers(d1.topGainers, d1.topLosers);
           renderTable();
-          
-          if(currentTab === 'sec') renderSectors();
         }
 
         if(d2 && d2.status === 'success') {
           sectorsData = d2.data || [];
-          if (currentTab === 'sec') renderSectors();
           if(d2.marketBreadth) {
             document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
             document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
           }
         }
+
+        if (currentTab === 'sec') renderSectors();
       } catch(e) { console.error("Data fetch error:", e); }
     }
 
@@ -789,6 +818,14 @@
       renderTable();
     }
 
+    function getBuildupBadge(buildup) {
+      if (buildup === 'Long Buildup') return `<span class="badge badge-green">Long Buildup</span>`;
+      if (buildup === 'Short Buildup') return `<span class="badge badge-red">Short Buildup</span>`;
+      if (buildup === 'Short Covering') return `<span class="badge badge-blue">Short Covering</span>`;
+      if (buildup === 'Long Unwinding') return `<span class="badge badge-yellow">Long Unwinding</span>`;
+      return `<span class="badge badge-muted">${buildup || 'CASH / EQ'}</span>`;
+    }
+
     function renderTable() {
       const searchBox = document.getElementById('search');
       const search = searchBox ? searchBox.value.toLowerCase() : '';
@@ -814,7 +851,6 @@
         const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
         const oiCls = (s.oiPct || 0) >= 0 ? 'val-up' : 'val-down';
         let tag = s.candleTag === 'OPEN=LOW' ? `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>` : s.candleTag === 'OPEN=HIGH' ? `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>` : '';
-        const flashClass = s.flash ? s.flash : '';
         
         let volHtml = `<td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}`;
         if (s.volMultiplier >= 1.5) {
@@ -823,7 +859,7 @@
         volHtml += `</td>`;
 
         return `
-          <tr class="${flashClass}">
+          <tr>
             <td>
               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
               <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
@@ -831,8 +867,8 @@
             <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
             ${volHtml}
-            <td class="mono ${oiCls}">${(s.oiPct || 0) > 0 ? '+' : ''}${s.oiPct || 0}%</td>
-            <td><span class="badge ${s.buildup==='Long Buildup'?'badge-green':'badge-red'}">${s.buildup || '-'}</span></td>
+            <td class="mono ${oiCls}">${s.oiPct !== undefined && s.oiPct !== null ? ((s.oiPct > 0 ? '+' : '') + s.oiPct + '%') : '-'}</td>
+            <td>${getBuildupBadge(s.buildup)}</td>
             <td class="mono" style="color:var(--primary); font-weight:600;">${s.momentumScore || 0}</td>
           </tr>
         `;
@@ -842,7 +878,7 @@
     function setFilter(flt, el) {
       currentFilter = flt;
       if(el) {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
         el.classList.add('active');
       }
       renderTable();
@@ -867,12 +903,12 @@
       const container = document.getElementById('sectors-list');
       const chartContainer = document.getElementById('sector-bar-chart');
       
-      if(!sectorsData.length || !marketStocks.length) {
+      if(!sectorsData.length && !marketStocks.length) {
           if(chartContainer) chartContainer.style.display = 'none';
           return;
       }
 
-      const maxChange = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)));
+      const maxChange = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)), 0);
       const scaleBase = maxChange > 0 ? maxChange : 1; 
 
       let sortedSectors = [...sectorsData].sort((a,b) => b.avgChange - a.avgChange);
@@ -928,19 +964,19 @@
         const textClass = isBullish ? 'text-green' : 'text-red';
         const barWidth = Math.min((Math.abs(avg) / scaleBase) * 100, 100);
 
-        let stocks = marketStocks.filter(s => s.sector === sec.sector);
-        stocks.sort((a, b) => b.pricePct - a.pricePct); 
+        // Backend sec.stocks isthe adi vadutundi, lekapothe marketStocks nundi filter chesthundi
+        let stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
+        stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0)); 
 
         const stocksHtml = stocks.map(s => {
-           const pCls = s.pricePct >= 0 ? 'text-green' : 'text-red';
-           const flashClass = s.flash ? s.flash : '';
-           return `<tr class="${flashClass}">
+           const pCls = (s.pricePct || 0) >= 0 ? 'text-green' : 'text-red';
+           return `<tr>
              <td>
                <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
-               <span class="sub-text">${s.name || s.sector}</span>
+               <span class="sub-text">${s.name || s.sector || sec.sector}</span>
              </td>
-             <td class="mono" style="color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
-             <td class="mono ${pCls}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+             <td class="mono" style="color:var(--strong-text);">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td>
+             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
            </tr>`;
         }).join('');
 
@@ -974,7 +1010,7 @@
       currentZoneTF = tf;
       
       if(btnElement) {
-        document.querySelectorAll('#zone-filters .filter-btn').forEach(b => b.classList.remove('active')); // Reset subfilters
+        document.querySelectorAll('#zone-filters .filter-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('#view-zones .filter-wrapper:not(#zone-filters) .filter-btn').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
       }
@@ -983,8 +1019,8 @@
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow... This takes a few seconds.</td></tr>`;
 
       try {
-        const url = forceRefresh ? `/api/zone-screener?tf=${tf}&t=${Date.now()}` : `/api/zone-screener?tf=${tf}`;
-        const res = await fetch(url);
+        const url = `/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`;
+        const res = await fetch(url, { cache: 'no-store' });
         const data = await res.json();
         
         if (data.status === 'success') {

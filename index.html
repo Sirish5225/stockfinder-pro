@@ -14,7 +14,6 @@
   </script>
 
   <style>
-    /* --- DARK THEME (DEFAULT) --- */
     :root {
       --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.7); --border: rgba(255, 255, 255, 0.08);
       --text: #e0e0e0; --muted: #8b8b93; --green: #2ecc71; --red: #e74c3c; --primary: #f39c12;
@@ -22,8 +21,6 @@
       --hover-bg: rgba(255, 255, 255, 0.03); --bar-bg: rgba(0, 0, 0, 0.3); --bar-track: #1a1a1e;
       --strong-text: #ffffff; --input-bg: rgba(0, 0, 0, 0.3);
     }
-    
-    /* --- LIGHT THEME --- */
     [data-theme="light"] {
       --bg: #f3f4f6; --card: rgba(255, 255, 255, 0.85); --border: rgba(0, 0, 0, 0.1);
       --text: #374151; --muted: #6b7280; --green: #059669; --red: #dc2626; --primary: #d97706;
@@ -31,74 +28,40 @@
       --hover-bg: rgba(0, 0, 0, 0.04); --bar-bg: rgba(255, 255, 255, 0.6); --bar-track: #e5e7eb;
       --strong-text: #111827; --input-bg: rgba(255, 255, 255, 0.5);
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
     .mono { font-family: 'JetBrains Mono', monospace; }
-
-    /* --- SKELETON ANIMATIONS --- */
-    @keyframes pulse {
-      0% { opacity: 0.5; }
-      50% { opacity: 1; }
-      100% { opacity: 0.5; }
-    }
-    .skeleton {
-      background: var(--border);
-      border-radius: 6px;
-      animation: pulse 1.4s infinite ease-in-out;
-    }
-
-    /* --- SIDEBAR STYLES --- */
-    .sidebar {
-      width: 260px; min-width: 260px; flex-shrink: 0;
-      background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem;
-      z-index: 1000; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
-    }
+    @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+    .skeleton { background: var(--border); border-radius: 6px; animation: pulse 1.4s infinite ease-in-out; }
+    
+    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
     .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
-    
-    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
+    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; }
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; }
-    
     .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
-    .nav-btn {
-      background: transparent; border: 1px solid transparent; color: var(--muted);
-      padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px;
-      cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px;
-    }
+    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; }
     .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
-    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
+    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); }
+    
+    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
+    .sidebar-overlay.show { display: block; }
 
-    /* MOBILE SIDEBAR OVERLAY */
-    .sidebar-overlay {
-      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-      opacity: 0; transition: opacity 0.3s ease;
-    }
-    .sidebar-overlay.show { display: block; opacity: 1; }
-
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
-    .toggle-row:hover { border-color: var(--muted); }
-    .toggle-label { font-size: 0.8rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
     .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 34px; border: 1px solid var(--border); }
-    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1); border-radius: 50%; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s; border-radius: 50%; }
     input:checked + .slider { background-color: rgba(243, 156, 18, 0.15); border-color: var(--primary); }
-    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); box-shadow: 0 0 8px rgba(243, 156, 18, 0.5); }
+    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); }
 
-    /* --- MAIN CONTENT AREA --- */
     .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; }
     main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 
-    /* --- TICKER BAR --- */
-    .market-ticker-container { width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); box-sizing: border-box; height: 42px; display: flex; align-items: center; z-index: 40; position: relative; transition: background-color 0.3s; }
-    .hamburger-btn { background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid var(--border); transition: background 0.2s; position: relative; z-index: 50; flex-shrink: 0; }
-    .hamburger-btn:hover { background: var(--hover-bg); color: var(--primary); }
-    .theme-btn { height: 100%; background: var(--ticker-bg); border: none; border-left: 1px solid var(--border); color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; z-index: 50; transition: background 0.2s; flex-shrink: 0; }
-    .theme-btn:hover { background: var(--hover-bg); }
+    .market-ticker-container { width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); height: 42px; display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; }
+    .hamburger-btn, .theme-btn { background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid var(--border); flex-shrink: 0; }
+    .theme-btn { border-left: 1px solid var(--border); border-right: none; }
     .ticker-wrapper { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative; }
-    .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; position: relative; z-index: 10; white-space: nowrap; }
+    .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; white-space: nowrap; }
     .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
     .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
     .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
@@ -107,46 +70,33 @@
     .ticker-change.negative { color: var(--red); font-weight: 600; }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-    /* --- KPI & PANELS --- */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-    .kpi-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
     .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
-    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; letter-spacing: 0.5px; }
+    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
     .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
 
     .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-    .movers-panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
-    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; letter-spacing: 0.5px; }
+    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
+    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
     .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
-    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
-    .panel { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
 
-    /* --- TOOLBAR --- */
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; background: var(--card); backdrop-filter: blur(12px); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; background: var(--card); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
     .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
-    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
-    .filter-btn:hover { border-color: var(--muted); }
-    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    .search-wrapper { display: flex; gap: 8px; align-items: center; }
-    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; min-width: 200px; max-width: 250px; transition: border 0.2s; }
-    .search-box:focus { border-color: var(--primary); }
+    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; }
+    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 220px; }
 
-    /* --- MAIN DATA TABLE --- */
-    .table-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 450px); min-height: 400px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); -webkit-overflow-scrolling: touch; }
+    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
-    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; background: var(--th-bg); position: sticky; top: 0; z-index: 10; letter-spacing: 0.5px; transition: background-color 0.3s; }
-    th:hover { color: var(--strong-text); }
+    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
     td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
     tr:hover td { background: var(--hover-bg); }
-
-    .table-container.compact td { padding: 0.35rem 1rem; font-size: 0.75rem; }
-    .table-container.compact th { padding: 0.5rem 1rem; font-size: 0.65rem; }
-
-    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; transition: color 0.2s; }
+    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
     .stock-link:hover { color: var(--primary); }
-
-    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
     .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
@@ -155,242 +105,119 @@
     .badge-supply { background: rgba(242, 54, 69, 0.15); color: var(--red); border: 1px solid var(--red); }
     .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
     .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: 1px solid var(--border); }
-    
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
 
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5;}
-    ::-webkit-scrollbar-thumb:hover { background: var(--text); }
+    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: 1px solid var(--border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; }
+    .bnav-btn { background: transparent; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase; }
+    .bnav-btn.active { color: var(--primary); }
+    .bnav-btn .icon { font-size: 1.2rem; }
 
     /* --- SECTOR PERFORMANCE STYLES --- */
-    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-    .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; position: relative; backdrop-filter: blur(12px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .sector-card.bearish { box-shadow: inset 0 0 50px rgba(231, 76, 60, 0.03); }
-    .sector-card.bullish { box-shadow: inset 0 0 50px rgba(46, 204, 113, 0.03); }
-    .sector-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
-    .sector-title-wrapper { display: flex; align-items: center; gap: 10px; }
-    .sector-name { font-size: 0.85rem; font-weight: 700; margin: 0; text-transform: uppercase; color: var(--strong-text); }
-    .live-badge { background-color: rgba(231, 76, 60, 0.15); color: var(--red); font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
+    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+    .sector-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+    .sector-title-wrapper { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: space-between; }
+    .sector-name { font-size: 0.8rem; font-weight: 700; margin: 0; text-transform: uppercase; color: var(--strong-text); }
+    .live-badge { background-color: rgba(231, 76, 60, 0.15); color: var(--red); font-size: 0.55rem; padding: 2px 5px; border-radius: 4px; font-weight: 700; }
     .strength-bar { height: 3px; width: 100%; background: var(--bar-track); }
-    .strength-bar .fill { height: 100%; transition: width 0.4s ease; }
-    .bearish .strength-bar .fill { background-color: var(--red); }
-    .bullish .strength-bar .fill { background-color: var(--green); }
-    .sector-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 250px; -webkit-overflow-scrolling: touch; }
+    .strength-bar .fill { height: 100%; }
+    .sector-table-wrap { overflow-x: auto; max-height: 200px; }
     .sec-table { width: 100%; border-collapse: collapse; }
-    .sec-table th, .sec-table td { padding: 10px 16px; text-align: right; font-size: 0.75rem; border-bottom: 1px solid var(--border); }
+    .sec-table th, .sec-table td { padding: 8px 12px; text-align: right; font-size: 0.72rem; border-bottom: 1px solid var(--border); }
     .sec-table th:first-child, .sec-table td:first-child { text-align: left; }
-    .sec-table th { color: var(--muted); font-weight: 600; background: var(--th-bg); position: sticky; top: 0; text-transform: uppercase; font-size: 0.65rem; z-index: 5;}
+    .sec-table th { color: var(--muted); background: var(--th-bg); position: sticky; top: 0; font-size: 0.6rem; }
     .sec-table td { font-family: 'JetBrains Mono', monospace; color: var(--strong-text); }
-    .sec-table td span.sub-text { font-family: 'Plus Jakarta Sans', sans-serif; display: block; color: var(--muted); font-size: 0.65rem; margin-top: 2px; }
-    .text-green { color: var(--green) !important; font-weight: 600; }
-    .text-red { color: var(--red) !important; font-weight: 600; }
-
-    /* --- EXTREMES (HIGH/LOW BARS) STYLES --- */
+    .sec-table td span.sub-text { font-family: 'Plus Jakarta Sans', sans-serif; display: block; color: var(--muted); font-size: 0.6rem; }
     .extreme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-    .extreme-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: center; position: relative;}
-    .extreme-card.highest { box-shadow: inset 0 0 60px rgba(46, 204, 113, 0.05); border-color: rgba(46, 204, 113, 0.2); }
-    .extreme-card.lowest { box-shadow: inset 0 0 60px rgba(231, 76, 60, 0.05); border-color: rgba(231, 76, 60, 0.2); }
-    
-    .ex-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; }
-    .ex-title-wrap { display: flex; flex-direction: column; gap: 4px; }
-    .ex-badge { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
-    .ex-name { font-size: 1.1rem; font-weight: 700; color: var(--strong-text); }
-    .ex-val { font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; }
-    
-    .ex-bar-bg { width: 100%; height: 8px; background: var(--bar-track); border-radius: 99px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); }
-    .ex-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-    .bg-green { background: linear-gradient(90deg, #27ae60, var(--green)); }
-    .bg-red { background: linear-gradient(90deg, var(--red), #c0392b); }
-
-    /* --- DIVERGENT BAR CHART --- */
-    .barchart-container { 
-      background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); 
-      border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; 
-      box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto;
-    }
-    .barchart-row { 
-      display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8rem; 
-      transition: background 0.2s; border-radius: 6px; padding: 3px 0; min-width: 400px;
-    }
-    .barchart-row:hover { background: var(--hover-bg); }
-    .barchart-label { 
-      width: 150px; text-align: right; padding-right: 15px; font-weight: 600; 
-      color: var(--strong-text); border-right: 1px solid var(--border); 
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.75rem;
-    }
-    .barchart-track { flex: 1; height: 20px; position: relative; margin-left: 15px; margin-right: 15px; }
-    .barchart-center { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); z-index: 1; }
-    .barchart-bar { position: absolute; height: 12px; top: 4px; border-radius: 2px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); z-index: 2; }
+    .extreme-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .ex-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; }
+    .ex-title-wrap { display: flex; flex-direction: column; gap: 2px; }
+    .ex-badge { font-size: 0.6rem; font-weight: 700; color: var(--muted); }
+    .ex-name { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); }
+    .ex-val { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .ex-bar-bg { width: 100%; height: 6px; background: var(--bar-track); border-radius: 99px; overflow: hidden; }
+    .ex-bar-fill { height: 100%; border-radius: 99px; }
+    .bg-green { background: var(--green); }
+    .bg-red { background: var(--red); }
+    .barchart-container { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; overflow-x: auto; }
+    .barchart-row { display: flex; align-items: center; margin-bottom: 4px; font-size: 0.75rem; min-width: 350px; }
+    .barchart-label { width: 130px; text-align: right; padding-right: 10px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.7rem; }
+    .barchart-track { flex: 1; height: 16px; position: relative; margin-left: 10px; margin-right: 10px; }
+    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+    .barchart-bar { position: absolute; height: 10px; top: 3px; border-radius: 2px; }
     .barchart-bar.pos { left: 50%; background-color: #5ebaa6; }
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
-    .barchart-val { position: absolute; top: 0; line-height: 20px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); white-space: nowrap; }
+    .barchart-val { position: absolute; top: -1px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 700; color: var(--strong-text); }
 
-    /* --- MOBILE BOTTOM NAVIGATION --- */
-    .bottom-nav {
-      display: none; background: var(--sidebar-bg); border-top: 1px solid var(--border);
-      padding: 0.5rem 1rem; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
-      justify-content: space-around; z-index: 100; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    }
-    .bnav-btn {
-      background: transparent; border: none; color: var(--muted);
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase;
-      transition: color 0.2s;
-    }
-    .bnav-btn.active { color: var(--primary); }
-    .bnav-btn .icon { font-size: 1.2rem; margin-bottom: 2px; }
-
-    /* --- RESPONSIVE MEDIA QUERIES --- */
-/* --- RESPONSIVE MEDIA QUERIES --- */
     @media(max-width: 1024px) {
       .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 240px; min-width: 240px; }
       .sidebar.open { transform: translateX(0); }
       .sidebar-nav { display: flex; }
       .bottom-nav { display: flex; }
-      
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-      .extreme-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-      .sectors-grid { grid-template-columns: 1fr; gap: 0.8rem; }
-      
-      main { padding: 0.8rem; }
-      .search-box { width: 100%; max-width: 100%; }
-      .toolbar { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+      .extreme-grid { grid-template-columns: 1fr; gap: 0.5rem; }
+      .sectors-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+      main { padding: 0.6rem; }
+      .search-box { width: 100%; }
+      .toolbar { flex-direction: column; align-items: stretch; gap: 0.5rem; padding: 0.6rem; }
       .filter-wrapper { width: 100%; overflow-x: auto; padding-bottom: 4px; }
-      .table-container { max-height: calc(100vh - 310px); }
-    }
-
-    @media(max-width: 480px) {
-      .kpi-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-      .kpi-card { padding: 0.6rem; }
-      .kpi-val { font-size: 1.1rem; }
-      
-      .sectors-grid { grid-template-columns: 1fr; }
-      .barchart-label { width: 90px; font-size: 0.65rem; }
-      .barchart-val { font-size: 0.65rem; }
-      .filter-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; }
+      .table-container { max-height: calc(100vh - 270px); }
     }
   </style>
 </head>
 <body>
 
-  <!-- MOBILE SIDEBAR OVERLAY -->
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-  <!-- PROFESSIONAL SIDEBAR -->
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand">
-      <div class="dot" id="api-status"></div> STOCK FINDER pro
-    </div>
-    
+    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER pro</div>
     <div class="sidebar-nav">
-      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')">
-        <span style="font-size:1.1rem;">📊</span> Live Screener
-      </button>
-      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')">
-        <span style="font-size:1.1rem;">🥧</span> Sector Heatmap
-      </button>
-      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')">
-        <span style="font-size:1.1rem;">🎯</span> D&S Zones
-      </button>
+      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
+      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
+      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
     </div>
-
     <div style="margin-top: auto;">
-      
-      <!-- MARKET UNIVERSE SWITCHER -->
       <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
-        <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block; letter-spacing: 0.5px;">MARKET UNIVERSE</label>
-        <select id="universe-selector" onchange="switchUniverse(this.value)" style="width: 100%; background: var(--input-bg); color: var(--strong-text); border: 1px solid var(--border); padding: 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer;">
+        <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
+        <select id="universe-selector" onchange="switchUniverse(this.value)" style="width: 100%; background: var(--input-bg); color: var(--strong-text); border: 1px solid var(--border); padding: 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; outline: none;">
           <option value="FO">F&O Universe (Default)</option>
           <option value="NIFTY500">NIFTY 500</option>
         </select>
       </div>
-
-      <!-- PADDLE TOGGLES -->
       <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
-        <span class="toggle-label"><span style="font-size:1rem;">⚏</span> Compact View</span>
-        <label class="switch" onclick="event.stopPropagation()">
-          <input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)">
-          <span class="slider"></span>
-        </label>
+        <span class="toggle-label">⚏ Compact View</span>
+        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)"><span class="slider"></span></label>
       </div>
-
       <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
-        <span class="toggle-label"><span style="font-size:1rem;">🔄</span> Auto-Refresh</span>
-        <label class="switch" onclick="event.stopPropagation()">
-          <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)">
-          <span class="slider"></span>
-        </label>
+        <span class="toggle-label">🔄 Auto-Refresh</span>
+        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)"><span class="slider"></span></label>
       </div>
-
-      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">
-        MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span>
-      </div>
+      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span></div>
     </div>
   </aside>
 
-  <!-- MAIN CONTENT AREA -->
   <div class="main-wrapper">
-    
-    <!-- TICKER BAR WITH HAMBURGER MENU & THEME TOGGLE -->
     <div class="market-ticker-container">
-      <button class="hamburger-btn" onclick="toggleSidebar()">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </button>
-      
-      <div class="ticker-wrapper">
-        <div class="market-ticker-track" id="tickerTrack">
-          <div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Market Ticker...</span></div>
-        </div>
-      </div>
-
-      <!-- CORNER THEME TOGGLE ICON -->
-      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">
-        ☀️
-      </button>
+      <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
+      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sectors...</span></div></div></div>
+      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
     </div>
 
     <main>
       <!-- ================= SCREENER VIEW ================= -->
       <div id="view-scr">
         <div class="kpi-grid">
-          <div class="kpi-card" onclick="setFilter('Long Buildup')">
-            <div class="kpi-title" style="color:var(--green);">Long Buildup</div>
-            <div class="kpi-val mono" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
-          </div>
-          <div class="kpi-card" onclick="setFilter('Short Buildup')">
-            <div class="kpi-title" style="color:var(--red);">Short Buildup</div>
-            <div class="kpi-val mono" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
-          </div>
-          <div class="kpi-card" onclick="setFilter('Short Covering')">
-            <div class="kpi-title" style="color:#38bdf8;">Short Covering</div>
-            <div class="kpi-val mono" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
-          </div>
-          <div class="kpi-card" onclick="setFilter('Long Unwinding')">
-            <div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div>
-            <div class="kpi-val mono" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div>
-          </div>
+          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val mono" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val mono" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val mono" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val mono" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
         </div>
 
         <div class="movers-grid">
-          <div class="movers-panel">
-            <div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div>
-            <div class="movers-list-scroll" id="top-gainers-list">
-              <div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div>
-            </div>
-          </div>
-          <div class="movers-panel">
-            <div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div>
-            <div class="movers-list-scroll" id="top-losers-list">
-              <div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div>
-            </div>
-          </div>
+          <div class="movers-panel"><div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div><div class="movers-list-scroll" id="top-gainers-list"><div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div></div></div>
+          <div class="movers-panel"><div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div><div class="movers-list-scroll" id="top-losers-list"><div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div></div></div>
         </div>
 
         <div class="toolbar">
@@ -401,42 +228,27 @@
             <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
             <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
             <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
-            
-            <label class="filter-btn" style="background: var(--input-bg); color: var(--text); border: 1px solid var(--border);">
-              📁 Upload CSV
-              <input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" />
-            </label>
-            <button class="filter-btn" onclick="resetUniverse()" style="background: rgba(231, 76, 60, 0.1); border-color: rgba(231, 76, 60, 0.3); color: var(--red);">
-              🔄 Reset
-            </button>
+            <label class="filter-btn" style="background: var(--input-bg); cursor: pointer;">📁 Upload CSV<input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" /></label>
+            <button class="filter-btn" onclick="resetUniverse()" style="background: rgba(231, 76, 60, 0.1); color: var(--red);">🔄 Reset</button>
           </div>
-          <div class="search-wrapper">
-            <input type="text" id="search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" />
-          </div>
+          <div class="search-wrapper"><input type="text" id="search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
         </div>
 
         <div class="table-container" id="table-wrapper">
           <table>
             <thead>
               <tr>
-                <th onclick="toggleSort('symbol')">Symbol <span id="th-symbol">↕</span></th>
-                <th onclick="toggleSort('ltp')">LTP (₹) <span id="th-ltp">↕</span></th>
-                <th onclick="toggleSort('pricePct')">Chg % <span id="th-pricePct">↕</span></th>
-                <th onclick="toggleSort('volume')">Volume <span id="th-volume">↕</span></th>
-                <th onclick="toggleSort('oiPct')">OI % <span id="th-oiPct">↕</span></th>
-                <th onclick="toggleSort('buildup')">Buildup <span id="th-buildup">↕</span></th>
-                <th onclick="toggleSort('momentumScore')">Momentum <span id="th-momentumScore">▼</span></th>
+                <th onclick="toggleSort('symbol')">Symbol ↕</th>
+                <th onclick="toggleSort('ltp')">LTP (₹) ↕</th>
+                <th onclick="toggleSort('pricePct')">Chg % ↕</th>
+                <th onclick="toggleSort('volume')">Volume ↕</th>
+                <th onclick="toggleSort('oiPct')">OI % ↕</th>
+                <th onclick="toggleSort('buildup')">Buildup ↕</th>
+                <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
               </tr>
             </thead>
             <tbody id="tbody">
-              <tr>
-                <td colspan="7" style="padding: 2rem;">
-                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
-                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
-                  <div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div>
-                  <div class="skeleton" style="width: 100%; height: 38px;"></div>
-                </td>
-              </tr>
+              <tr><td colspan="7" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -445,280 +257,137 @@
       <!-- ================= SECTOR VIEW ================= -->
       <div id="view-sec" style="display: none;">
         <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
-            
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text); letter-spacing: 0.5px;">Sector Performance Overview</h3>
-            </div>
-            
-            <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
-              <span>📊 Market Breadth: <strong style="color:var(--green); font-size: 0.9rem;" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red); font-size: 0.9rem;" id="breadth-dec">--</strong> Dec</span>
-              <span>📦 Total Volume: <strong style="color:var(--strong-text); font-size: 0.9rem;" id="breadth-vol" class="mono">--</strong></span>
-            </div>
-            
-            <!-- Top and Bottom Sector Extreme Bars -->
-            <div class="extreme-grid">
-              <div class="extreme-card highest">
-                <div class="ex-header">
-                  <div class="ex-title-wrap">
-                    <span class="ex-badge text-green">🏆 Top Gainer</span>
-                    <span class="ex-name" id="top-sec-name">--</span>
-                  </div>
-                  <span class="ex-val text-green" id="top-sec-val">--</span>
-                </div>
-                <div class="ex-bar-bg"><div class="ex-bar-fill bg-green" id="top-sec-bar" style="width:0%"></div></div>
-              </div>
-              <div class="extreme-card lowest">
-                <div class="ex-header">
-                  <div class="ex-title-wrap">
-                    <span class="ex-badge text-red">📉 Top Loser</span>
-                    <span class="ex-name" id="bot-sec-name">--</span>
-                  </div>
-                  <span class="ex-val text-red" id="bot-sec-val">--</span>
-                </div>
-                <div class="ex-bar-bg"><div class="ex-bar-fill bg-red" id="bot-sec-bar" style="width:0%"></div></div>
-              </div>
-            </div>
-
-            <!-- DIVERGENT BAR CHART (High/Low Ranking) -->
-            <div id="sector-bar-chart" class="barchart-container" style="display:none;"></div>
-
-            <!-- THE DYNAMIC SECTOR GRID -->
-            <div id="sectors-list" class="sectors-grid">
-                <!-- Sector cards dynamically rendered here -->
-            </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"><h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text);">Sector Performance Overview</h3></div>
+          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.2rem; display: flex; flex-wrap: wrap; gap: 1rem; background: var(--input-bg); padding: 0.6rem 0.8rem; border-radius: 8px;">
+            <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
+            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol" class="mono">--</strong></span>
+          </div>
+          <div class="extreme-grid">
+            <div class="extreme-card highest"><div class="ex-header"><div class="ex-title-wrap"><span class="ex-badge text-green">🏆 Top Gainer</span><span class="ex-name" id="top-sec-name">--</span></div><span class="ex-val text-green" id="top-sec-val">--</span></div><div class="ex-bar-bg"><div class="ex-bar-fill bg-green" id="top-sec-bar" style="width:0%"></div></div></div>
+            <div class="extreme-card lowest"><div class="ex-header"><div class="ex-title-wrap"><span class="ex-badge text-red">📉 Top Loser</span><span class="ex-name" id="bot-sec-name">--</span></div><span class="ex-val text-red" id="bot-sec-val">--</span></div><div class="ex-bar-bg"><div class="ex-bar-fill bg-red" id="bot-sec-bar" style="width:0%"></div></div></div>
+          </div>
+          <div id="sector-bar-chart" class="barchart-container" style="display:none;"></div>
+          <div id="sectors-list" class="sectors-grid"></div>
         </div>
       </div>
 
       <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
       <div id="view-zones" style="display: none;">
         <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
             <div>
-              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
-              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
+              <p style="font-size: 0.7rem; color: var(--muted); margin-top: 2px;">Auto-scans past candles to detect unviolated levels.</p>
             </div>
-            
             <div class="filter-wrapper" id="tf-buttons-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
               <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
               <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
               <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
-              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly (Q)</button>
+              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly</button>
               <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this, true)">Half-Yearly</button>
             </div>
           </div>
-
-          <div class="toolbar" style="margin-bottom: 1rem; padding: 0.8rem; background: transparent; border: none;">
+          <div class="toolbar" style="margin-bottom: 0.8rem; padding: 0.6rem; background: transparent; border: none;">
             <div class="filter-wrapper" id="zone-filters">
               <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
               <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone</button>
-              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
-              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
+              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand</button>
+              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply</button>
             </div>
-            <div class="search-wrapper">
-              <input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SYMBOL OR PATTERN..." oninput="renderZonesTable()" />
-            </div>
+            <div class="search-wrapper"><input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SEARCH..." oninput="renderZonesTable()" /></div>
           </div>
-
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 350px;">
             <table>
               <thead>
                 <tr>
                   <th onclick="toggleZoneSort('symbol')">SYMBOL ↕</th>
                   <th onclick="toggleZoneSort('bias')">BIAS ↕</th>
                   <th onclick="toggleZoneSort('pattern')">PATTERN ↕</th>
-                  <th onclick="toggleZoneSort('ltp')">CURRENT PRICE ↕</th>
-                  <th onclick="toggleZoneSort('proximal')">PROXIMAL LINE ↕</th>
-                  <th onclick="toggleZoneSort('distal')">DISTAL LINE ↕</th>
-                  <th onclick="toggleZoneSort('status')">ZONE STATUS ↕</th>
+                  <th onclick="toggleZoneSort('ltp')">PRICE ↕</th>
+                  <th onclick="toggleZoneSort('proximal')">PROXIMAL ↕</th>
+                  <th onclick="toggleZoneSort('distal')">DISTAL ↕</th>
+                  <th onclick="toggleZoneSort('status')">STATUS ↕</th>
                   <th>CHART</th>
                 </tr>
               </thead>
               <tbody id="zones-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
+                <tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">Select a timeframe...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </div>
-
     </main>
 
-    <!-- MOBILE BOTTOM NAVIGATION -->
     <nav class="bottom-nav">
-      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')">
-        <span class="icon">📊</span>
-        <span>Screener</span>
-      </button>
-      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')">
-        <span class="icon">🥧</span>
-        <span>Sectors</span>
-      </button>
-      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')">
-        <span class="icon">🎯</span>
-        <span>Zones</span>
-      </button>
+      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')"><span class="icon">📊</span><span>Screener</span></button>
+      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
+      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
     </nav>
   </div>
 
   <script>
-    let currentTab = 'scr';
-    let currentFilter = 'ALL';
-    let currentUniverse = 'FO';
-    let currentZoneTF = 'day'; 
-    let marketStocks = [];
-    let sectorsData = [];
-    let isCompact = false;
-    
-    let autoRefreshInterval = null;
-    let tickerInterval = null;
-    let fetchRequestId = 0;
+    let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
+    let marketStocks = [], sectorsData = [], rawZonesData = [], currentZoneFilter = 'ALL';
+    let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
+    let sortColumn = 'momentumScore', sortDirection = 'desc', zoneSortCol = null, zoneSortDir = 'desc', zonePollingInterval = null;
 
-    let sortColumn = 'momentumScore';
-    let sortDirection = 'desc';
-    
-    let rawZonesData = [];
-    let currentZoneFilter = 'ALL';
-    let zoneSortCol = null;
-    let zoneSortDir = 'desc';
-    let zonePollingInterval = null;
-    
     document.addEventListener("DOMContentLoaded", () => {
-      const themeBtn = document.getElementById('theme-icon-btn');
-      if (localStorage.getItem('theme') === 'light') {
-        if(themeBtn) themeBtn.innerHTML = '🌙'; 
-      } else {
-        if(themeBtn) themeBtn.innerHTML = '☀️';
-      }
+      if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
+      fetchTickerBar(); fetchData(); startIntervals();
     });
 
     function toggleThemeBtn() {
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      const themeBtn = document.getElementById('theme-icon-btn');
-      if (isLight) {
-        document.documentElement.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'dark');
-        themeBtn.innerHTML = '☀️';
-      } else {
-        document.documentElement.setAttribute('data-theme', 'light');
-        localStorage.setItem('theme', 'light');
-        themeBtn.innerHTML = '🌙';
-      }
+      const btn = document.getElementById('theme-icon-btn');
+      if (isLight) { document.documentElement.removeAttribute('data-theme'); localStorage.setItem('theme', 'dark'); btn.innerHTML = '☀️'; }
+      else { document.documentElement.setAttribute('data-theme', 'light'); localStorage.setItem('theme', 'light'); btn.innerHTML = '🌙'; }
     }
 
     function toggleSidebar() {
-      const sidebar = document.getElementById('app-sidebar');
-      const overlay = document.getElementById('sidebar-overlay');
-      if (window.innerWidth <= 1024) {
-        sidebar.classList.toggle('open');
-        if (sidebar.classList.contains('open')) {
-            overlay.classList.add('show');
-        } else {
-            overlay.classList.remove('show');
-        }
-      } else {
-        sidebar.classList.toggle('collapsed');
-      }
-    }
-
-    function closeSidebarMobile() {
-      if (window.innerWidth <= 1024) {
-        document.getElementById('app-sidebar').classList.remove('open');
-        document.getElementById('sidebar-overlay').classList.remove('show');
-      }
+      const sb = document.getElementById('app-sidebar'), ov = document.getElementById('sidebar-overlay');
+      if (window.innerWidth <= 1024) { sb.classList.toggle('open'); ov.classList.toggle('show'); }
+      else { sb.classList.toggle('collapsed'); }
     }
 
     function switchTab(tab) {
       currentTab = tab;
-      
-      document.getElementById('btn-scr').classList.toggle('active', tab === 'scr');
-      document.getElementById('btn-sec').classList.toggle('active', tab === 'sec');
-      document.getElementById('btn-zones').classList.toggle('active', tab === 'zones');
-      
-      document.getElementById('bnav-scr').classList.toggle('active', tab === 'scr');
-      document.getElementById('bnav-sec').classList.toggle('active', tab === 'sec');
-      document.getElementById('bnav-zones').classList.toggle('active', tab === 'zones');
-      
-      document.getElementById('view-scr').style.display = tab === 'scr' ? 'block' : 'none';
-      document.getElementById('view-sec').style.display = tab === 'sec' ? 'block' : 'none';
-      document.getElementById('view-zones').style.display = tab === 'zones' ? 'block' : 'none';
-      
+      ['scr', 'sec', 'zones'].forEach(t => {
+        document.getElementById(`btn-${t}`).classList.toggle('active', t === tab);
+        document.getElementById(`bnav-${t}`).classList.toggle('active', t === tab);
+        document.getElementById(`view-${t}`).style.display = t === tab ? 'block' : 'none';
+      });
       if (tab === 'sec') renderSectors();
       if (tab === 'zones' && rawZonesData.length === 0) fetchZones(currentZoneTF, document.getElementById('tf-btn-day'));
-      
-      closeSidebarMobile();
+      if (window.innerWidth <= 1024) { document.getElementById('app-sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
     }
 
-    function toggleCompactMode(checked) {
-      isCompact = checked;
-      document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', isCompact));
-    }
-
-    function toggleAutoRefresh(checked) {
-      if (checked) {
-        startIntervals();
-        const apiDot = document.getElementById('api-status');
-        if (apiDot) { apiDot.style.background = 'var(--green)'; apiDot.style.boxShadow = '0 0 10px var(--green)'; }
-      } else {
-        stopIntervals();
-        const apiDot = document.getElementById('api-status');
-        if (apiDot) { apiDot.style.background = 'var(--primary)'; apiDot.style.boxShadow = '0 0 10px var(--primary)'; }
-      }
-    }
-
-    function startIntervals() {
-      if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000);
-      if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000);
-    }
-
-    function stopIntervals() {
-      clearInterval(autoRefreshInterval);
-      clearInterval(tickerInterval);
-      autoRefreshInterval = null;
-      tickerInterval = null;
-    }
+    function toggleCompactMode(c) { document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', c)); }
+    function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
+    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
+    function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
 
     async function switchUniverse(type) {
       currentUniverse = type;
-
-      const foOnlyFilters = ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'];
-      if (type === 'NIFTY500' && foOnlyFilters.includes(currentFilter)) {
+      if (type === 'NIFTY500' && ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'].includes(currentFilter)) {
         currentFilter = 'ALL';
         document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        const allBtn = document.getElementById('flt-all-btn');
-        if (allBtn) allBtn.classList.add('active');
+        document.getElementById('flt-all-btn').classList.add('active');
       }
-
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Switching to ${type === 'NIFTY500' ? 'NIFTY 500' : 'F&O'} Universe & Loading Market Data...</td></tr>`;
-      document.getElementById('sectors-list').innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--primary); font-weight: 600;">Loading ${type === 'NIFTY500' ? 'NIFTY 500' : 'F&O'} Sectors...</div>`;
-      
-      marketStocks = []; 
-      sectorsData = [];
-      rawZonesData = [];
-
-      if (document.getElementById('auto-refresh-toggle').checked) {
-        stopIntervals();
-        startIntervals();
-      }
-
-      await fetchData();        
-      fetchTickerBar();  
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Switching Universe...</td></tr>`;
+      marketStocks = []; sectorsData = []; rawZonesData = [];
+      await fetchData(); fetchTickerBar();
       if (currentTab === 'zones') fetchZones(currentZoneTF, null, true);
-      closeSidebarMobile();
     }
 
     async function uploadUniverse(input) {
       if (!input.files || !input.files[0]) return;
-      const formData = new FormData();
-      formData.append("file", input.files[0]);
-      formData.append("universe", currentUniverse);
+      const fd = new FormData(); fd.append("file", input.files[0]);
       try {
-        const res = await fetch(`/api/upload-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST', body: formData });
+        const res = await fetch(`/api/upload-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST', body: fd });
         const result = await res.json();
-        if (result.status === 'success') {
-          alert(result.message);
-          fetchData(); fetchTickerBar();
-        } else alert("Upload failed: " + result.message);
-      } catch (e) { alert("Error uploading file."); } finally { input.value = ''; closeSidebarMobile(); }
+        if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); } else alert(result.message);
+      } catch(e) { alert("Error uploading file."); } finally { input.value = ''; }
     }
 
     async function resetUniverse() {
@@ -727,95 +396,149 @@
         const res = await fetch(`/api/reset-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST' });
         const result = await res.json();
         if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); }
-      } catch (e) {}
+      } catch(e) {}
     }
 
     async function fetchTickerBar() {
       try {
-        const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
-        if(!res.ok) return;
+        const res = await fetch(`/api/sectors?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
         const json = await res.json();
-        if(json.status === 'success' && json.data.length > 0) {
-          const track = document.getElementById('tickerTrack');
-          const html = json.data.map(item => `
-            <div class="ticker-item">
-              <span class="ticker-symbol">${item.symbol}</span>
-              <span class="ticker-price">₹${item.price}</span>
-              <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
-            </div>
-          `).join('');
-          track.innerHTML = html + html;
+        if (json.status === 'success' && json.data && json.data.length > 0) {
+          const html = json.data.map(sec => {
+            const isPos = sec.avgChange >= 0;
+            return `<div class="ticker-item"><span class="ticker-symbol">${sec.sector}</span><span class="ticker-price">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</span><span class="ticker-change ${isPos ? 'positive' : 'negative'}">(${sec.advances}A/${sec.declines}D)</span></div>`;
+          }).join('');
+          document.getElementById('tickerTrack').innerHTML = html + html;
         }
       } catch(e) {}
     }
 
     async function fetchData() {
-      const reqId = ++fetchRequestId;
-      const requestedUniverse = currentUniverse;
-      const ts = Date.now();
-
+      const reqId = ++fetchRequestId, reqUniv = currentUniverse;
       try {
         const [res1, res2] = await Promise.all([
-          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' }),
-          fetch(`/api/sectors?universe=${encodeURIComponent(requestedUniverse)}&_t=${ts}`, { cache: 'no-store' })
+          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' }),
+          fetch(`/api/sectors?universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' })
         ]);
-        
-        if (reqId !== fetchRequestId || requestedUniverse !== currentUniverse) return;
-        if(!res1.ok || !res2.ok) return;
-
-        const d1 = await res1.json();
-
-        if (d1.status === 'error') {
-          const apiDot = document.getElementById('api-status');
-          if (apiDot) { apiDot.style.background = 'var(--red)'; apiDot.style.boxShadow = '0 0 10px var(--red)'; }
-          document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--red); font-weight:700; border: 1px solid rgba(231, 76, 60, 0.3); background: rgba(231, 76, 60, 0.05); border-radius: 8px;">⚠️ Connection Failed: ${d1.message}</td></tr>`;
-          return; 
-        }
-
-        const apiDot = document.getElementById('api-status');
-        if (apiDot && autoRefreshInterval !== null) { apiDot.style.background = 'var(--green)'; apiDot.style.boxShadow = '0 0 10px var(--green)'; }
-
-        const d2 = await res2.json();
-
-        if(d1 && d1.status === 'success') {
+        if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
+        const d1 = await res1.json(), d2 = await res2.json();
+        if (d1.status === 'success') {
           marketStocks = d1.data || [];
-
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
-          updateKPIs(marketStocks);
-          renderExplicitMovers(d1.topGainers, d1.topLosers);
-          renderTable();
+          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
         }
-
-        if(d2 && d2.status === 'success') {
+        if (d2.status === 'success') {
           sectorsData = d2.data || [];
-          if(d2.marketBreadth) {
+          if (d2.marketBreadth) {
             document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
             document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
           }
         }
-
         if (currentTab === 'sec') renderSectors();
-      } catch(e) { console.error("Data fetch error:", e); }
+      } catch(e) {}
     }
 
     function updateKPIs(stocks) {
-      let counts = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
-      (stocks || []).forEach(s => { if(counts[s.buildup] !== undefined) counts[s.buildup]++; });
-      document.getElementById('k-lb').innerText = counts['Long Buildup'];
-      document.getElementById('k-sb').innerText = counts['Short Buildup'];
-      document.getElementById('k-sc').innerText = counts['Short Covering'];
-      document.getElementById('k-lu').innerText = counts['Long Unwinding'];
+      let c = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
+      (stocks || []).forEach(s => { if(c[s.buildup] !== undefined) c[s.buildup]++; });
+      document.getElementById('k-lb').innerText = c['Long Buildup'];
+      document.getElementById('k-sb').innerText = c['Short Buildup'];
+      document.getElementById('k-sc').innerText = c['Short Covering'];
+      document.getElementById('k-lu').innerText = c['Long Unwinding'];
     }
 
-    function openChart(symbol) { window.open(`https://in.tradingview.com/chart/?symbol=NSE%3A${symbol}`, '_blank'); }
+    function openChart(sym) { window.open(`https://in.tradingview.com/chart/?symbol=NSE%3A${sym}`, '_blank'); }
 
-    function renderExplicitMovers(gainers, losers) {
-      const gainersEl = document.getElementById('top-gainers-list');
-      const losersEl = document.getElementById('top-losers-list');
+    async function inspectPriceZones(symbol) {
+      let modalId = 'zone-inspect-modal';
+      let existingModal = document.getElementById(modalId);
+      if (existingModal) existingModal.remove();
 
-      if (gainersEl) gainersEl.innerHTML = gainers && gainers.length ? gainers.map((s, idx) => `<div class="movers-row"><div><span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span><a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : `<div style="text-align:center; padding:1rem;">No Data</div>`;
-      if (losersEl) losersEl.innerHTML = losers && losers.length ? losers.map((s, idx) => `<div class="movers-row"><div><span style="color:var(--muted); font-size:0.7rem; margin-right:4px;">${idx + 1}.</span><a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : `<div style="text-align:center; padding:1rem;">No Data</div>`;
+      const modal = document.createElement('div');
+      modal.id = modalId;
+      modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 9999; display: flex;
+        justify-content: center; align-items: center; backdrop-filter: blur(5px);
+        padding: 0.8rem;
+      `;
+
+      modal.innerHTML = `
+        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 720px; max-width: 100%; padding: 1.2rem; color: var(--strong-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
+            <div>
+              <h3 style="font-size: 1rem; color: var(--primary);">📍 Left-Side Zone Inspector: <span style="color:var(--strong-text);">${symbol}</span></h3>
+              <p style="font-size: 0.65rem; color: var(--muted); margin-top: 2px;">Scanning multi-timeframe historical unviolated zones...</p>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button onclick="openChart('${symbol}')" class="filter-btn" style="padding: 4px 8px; font-size: 0.65rem; background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary);">Open TV Chart ↗</button>
+              <button onclick="document.getElementById('${modalId}').remove()" style="background: transparent; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer;">✕</button>
+            </div>
+          </div>
+          <div id="zone-inspect-content" style="max-height: 350px; overflow-y: auto;">
+            <div style="text-align: center; padding: 2rem; color: var(--primary);">Current price nunchi historical left-side zones scan chestundi...</div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      try {
+        const timeframes = ['day', 'week', 'month', 'quarter', 'halfyear'];
+        let allStockZones = [];
+
+        for (let tf of timeframes) {
+          try {
+            const res = await fetch(`/api/zone-screener?tf=${tf}&universe=${currentUniverse}&_t=${Date.now()}`);
+            const json = await res.json();
+            if (json.status === 'success' && json.data) {
+              const matched = json.data.filter(z => z.symbol === symbol);
+              matched.forEach(z => z.timeframe = tf.toUpperCase());
+              allStockZones.push(...matched);
+            }
+          } catch (err) {}
+        }
+
+        const contentEl = document.getElementById('zone-inspect-content');
+        if (!allStockZones.length) {
+          contentEl.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--muted);">Ee stock ki current unviolated zones emi levu.</div>`;
+          return;
+        }
+
+        contentEl.innerHTML = `
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border); color: var(--muted);">
+                <th style="padding: 6px; text-align: left;">TF</th>
+                <th style="padding: 6px; text-align: left;">BIAS</th>
+                <th style="padding: 6px; text-align: left;">PATTERN</th>
+                <th style="padding: 6px; text-align: right;">PROXIMAL</th>
+                <th style="padding: 6px; text-align: right;">DISTAL</th>
+                <th style="padding: 6px; text-align: center;">STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allStockZones.map(z => `
+                <tr style="border-bottom: 1px solid var(--border);">
+                  <td style="padding: 8px; font-weight: 700; color: var(--primary);">${z.timeframe}</td>
+                  <td style="padding: 8px;"><span class="badge ${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'}">${z.bias}</span></td>
+                  <td style="padding: 8px;" class="mono">${z.pattern}</td>
+                  <td style="padding: 8px; text-align: right;" class="mono">₹${Number(z.proximal || 0).toFixed(2)}</td>
+                  <td style="padding: 8px; text-align: right;" class="mono">₹${Number(z.distal || 0).toFixed(2)}</td>
+                  <td style="padding: 8px; text-align: center;"><span class="badge badge-muted">${z.status}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        document.getElementById('zone-inspect-content').innerHTML = `<div style="color: var(--red); text-align: center; padding: 1rem;">Data load avvatledhu, network error.</div>`;
+      }
+    }
+
+    function renderMovers(g, l) {
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
     }
 
     function toggleSort(col) {
@@ -824,229 +547,108 @@
       renderTable();
     }
 
-    function getBuildupBadge(buildup) {
-      if (buildup === 'Long Buildup') return `<span class="badge badge-green">Long Buildup</span>`;
-      if (buildup === 'Short Buildup') return `<span class="badge badge-red">Short Buildup</span>`;
-      if (buildup === 'Short Covering') return `<span class="badge badge-blue">Short Covering</span>`;
-      if (buildup === 'Long Unwinding') return `<span class="badge badge-yellow">Long Unwinding</span>`;
-      return `<span class="badge badge-muted">${buildup || 'CASH / EQ'}</span>`;
-    }
-
     function renderTable() {
-      const searchBox = document.getElementById('search');
-      const search = searchBox ? searchBox.value.toLowerCase() : '';
+      const search = document.getElementById('search').value.toLowerCase();
       let filtered = [...marketStocks];
+      if (currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
+      else if (currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
+      else if (currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
+      else if (currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
 
-      if(currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
-      else if(currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
-      else if(currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
-      else if(currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
-
-      if(search) filtered = filtered.filter(s => (s.symbol || '').toLowerCase().includes(search) || (s.name || '').toLowerCase().includes(search));
+      if (search) filtered = filtered.filter(s => s.symbol.toLowerCase().includes(search) || s.name.toLowerCase().includes(search));
 
       filtered.sort((a, b) => {
-        let valA = a[sortColumn], valB = b[sortColumn];
-        if (typeof valA === 'string') return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-        return sortDirection === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+        let vA = a[sortColumn], vB = b[sortColumn];
+        if (typeof vA === 'string') return sortDirection === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+        return sortDirection === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
       });
 
       const tbody = document.getElementById('tbody');
-      if(!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
-      tbody.innerHTML = filtered.map(s => {
-        const pCls = (s.pricePct || 0) >= 0 ? 'val-up' : 'val-down';
-        const oiCls = (s.oiPct || 0) >= 0 ? 'val-up' : 'val-down';
-        let tag = s.candleTag === 'OPEN=LOW' ? `<span class="badge badge-green" style="margin-left:6px;">OPEN=LOW</span>` : s.candleTag === 'OPEN=HIGH' ? `<span class="badge badge-red" style="margin-left:6px;">OPEN=HIGH</span>` : '';
-        
-        let volHtml = `<td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}`;
-        if (s.volMultiplier >= 1.5) {
-            volHtml += ` <span style="color:var(--primary); font-size:0.65rem; font-weight:700;">(${s.volMultiplier}x)</span>`;
-        }
-        volHtml += `</td>`;
-
-        return `
-          <tr>
-            <td>
-              <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol || ''}</a> ${tag}
-              <div style="font-size:0.65rem; color:var(--muted); margin-top:2px;">${s.name || ''}</div>
-            </td>
-            <td class="mono" style="font-weight:600; color:var(--strong-text);">₹${Number(s.ltp || 0).toFixed(2)}</td>
-            <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            ${volHtml}
-            <td class="mono ${oiCls}">${s.oiPct !== undefined && s.oiPct !== null ? ((s.oiPct > 0 ? '+' : '') + s.oiPct + '%') : '-'}</td>
-            <td>${getBuildupBadge(s.buildup)}</td>
-            <td class="mono" style="color:var(--primary); font-weight:600;">${s.momentumScore || 0}</td>
-          </tr>
-        `;
-      }).join('');
+      tbody.innerHTML = filtered.map(s => `
+        <tr>
+          <td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a> ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.name}</div></td>
+          <td class="mono" style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
+          <td class="mono ${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+          <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')} ${s.volMultiplier >= 1.5 ? `<span style="color:var(--primary); font-weight:700;">(${s.volMultiplier}x)</span>` : ''}</td>
+          <td class="mono ${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
+          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : s.buildup === 'Short Covering' ? 'badge-blue' : 'badge-yellow'}">${s.buildup || 'CASH'}</span></td>
+          <td class="mono" style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+        </tr>
+      `).join('');
     }
 
     function setFilter(flt, el) {
       currentFilter = flt;
-      if(el) {
-        document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        el.classList.add('active');
-      }
+      if (el) { document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
       renderTable();
     }
 
     function selectSector(sectorName) {
       const cards = document.querySelectorAll('.sector-card');
       for (const card of cards) {
-          if (card.querySelector('.sector-name').innerText.includes(sectorName.toUpperCase())) {
-              card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              card.style.transition = 'box-shadow 0.3s';
-              card.style.boxShadow = '0 0 20px rgba(243, 156, 18, 0.5)';
-              setTimeout(() => { card.style.boxShadow = ''; }, 1500);
-              break;
-          }
+        if (card.querySelector('.sector-name').innerText.includes(sectorName.toUpperCase())) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.style.boxShadow = '0 0 20px rgba(243, 156, 18, 0.5)';
+          setTimeout(() => { card.style.boxShadow = ''; }, 1500);
+          break;
+        }
       }
     }
 
     function renderSectors() {
-      const container = document.getElementById('sectors-list');
-      const chartContainer = document.getElementById('sector-bar-chart');
-      
-      if(!sectorsData.length && !marketStocks.length) {
-          if(chartContainer) chartContainer.style.display = 'none';
-          return;
-      }
-
+      const container = document.getElementById('sectors-list'), chartContainer = document.getElementById('sector-bar-chart');
+      if (!sectorsData.length && !marketStocks.length) { if (chartContainer) chartContainer.style.display = 'none'; return; }
       const maxChange = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)), 0);
-      const scaleBase = maxChange > 0 ? maxChange : 1; 
-
+      const scaleBase = maxChange > 0 ? maxChange : 1;
       let sortedSectors = [...sectorsData].sort((a,b) => b.avgChange - a.avgChange);
       
       const topSec = sortedSectors[0];
-      if(topSec) {
-          document.getElementById('top-sec-name').innerText = topSec.sector;
-          document.getElementById('top-sec-val').innerText = '+' + topSec.avgChange.toFixed(2) + '%';
-          document.getElementById('top-sec-bar').style.width = Math.min((topSec.avgChange / scaleBase) * 100, 100) + '%';
-      }
-
+      if (topSec) { document.getElementById('top-sec-name').innerText = topSec.sector; document.getElementById('top-sec-val').innerText = '+' + topSec.avgChange.toFixed(2) + '%'; document.getElementById('top-sec-bar').style.width = Math.min((topSec.avgChange / scaleBase) * 100, 100) + '%'; }
       const botSec = sortedSectors[sortedSectors.length - 1];
-      if(botSec) {
-          document.getElementById('bot-sec-name').innerText = botSec.sector;
-          const sign = botSec.avgChange > 0 ? '+' : '';
-          document.getElementById('bot-sec-val').innerText = sign + botSec.avgChange.toFixed(2) + '%';
-          document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%';
-      }
+      if (botSec) { document.getElementById('bot-sec-name').innerText = botSec.sector; document.getElementById('bot-sec-val').innerText = (botSec.avgChange > 0 ? '+' : '') + botSec.avgChange.toFixed(2) + '%'; document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%'; }
 
       if (chartContainer) {
-          let chartHtml = `<div style="margin-bottom: 16px; font-size: 1rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
-          
-          sortedSectors.forEach(sec => {
-              const isPos = sec.avgChange >= 0;
-              const widthPct = (Math.abs(sec.avgChange) / scaleBase) * 42; 
-              
-              chartHtml += `
-              <div class="barchart-row" onclick="selectSector('${sec.sector}')" style="cursor:pointer;" title="${sec.sector} ${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%">
-                  <div class="barchart-label">${sec.sector}</div>
-                  <div class="barchart-track">
-                      <div class="barchart-center"></div>
-                      ${isPos ? `
-                          <div class="barchart-bar pos" style="width: ${widthPct}%;"></div>
-                          <div class="barchart-val" style="left: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>
-                      ` : `
-                          <div class="barchart-bar neg" style="width: ${widthPct}%;"></div>
-                          <div class="barchart-val" style="right: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>
-                      `}
-                  </div>
-              </div>`;
-          });
-          chartContainer.innerHTML = chartHtml;
-          chartContainer.style.display = 'block';
+        let chartHtml = `<div style="margin-bottom: 12px; font-size: 0.9rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
+        sortedSectors.forEach(sec => {
+          const isPos = sec.avgChange >= 0;
+          const widthPct = (Math.abs(sec.avgChange) / scaleBase) * 42;
+          chartHtml += `<div class="barchart-row" onclick="selectSector('${sec.sector}')" style="cursor:pointer;"><div class="barchart-label">${sec.sector}</div><div class="barchart-track"><div class="barchart-center"></div>${isPos ? `<div class="barchart-bar pos" style="width: ${widthPct}%;"></div><div class="barchart-val" style="left: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>` : `<div class="barchart-bar neg" style="width: ${widthPct}%;"></div><div class="barchart-val" style="right: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>`}</div></div>`;
+        });
+        chartContainer.innerHTML = chartHtml; chartContainer.style.display = 'block';
       }
 
       container.innerHTML = sectorsData.map(sec => {
-        const avg = sec.avgChange || 0;
-        const isBullish = avg >= 0;
-        const cardClass = isBullish ? 'bullish' : 'bearish';
-        const textClass = isBullish ? 'text-green' : 'text-red';
-        const barWidth = Math.min((Math.abs(avg) / scaleBase) * 100, 100);
-
-        let stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
-        stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0)); 
-
-        const stocksHtml = stocks.map(s => {
-           const pCls = (s.pricePct || 0) >= 0 ? 'text-green' : 'text-red';
-           return `<tr>
-             <td>
-               <a onclick="openChart('${s.symbol}')" class="stock-link">${s.symbol}</a>
-               <span class="sub-text">${s.name || s.sector || sec.sector}</span>
-             </td>
-             <td class="mono" style="color:var(--strong-text);">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td>
-             <td class="mono ${pCls}">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct || 0}%</td>
-            </tr>`;
-        }).join('');
-
-        return `
-          <div class="sector-card ${cardClass}">
-            <div class="sector-header">
-              <div class="sector-title-wrapper">
-                <h3 class="sector-name">${sec.sector} 
-                  <span style="font-size:0.7rem; color:var(--muted); margin-left:8px; text-transform:none;">
-                    Avg: <span class="${textClass}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span>
-                  </span>
-                </h3>
-                <span class="live-badge">● LIVE</span>
-              </div>
-            </div>
-            <div class="strength-bar"><div class="fill" style="width: ${barWidth}%;"></div></div>
-            <div class="sector-table-wrap">
-              <table class="sec-table">
-                <thead><tr><th>SYMBOL</th><th>PRICE (₹)</th><th>CHG %</th></tr></thead>
-                <tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:1rem;">No live stocks in sector.</td></tr>'}</tbody>
-              </table>
-            </div>
-          </div>
-        `;
+        const avg = sec.avgChange || 0, isBullish = avg >= 0;
+        const stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
+        stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
+        const stocksHtml = stocks.map(s => `<tr><td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><span class="sub-text">${s.name || sec.sector}</span></td><td class="mono">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td><td class="mono ${s.pricePct >= 0 ? 'text-green' : 'text-red'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td></tr>`).join('');
+        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector}</h3><span style="font-size:0.7rem; color:var(--muted);">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%; background-color: var(--${isBullish ? 'green' : 'red'});"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted);">No stocks</td></tr>'}</tbody></table></div></div>`;
       }).join('');
     }
 
     async function fetchZones(tf, btnElement = null, forceRefresh = false) {
       currentZoneTF = tf;
-      
-      if(btnElement) {
+      if (btnElement) {
         document.querySelectorAll('#tf-buttons-wrapper .filter-btn').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
       }
-
       const tbody = document.getElementById('zones-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow... This takes a few seconds.</td></tr>`;
-
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow...</td></tr>`;
       try {
-        const url = `/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`;
-        const res = await fetch(url, { cache: 'no-store' });
+        const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`);
         const data = await res.json();
-        
         if (data.status === 'success') {
-          if (data.data && data.data.length > 0) {
-              rawZonesData = data.data;
-              renderZonesTable();
-          } 
-          else if (data.is_scanning) {
-              tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">🔄 Scanning Institutional Orderflow for ${tf.toUpperCase()} timeframe...<br><span style="font-size:0.75rem; color:var(--muted);">Safely throttling API to prevent limits. Estimated time: 40 seconds.</span></td></tr>`;
-          } else {
-              tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active institutional zones found on the ${tf.toUpperCase()} timeframe.</td></tr>`;
-          }
-
-          if (data.is_scanning) {
-              if (zonePollingInterval) clearTimeout(zonePollingInterval);
-              zonePollingInterval = setTimeout(() => fetchZones(tf), 5000);
-          }
-        } 
-      } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red); font-weight:700;">⚠️ Network Error: Unable to connect to zone scanner. Check if backend is running.</td></tr>`;
-      }
+          if (data.data && data.data.length > 0) { rawZonesData = data.data; renderZonesTable(); }
+          else { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">No active zones found.</td></tr>`; }
+        }
+      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--red);">⚠️ Network Error.</td></tr>`; }
     }
 
     function setZoneFilter(flt, el) {
       currentZoneFilter = flt;
-      if (el) {
-        el.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        el.classList.add('active');
-      }
+      if (el) { el.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
       renderZonesTable();
     }
 
@@ -1058,72 +660,37 @@
 
     function renderZonesTable() {
       let filtered = [...rawZonesData];
-      
-      if (currentZoneFilter === 'DEMAND') {
-        filtered = filtered.filter(z => z.bias === 'DEMAND');
-      } else if (currentZoneFilter === 'SUPPLY') {
-        filtered = filtered.filter(z => z.bias === 'SUPPLY');
-      } else if (currentZoneFilter === 'IN_ZONE') {
-        filtered = filtered.filter(z => z.status.includes('In Zone'));
-      }
+      if (currentZoneFilter === 'DEMAND') filtered = filtered.filter(z => z.bias === 'DEMAND');
+      else if (currentZoneFilter === 'SUPPLY') filtered = filtered.filter(z => z.bias === 'SUPPLY');
+      else if (currentZoneFilter === 'IN_ZONE') filtered = filtered.filter(z => z.status.includes('In Zone'));
 
-      const searchBox = document.getElementById('search-zones');
-      const searchVal = searchBox ? searchBox.value.toLowerCase().trim() : '';
-      if (searchVal) {
-        filtered = filtered.filter(z =>
-          (z.symbol || '').toLowerCase().includes(searchVal) ||
-          (z.sector || '').toLowerCase().includes(searchVal) ||
-          (z.pattern || '').toLowerCase().includes(searchVal) ||
-          (z.pattern || '').replace(/-/g, '').toLowerCase().includes(searchVal)
-        );
-      }
+      const searchVal = document.getElementById('search-zones').value.toLowerCase().trim();
+      if (searchVal) filtered = filtered.filter(z => (z.symbol || '').toLowerCase().includes(searchVal) || (z.pattern || '').toLowerCase().includes(searchVal));
 
       if (zoneSortCol) {
         filtered.sort((a, b) => {
-          let valA = a[zoneSortCol], valB = b[zoneSortCol];
-          if (typeof valA === 'string') return zoneSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-          return zoneSortDir === 'asc' ? Number(valA || 0) - Number(valB || 0) : Number(valB || 0) - Number(valA || 0);
+          let vA = a[zoneSortCol], vB = b[zoneSortCol];
+          if (typeof vA === 'string') return zoneSortDir === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+          return zoneSortDir === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
         });
       }
 
       const tbody = document.getElementById('zones-tbody');
-      if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No institutional zones match the current filter.</td></tr>`;
-        return;
-      }
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">No zones match.</td></tr>`; return; }
 
-      tbody.innerHTML = filtered.map(z => {
-        const biasCls = z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply';
-        const statusBadge = z.status.includes('In Zone') ? 'badge-gold' : z.status.includes('Approaching') ? 'badge-green' : 'badge-muted';
-        
-        let proximalVal = z.proximal;
-        let distalVal = z.distal;
-
-        return `
-          <tr>
-            <td>
-              <div style="display:flex; align-items:center;">
-                <span class="stock-link" onclick="openChart('${z.symbol}')">${z.symbol}</span>
-              </div>
-              <div style="font-size:0.65rem; color:var(--muted); margin-top:4px;">${z.sector || ''}</div>
-            </td>
-            <td><span class="${biasCls} badge">${z.bias}</span></td>
-            <td class="mono" style="font-weight:700; font-size:0.85rem;">${z.pattern}</td>
-            <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
-            <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(proximalVal || 0).toFixed(2)}</td>
-            <td class="mono" style="color:var(--strong-text);">₹${Number(distalVal || 0).toFixed(2)}</td>
-            <td><span class="badge ${statusBadge}">${z.status}</span></td>
-            <td>
-                <button class="filter-btn" style="padding:4px 8px; font-size:0.65rem; background:transparent;" onclick="openChart('${z.symbol}')">Chart ↗</button>
-            </td>
-          </tr>
-        `;
-      }).join('');
+      tbody.innerHTML = filtered.map(z => `
+        <tr>
+          <td><span class="stock-link" onclick="inspectPriceZones('${z.symbol}')">${z.symbol}</span><div style="font-size:0.6rem; color:var(--muted);">${z.sector || ''}</div></td>
+          <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
+          <td class="mono" style="font-weight:700;">${z.pattern}</td>
+          <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
+          <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
+          <td class="mono" style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
+          <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
+          <td><button class="filter-btn" style="padding:3px 6px; font-size:0.6rem;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
+        </tr>
+      `).join('');
     }
-
-    fetchTickerBar();
-    fetchData();
-    startIntervals();
   </script>
 </body>
 </html>

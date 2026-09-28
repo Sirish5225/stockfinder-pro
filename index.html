@@ -34,14 +34,20 @@
     @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
     .skeleton { background: var(--border); border-radius: 6px; animation: pulse 1.4s infinite ease-in-out; }
     
+    /* --- CLEAN CUSTOM SCROLLBARS --- */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text); }
+
     .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
     .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
-    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; }
+    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; }
     .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
     .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; }
     .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
-    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); }
+    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
     
     .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
     .sidebar-overlay.show { display: block; }
@@ -114,56 +120,64 @@
     .bnav-btn .icon { font-size: 1.2rem; }
 
     /* --- SECTOR PERFORMANCE STYLES --- */
-    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-    .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; position: relative; }
-    .sector-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
-    .sector-title-wrapper { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: space-between; }
-    .sector-name { font-size: 0.8rem; font-weight: 700; margin: 0; text-transform: uppercase; color: var(--strong-text); }
-    .live-badge { background-color: rgba(231, 76, 60, 0.15); color: var(--red); font-size: 0.55rem; padding: 2px 5px; border-radius: 4px; font-weight: 700; }
+    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; position: relative; backdrop-filter: blur(12px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .sector-card.bearish { box-shadow: inset 0 0 50px rgba(231, 76, 60, 0.03); }
+    .sector-card.bullish { box-shadow: inset 0 0 50px rgba(46, 204, 113, 0.03); }
+    .sector-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+    .sector-title-wrapper { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: space-between; }
+    .sector-name { font-size: 0.85rem; font-weight: 700; margin: 0; text-transform: uppercase; color: var(--strong-text); }
+    .live-badge { background-color: rgba(231, 76, 60, 0.15); color: var(--red); font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
     .strength-bar { height: 3px; width: 100%; background: var(--bar-track); }
-    .strength-bar .fill { height: 100%; }
-    .sector-table-wrap { overflow-x: auto; max-height: 200px; }
+    .strength-bar .fill { height: 100%; transition: width 0.4s ease; }
+    .bearish .strength-bar .fill { background-color: var(--red); }
+    .bullish .strength-bar .fill { background-color: var(--green); }
+    .sector-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 250px; }
     .sec-table { width: 100%; border-collapse: collapse; }
-    .sec-table th, .sec-table td { padding: 8px 12px; text-align: right; font-size: 0.72rem; border-bottom: 1px solid var(--border); }
+    .sec-table th, .sec-table td { padding: 10px 16px; text-align: right; font-size: 0.75rem; border-bottom: 1px solid var(--border); }
     .sec-table th:first-child, .sec-table td:first-child { text-align: left; }
-    .sec-table th { color: var(--muted); background: var(--th-bg); position: sticky; top: 0; font-size: 0.6rem; }
+    .sec-table th { color: var(--muted); font-weight: 600; background: var(--th-bg); position: sticky; top: 0; text-transform: uppercase; font-size: 0.65rem; z-index: 5;}
     .sec-table td { font-family: 'JetBrains Mono', monospace; color: var(--strong-text); }
-    .sec-table td span.sub-text { font-family: 'Plus Jakarta Sans', sans-serif; display: block; color: var(--muted); font-size: 0.6rem; }
+    .sec-table td span.sub-text { font-family: 'Plus Jakarta Sans', sans-serif; display: block; color: var(--muted); font-size: 0.65rem; margin-top: 2px; }
+    .text-green { color: var(--green) !important; font-weight: 600; }
+    .text-red { color: var(--red) !important; font-weight: 600; }
     .extreme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-    .extreme-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-    .ex-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; }
-    .ex-title-wrap { display: flex; flex-direction: column; gap: 2px; }
-    .ex-badge { font-size: 0.6rem; font-weight: 700; color: var(--muted); }
-    .ex-name { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); }
-    .ex-val { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    .ex-bar-bg { width: 100%; height: 6px; background: var(--bar-track); border-radius: 99px; overflow: hidden; }
-    .ex-bar-fill { height: 100%; border-radius: 99px; }
-    .bg-green { background: var(--green); }
-    .bg-red { background: var(--red); }
-    .barchart-container { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; overflow-x: auto; }
-    .barchart-row { display: flex; align-items: center; margin-bottom: 4px; font-size: 0.75rem; min-width: 350px; }
-    .barchart-label { width: 130px; text-align: right; padding-right: 10px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.7rem; }
-    .barchart-track { flex: 1; height: 16px; position: relative; margin-left: 10px; margin-right: 10px; }
-    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
-    .barchart-bar { position: absolute; height: 10px; top: 3px; border-radius: 2px; }
+    .extreme-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: center; position: relative;}
+    .extreme-card.highest { box-shadow: inset 0 0 60px rgba(46, 204, 113, 0.05); border-color: rgba(46, 204, 113, 0.2); }
+    .extreme-card.lowest { box-shadow: inset 0 0 60px rgba(231, 76, 60, 0.05); border-color: rgba(231, 76, 60, 0.2); }
+    .ex-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; }
+    .ex-title-wrap { display: flex; flex-direction: column; gap: 4px; }
+    .ex-badge { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+    .ex-name { font-size: 1.1rem; font-weight: 700; color: var(--strong-text); }
+    .ex-val { font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .ex-bar-bg { width: 100%; height: 8px; background: var(--bar-track); border-radius: 99px; overflow: hidden; }
+    .ex-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
+    .bg-green { background: linear-gradient(90deg, #27ae60, var(--green)); }
+    .bg-red { background: linear-gradient(90deg, var(--red), #c0392b); }
+    .barchart-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; overflow-x: auto; }
+    .barchart-row { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8rem; border-radius: 6px; padding: 3px 0; min-width: 400px; }
+    .barchart-label { width: 150px; text-align: right; padding-right: 15px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75px; }
+    .barchart-track { flex: 1; height: 20px; position: relative; margin-left: 15px; margin-right: 15px; }
+    .barchart-center { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); z-index: 1; }
+    .barchart-bar { position: absolute; height: 12px; top: 4px; border-radius: 2px; z-index: 2; }
     .barchart-bar.pos { left: 50%; background-color: #5ebaa6; }
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
-    .barchart-val { position: absolute; top: -1px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 700; color: var(--strong-text); }
+    .barchart-val { position: absolute; top: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); }
 
     @media(max-width: 1024px) {
       .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 240px; min-width: 240px; }
       .sidebar.open { transform: translateX(0); }
       .sidebar-nav { display: flex; }
       .bottom-nav { display: flex; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-      .extreme-grid { grid-template-columns: 1fr; gap: 0.5rem; }
-      .sectors-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-      main { padding: 0.6rem; }
+      .extreme-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+      .sectors-grid { grid-template-columns: 1fr; gap: 0.8rem; }
+      main { padding: 0.8rem; }
       .search-box { width: 100%; }
-      .toolbar { flex-direction: column; align-items: stretch; gap: 0.5rem; padding: 0.6rem; }
+      .toolbar { flex-direction: column; align-items: stretch; }
       .filter-wrapper { width: 100%; overflow-x: auto; padding-bottom: 4px; }
-      .table-container { max-height: calc(100vh - 270px); }
+      .table-container { max-height: calc(100vh - 310px); }
     }
   </style>
 </head>
@@ -201,7 +215,7 @@
   <div class="main-wrapper">
     <div class="market-ticker-container">
       <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
-      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sectors...</span></div></div></div>
+      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
       <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
     </div>
 
@@ -258,7 +272,7 @@
       <div id="view-sec" style="display: none;">
         <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"><h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text);">Sector Performance Overview</h3></div>
-          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.2rem; display: flex; flex-wrap: wrap; gap: 1rem; background: var(--input-bg); padding: 0.6rem 0.8rem; border-radius: 8px;">
+          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
             <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
             <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol" class="mono">--</strong></span>
           </div>
@@ -274,44 +288,44 @@
       <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
       <div id="view-zones" style="display: none;">
         <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
             <div>
-              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
-              <p style="font-size: 0.7rem; color: var(--muted); margin-top: 2px;">Auto-scans past candles to detect unviolated levels.</p>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
+              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
             </div>
             <div class="filter-wrapper" id="tf-buttons-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
               <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
               <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
               <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
-              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly</button>
+              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly (Q)</button>
               <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this, true)">Half-Yearly</button>
             </div>
           </div>
-          <div class="toolbar" style="margin-bottom: 0.8rem; padding: 0.6rem; background: transparent; border: none;">
+          <div class="toolbar" style="margin-bottom: 1rem; padding: 0.8rem; background: transparent; border: none;">
             <div class="filter-wrapper" id="zone-filters">
               <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
               <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone</button>
-              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand</button>
-              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply</button>
+              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
+              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
             </div>
-            <div class="search-wrapper"><input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SEARCH..." oninput="renderZonesTable()" /></div>
+            <div class="search-wrapper"><input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SYMBOL OR PATTERN..." oninput="renderZonesTable()" /></div>
           </div>
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 350px;">
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
             <table>
               <thead>
                 <tr>
                   <th onclick="toggleZoneSort('symbol')">SYMBOL ↕</th>
                   <th onclick="toggleZoneSort('bias')">BIAS ↕</th>
                   <th onclick="toggleZoneSort('pattern')">PATTERN ↕</th>
-                  <th onclick="toggleZoneSort('ltp')">PRICE ↕</th>
-                  <th onclick="toggleZoneSort('proximal')">PROXIMAL ↕</th>
-                  <th onclick="toggleZoneSort('distal')">DISTAL ↕</th>
-                  <th onclick="toggleZoneSort('status')">STATUS ↕</th>
+                  <th onclick="toggleZoneSort('ltp')">CURRENT PRICE ↕</th>
+                  <th onclick="toggleZoneSort('proximal')">PROXIMAL LINE ↕</th>
+                  <th onclick="toggleZoneSort('distal')">DISTAL LINE ↕</th>
+                  <th onclick="toggleZoneSort('status')">ZONE STATUS ↕</th>
                   <th>CHART</th>
                 </tr>
               </thead>
               <tbody id="zones-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">Select a timeframe...</td></tr>
+                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
               </tbody>
             </table>
           </div>
@@ -461,22 +475,22 @@
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(0,0,0,0.8); z-index: 9999; display: flex;
         justify-content: center; align-items: center; backdrop-filter: blur(5px);
-        padding: 0.8rem;
+        padding: 1rem;
       `;
 
       modal.innerHTML = `
-        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 720px; max-width: 100%; padding: 1.2rem; color: var(--strong-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
+        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 720px; max-width: 100%; padding: 1.5rem; color: var(--strong-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px;">
             <div>
-              <h3 style="font-size: 1rem; color: var(--primary);">📍 Left-Side Zone Inspector: <span style="color:var(--strong-text);">${symbol}</span></h3>
-              <p style="font-size: 0.65rem; color: var(--muted); margin-top: 2px;">Scanning multi-timeframe historical unviolated zones...</p>
+              <h3 style="font-size: 1.1rem; color: var(--primary);">📍 Left-Side Zone Inspector: <span style="color:var(--strong-text);">${symbol}</span></h3>
+              <p style="font-size: 0.7rem; color: var(--muted); margin-top: 2px;">Scanning multi-timeframe historical unviolated zones...</p>
             </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <button onclick="openChart('${symbol}')" class="filter-btn" style="padding: 4px 8px; font-size: 0.65rem; background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary);">Open TV Chart ↗</button>
-              <button onclick="document.getElementById('${modalId}').remove()" style="background: transparent; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer;">✕</button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button onclick="openChart('${symbol}')" class="filter-btn" style="padding: 5px 10px; font-size: 0.7rem; background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary);">Open TV Chart ↗</button>
+              <button onclick="document.getElementById('${modalId}').remove()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
             </div>
           </div>
-          <div id="zone-inspect-content" style="max-height: 350px; overflow-y: auto;">
+          <div id="zone-inspect-content" style="max-height: 400px; overflow-y: auto;">
             <div style="text-align: center; padding: 2rem; color: var(--primary);">Current price nunchi historical left-side zones scan chestundi...</div>
           </div>
         </div>
@@ -506,26 +520,26 @@
         }
 
         contentEl.innerHTML = `
-          <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
             <thead>
               <tr style="border-bottom: 1px solid var(--border); color: var(--muted);">
-                <th style="padding: 6px; text-align: left;">TF</th>
-                <th style="padding: 6px; text-align: left;">BIAS</th>
-                <th style="padding: 6px; text-align: left;">PATTERN</th>
-                <th style="padding: 6px; text-align: right;">PROXIMAL</th>
-                <th style="padding: 6px; text-align: right;">DISTAL</th>
-                <th style="padding: 6px; text-align: center;">STATUS</th>
+                <th style="padding: 8px; text-align: left;">TIME FRAME</th>
+                <th style="padding: 8px; text-align: left;">BIAS</th>
+                <th style="padding: 8px; text-align: left;">PATTERN</th>
+                <th style="padding: 8px; text-align: right;">PROXIMAL</th>
+                <th style="padding: 8px; text-align: right;">DISTAL</th>
+                <th style="padding: 8px; text-align: center;">STATUS</th>
               </tr>
             </thead>
             <tbody>
               ${allStockZones.map(z => `
                 <tr style="border-bottom: 1px solid var(--border);">
-                  <td style="padding: 8px; font-weight: 700; color: var(--primary);">${z.timeframe}</td>
-                  <td style="padding: 8px;"><span class="badge ${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'}">${z.bias}</span></td>
-                  <td style="padding: 8px;" class="mono">${z.pattern}</td>
-                  <td style="padding: 8px; text-align: right;" class="mono">₹${Number(z.proximal || 0).toFixed(2)}</td>
-                  <td style="padding: 8px; text-align: right;" class="mono">₹${Number(z.distal || 0).toFixed(2)}</td>
-                  <td style="padding: 8px; text-align: center;"><span class="badge badge-muted">${z.status}</span></td>
+                  <td style="padding: 10px; font-weight: 700; color: var(--primary);">${z.timeframe}</td>
+                  <td style="padding: 10px;"><span class="badge ${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'}">${z.bias}</span></td>
+                  <td style="padding: 10px;" class="mono">${z.pattern}</td>
+                  <td style="padding: 10px; text-align: right;" class="mono">₹${Number(z.proximal || 0).toFixed(2)}</td>
+                  <td style="padding: 10px; text-align: right;" class="mono">₹${Number(z.distal || 0).toFixed(2)}</td>
+                  <td style="padding: 10px; text-align: center;"><span class="badge badge-muted">${z.status}</span></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -537,8 +551,8 @@
     }
 
     function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
     }
 
     function toggleSort(col) {
@@ -568,7 +582,7 @@
 
       tbody.innerHTML = filtered.map(s => `
         <tr>
-          <td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a> ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.name}</div></td>
+          <td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a> ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
           <td class="mono" style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
           <td class="mono ${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
           <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')} ${s.volMultiplier >= 1.5 ? `<span style="color:var(--primary); font-weight:700;">(${s.volMultiplier}x)</span>` : ''}</td>
@@ -610,7 +624,7 @@
       if (botSec) { document.getElementById('bot-sec-name').innerText = botSec.sector; document.getElementById('bot-sec-val').innerText = (botSec.avgChange > 0 ? '+' : '') + botSec.avgChange.toFixed(2) + '%'; document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%'; }
 
       if (chartContainer) {
-        let chartHtml = `<div style="margin-bottom: 12px; font-size: 0.9rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
+        let chartHtml = `<div style="margin-bottom: 16px; font-size: 1rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking</div>`;
         sortedSectors.forEach(sec => {
           const isPos = sec.avgChange >= 0;
           const widthPct = (Math.abs(sec.avgChange) / scaleBase) * 42;
@@ -624,7 +638,7 @@
         const stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
         stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
         const stocksHtml = stocks.map(s => `<tr><td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><span class="sub-text">${s.name || sec.sector}</span></td><td class="mono">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td><td class="mono ${s.pricePct >= 0 ? 'text-green' : 'text-red'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td></tr>`).join('');
-        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector}</h3><span style="font-size:0.7rem; color:var(--muted);">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%; background-color: var(--${isBullish ? 'green' : 'red'});"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted);">No stocks</td></tr>'}</tbody></table></div></div>`;
+        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector} <span style="font-size:0.7rem; color:var(--muted); margin-left:8px; text-transform:none;">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span></h3><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%;"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE (₹)</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:1rem;">No stocks</td></tr>'}</tbody></table></div></div>`;
       }).join('');
     }
 
@@ -635,15 +649,15 @@
         btnElement.classList.add('active');
       }
       const tbody = document.getElementById('zones-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow...</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow...</td></tr>`;
       try {
         const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`);
         const data = await res.json();
         if (data.status === 'success') {
           if (data.data && data.data.length > 0) { rawZonesData = data.data; renderZonesTable(); }
-          else { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">No active zones found.</td></tr>`; }
+          else { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active zones found.</td></tr>`; }
         }
-      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--red);">⚠️ Network Error.</td></tr>`; }
+      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red);">⚠️ Network Error.</td></tr>`; }
     }
 
     function setZoneFilter(flt, el) {
@@ -676,18 +690,18 @@
       }
 
       const tbody = document.getElementById('zones-tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--muted);">No zones match.</td></tr>`; return; }
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No zones match.</td></tr>`; return; }
 
       tbody.innerHTML = filtered.map(z => `
         <tr>
-          <td><span class="stock-link" onclick="inspectPriceZones('${z.symbol}')">${z.symbol}</span><div style="font-size:0.6rem; color:var(--muted);">${z.sector || ''}</div></td>
+          <td><span class="stock-link" onclick="inspectPriceZones('${z.symbol}')">${z.symbol}</span><div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
           <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
           <td class="mono" style="font-weight:700;">${z.pattern}</td>
           <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
           <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
           <td class="mono" style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
           <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
-          <td><button class="filter-btn" style="padding:3px 6px; font-size:0.6rem;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
+          <td><button class="filter-btn" style="padding:4px 8px; font-size:0.65rem;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
         </tr>
       `).join('');
     }

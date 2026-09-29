@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Stock Finder - Pro Terminal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />  <title>Stock Finder - Pro Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -71,9 +70,9 @@
     .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
     .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
     .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
-    .ticker-price { color: var(--strong-text); margin-right: 8px; font-family: 'JetBrains Mono', monospace; }
-    .ticker-change.positive { color: var(--green); font-weight: 600; }
-    .ticker-change.negative { color: var(--red); font-weight: 600; }
+    .ticker-price { font-family: 'JetBrains Mono', monospace; font-weight: 600; margin-right: 8px; }
+    .ticker-price.positive, .ticker-change.positive { color: var(--green); }
+    .ticker-price.negative, .ticker-change.negative { color: var(--red); }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
@@ -102,6 +101,8 @@
     tr:hover td { background: var(--hover-bg); }
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
     .stock-link:hover { color: var(--primary); }
+    .chart-action-btn { background: rgba(243, 156, 18, 0.1); border: 1px dashed var(--primary); color: var(--primary); padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; cursor: pointer; margin-left: 6px; font-weight: 600; }
+    .chart-action-btn:hover { background: rgba(243, 156, 18, 0.25); }
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
     .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
     .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
@@ -164,22 +165,28 @@
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
     .barchart-val { position: absolute; top: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); }
 
+   /* --- MOBILE RESPONSIVE FIXES --- */
     @media(max-width: 1024px) {
-      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 240px; min-width: 240px; }
+      body { height: 100vh; overflow: hidden; position: fixed; width: 100%; }
+      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
       .sidebar.open { transform: translateX(0); }
       .sidebar-nav { display: flex; }
-      .bottom-nav { display: flex; }
+      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: var(--sidebar-bg); border-top: 1px solid var(--border); z-index: 100; }
+      
+      .main-wrapper { height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; }
+      main { padding: 0.8rem; overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; }
+      
       .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
       .extreme-grid { grid-template-columns: 1fr; gap: 0.6rem; }
       .sectors-grid { grid-template-columns: 1fr; gap: 0.8rem; }
-      main { padding: 0.8rem; }
-      .search-box { width: 100%; }
-      .toolbar { flex-direction: column; align-items: stretch; }
-      .filter-wrapper { width: 100%; overflow-x: auto; padding-bottom: 4px; }
-      .table-container { max-height: calc(100vh - 310px); }
-    }
-  </style>
+      
+      .toolbar { flex-direction: column; align-items: stretch; gap: 0.8rem; padding: 0.8rem; }
+      .filter-wrapper { width: 100%; overflow-x: auto; padding-bottom: 4px; display: flex; flex-wrap: nowrap; }
+      .search-box { width: 100%; max-width: 100%; }
+      
+      .table-container { max-height: calc(100vh - 340px); min-height: 300px; }
+    }  </style>
 </head>
 <body>
 
@@ -222,6 +229,17 @@
     <main>
       <!-- ================= SCREENER VIEW ================= -->
       <div id="view-scr">
+        <!-- AI Smart ORB Panel -->
+        <div class="panel" style="margin-bottom: 1.5rem; border: 1px solid var(--primary);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+            <h3 style="font-size: 1rem; color: var(--primary);">⚡ High-probability setup </h3>
+            <button class="filter-btn" onclick="fetchSmartORBSignals()" style="font-size: 0.65rem;">🔄 Refresh</button>
+          </div>
+          <div id="smart-orb-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div style="color: var(--muted); font-size: 0.8rem;">Scanning market sentiments & 9:20 AM breakouts...</div>
+          </div>
+        </div>
+
         <div class="kpi-grid">
           <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val mono" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
           <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val mono" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
@@ -327,7 +345,7 @@
               <tbody id="zones-tbody">
                 <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
               </tbody>
-            </table>
+          </table>
           </div>
         </div>
       </div>
@@ -348,8 +366,37 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
-      fetchTickerBar(); fetchData(); startIntervals();
+      fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
     });
+
+    async function fetchSmartORBSignals() {
+      const container = document.getElementById('smart-orb-container');
+      container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">Analyzing live market & ORB setups...</div>`;
+      
+      try {
+        const res = await fetch('/api/smart-orb', { cache: 'no-store' });
+        const json = await res.json();
+        
+        if (json.status === 'success' && json.data && json.data.length > 0) {
+          const html = json.data.map(s => `
+            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border);">
+              <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
+                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias || 'ORB SETUP'}</span>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
+              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px; font-family: 'JetBrains Mono', monospace;">${s.reason || 'Breakout detected'}</div>
+            </div>
+          `).join('');
+          container.innerHTML = html;
+        } else {
+          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found for current market conditions.</div>`;
+        }
+      } catch (e) {
+        console.error("Smart ORB Error:", e);
+        container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to fetch AI Smart ORB data.</div>`;
+      }
+    }
 
     function toggleThemeBtn() {
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
@@ -418,15 +465,25 @@
         const res = await fetch(`/api/sectors?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
         const json = await res.json();
         if (json.status === 'success' && json.data && json.data.length > 0) {
-          const html = json.data.map(sec => {
+          // Sort by performance and take top sectors
+          let sortedSectors = [...json.data].sort((a, b) => b.avgChange - a.avgChange);
+          
+          const html = sortedSectors.map(sec => {
             const isPos = sec.avgChange >= 0;
-            return `<div class="ticker-item"><span class="ticker-symbol">${sec.sector}</span><span class="ticker-price">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</span><span class="ticker-change ${isPos ? 'positive' : 'negative'}">(${sec.advances}A/${sec.declines}D)</span></div>`;
+            const sign = isPos ? '+' : '';
+            const colorClass = isPos ? 'positive' : 'negative';
+            return `
+              <div class="ticker-item">
+                <span class="ticker-symbol">${sec.sector}</span>
+                <span class="ticker-price ${colorClass}" style="font-family: 'JetBrains Mono', monospace;">${sign}${sec.avgChange.toFixed(2)}%</span>
+              </div>
+            `;
           }).join('');
+          
           document.getElementById('tickerTrack').innerHTML = html + html;
         }
       } catch(e) {}
     }
-
     async function fetchData() {
       const reqId = ++fetchRequestId, reqUniv = currentUniverse;
       try {
@@ -551,8 +608,8 @@
     }
 
     function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
     }
 
     function toggleSort(col) {
@@ -582,7 +639,11 @@
 
       tbody.innerHTML = filtered.map(s => `
         <tr>
-          <td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a> ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
+          <td>
+            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
+            ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
+            <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
+          </td>
           <td class="mono" style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
           <td class="mono ${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
           <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')} ${s.volMultiplier >= 1.5 ? `<span style="color:var(--primary); font-weight:700;">(${s.volMultiplier}x)</span>` : ''}</td>
@@ -637,8 +698,8 @@
         const avg = sec.avgChange || 0, isBullish = avg >= 0;
         const stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
         stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
-        const stocksHtml = stocks.map(s => `<tr><td><a onclick="inspectPriceZones('${s.symbol}')" class="stock-link">${s.symbol}</a><span class="sub-text">${s.name || sec.sector}</span></td><td class="mono">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td><td class="mono ${s.pricePct >= 0 ? 'text-green' : 'text-red'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td></tr>`).join('');
-        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector} <span style="font-size:0.7rem; color:var(--muted); margin-left:8px; text-transform:none;">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span></h3><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%;"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE (₹)</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:1rem;">No stocks</td></tr>'}</tbody></table></div></div>`;
+        const stocksHtml = stocks.map(s => `<tr><td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><span class="sub-text">${s.name || sec.sector}</span></td><td class="mono">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td><td class="mono ${s.pricePct >= 0 ? 'text-green' : 'text-red'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td></tr>`).join('');
+        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector} <span style="font-size:0.7rem; color: var(--muted); margin-left:8px; text-transform:none;">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span></h3><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%;"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE (₹)</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:1rem;">No stocks</td></tr>'}</tbody></table></div></div>`;
       }).join('');
     }
 
@@ -694,7 +755,10 @@
 
       tbody.innerHTML = filtered.map(z => `
         <tr>
-          <td><span class="stock-link" onclick="inspectPriceZones('${z.symbol}')">${z.symbol}</span><div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
+          <td>
+            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a>
+            <div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div>
+          </td>
           <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
           <td class="mono" style="font-weight:700;">${z.pattern}</td>
           <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>

@@ -156,7 +156,7 @@
     .bg-red { background: linear-gradient(90deg, var(--red), #c0392b); }
     .barchart-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; overflow-x: auto; }
     .barchart-row { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8rem; border-radius: 6px; padding: 3px 0; min-width: 400px; }
-    .barchart-label { width: 150px; text-align: right; padding-right: 15px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75px; }
+    .barchart-label { width: 160px; min-width: 160px; flex-shrink: 0; text-align: right; padding-right: 15px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .barchart-track { flex: 1; height: 20px; position: relative; margin-left: 15px; margin-right: 15px; }
     .barchart-center { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); z-index: 1; }
     .barchart-bar { position: absolute; height: 12px; top: 4px; border-radius: 2px; z-index: 2; }
@@ -701,7 +701,7 @@
           <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
           <td class="mono" style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
           <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
-          <td><button class="filter-btn" style="padding:4px 8px; font-size:0.65rem;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
+          <td><button class="filter-btn" style="padding:4px 8px; font-size:0.65px;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
         </tr>
       `).join('');
     }

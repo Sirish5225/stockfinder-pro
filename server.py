@@ -183,8 +183,15 @@ def get_active_universe_list(univ_type=None):
 
 def detect_open_setup(open_p, high_p, low_p):
     if open_p <= 0 or low_p <= 0 or high_p <= 0: return None
-    if abs(open_p - low_p) <= 0.05 or abs(open_p - low_p) <= (open_p * 0.0005): return "OPEN=LOW"
-    elif abs(open_p - high_p) <= 0.05 or abs(open_p - high_p) <= (open_p * 0.0005): return "OPEN=HIGH"
+    
+    # Use an ultra-tight tolerance (e.g., strictly within 2 paisa or 0.001%) 
+    # to avoid false positives on stocks where Open and Low are close but not identical.
+    tolerance = min(0.03, open_p * 0.00005)
+    
+    if abs(open_p - low_p) <= tolerance: 
+        return "OPEN=LOW"
+    elif abs(open_p - high_p) <= tolerance: 
+        return "OPEN=HIGH"
     return None
 
 def calculate_oi_buildup(price_pct, oi_pct, is_fo, candle_tag):
@@ -532,8 +539,7 @@ def zone_screener():
         live_quotes = {s["symbol"]: s["ltp"] for s in (quotes_res if isinstance(quotes_res, list) else [])}
         results = []
 
-        # Limit to top liquid stocks or process in smaller batches to avoid rate limits
-        active_sample = target_universe[:75]  # Scans top 75 liquid instruments to prevent timeout
+        active_sample = target_universe[:75] 
 
         def worker(item):
             try:
@@ -564,6 +570,7 @@ def zone_screener():
     except Exception as e:
         print("Zone Screener Error:", e)
         return jsonify({"status": "success", "data": []})
+
 @app.route("/api/screener", methods=["GET"])
 def screener():
     filter_val, search_val, univ_type = request.args.get("filter", "ALL"), request.args.get("search", "").strip().lower(), request.args.get("universe", "FO").upper()
@@ -601,7 +608,6 @@ def get_sectors():
     summary.sort(key=lambda x: x["avgChange"], reverse=True)
     return jsonify({"status": "success", "universe": univ_type, "data": summary, "marketBreadth": {"totalVolume": total_vol, "advances": total_adv, "declines": total_dec}})
 
-@app.route("/api/ticker-bar", methods=["GET"])
 @app.route("/api/ticker-bar", methods=["GET"])
 def ticker_bar():
     univ_type = request.args.get("universe", "FO").upper()
@@ -642,19 +648,20 @@ def ticker_bar():
                 avg_pct = round(val["total_pct"] / val["stocks"], 2)
                 ticker_results.append({
                     "symbol": sec,
-                    "price": f"{avg_pct:+.2f}%",
-                    "change": "",
+                    "price": "",
+                    "change": f"{avg_pct:+.2f}%",
                     "isPositive": avg_pct >= 0
                 })
 
         sorted_by_gain = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True)
         if len(sorted_by_gain) > 0:
             top_gainer = sorted_by_gain[0]
-            ticker_results.append({"symbol": f"TOP GAINER: {top_gainer['symbol']}", "price": f"₹{top_gainer['ltp']:,.2f}", "change": f"{top_gainer['pricePct']:+.2f}%", "isPositive": True})
+            ticker_results.append({"symbol": f"TOP GAINER: {top_gainer['symbol']}", "price": f"{top_gainer['ltp']:,.2f}", "change": f"{top_gainer['pricePct']:+.2f}%", "isPositive": True})
             top_loser = sorted_by_gain[-1]
-            ticker_results.append({"symbol": f"TOP LOSER: {top_loser['symbol']}", "price": f"₹{top_loser['ltp']:,.2f}", "change": f"{top_loser['pricePct']:+.2f}%", "isPositive": False})
+            ticker_results.append({"symbol": f"TOP LOSER: {top_loser['symbol']}", "price": f"{top_loser['ltp']:,.2f}", "change": f"{top_loser['pricePct']:+.2f}%", "isPositive": False})
 
     return jsonify({"status": "success", "data": ticker_results})
+
 
 if __name__ == "__main__":
     start_smart_orb_background_thread()

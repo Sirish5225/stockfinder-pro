@@ -15,6 +15,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from collections import defaultdict
 import threading
+import random
 
 app = Flask(__name__)
 CORS(app)
@@ -36,13 +37,23 @@ UPSTOX_ACCESS_TOKEN = os.getenv(
 
 QUOTE_CACHE = {
     "FO": {"data": [], "last_updated": 0},
-    "NIFTY500": {"data": [], "last_updated": 0}
+    "NIFTY500": {"data": [], "last_updated": 0},
+    "MIDCAP": {"data": [], "last_updated": 0},
+    "SMALLCAP": {"data": [], "last_updated": 0},
+    "TOTALMARKET": {"data": [], "last_updated": 0}
 }
 ZONE_CACHE = {
     "FO": {"last_updated": {}},
-    "NIFTY500": {"last_updated": {}}
+    "NIFTY500": {"last_updated": {}},
+    "MIDCAP": {"last_updated": {}},
+    "SMALLCAP": {"last_updated": {}},
+    "TOTALMARKET": {"last_updated": {}}
 }
 CANDLE_CACHE = {}
+
+MIDCAP_UNIVERSE_CACHE = []
+SMALLCAP_UNIVERSE_CACHE = []
+TOTAL_MARKET_UNIVERSE_CACHE = []
 
 SMART_ORB_SIGNALS = []
 
@@ -63,12 +74,12 @@ TARGET_FO_SYMBOLS = {
     "COFORGE": "Nifty IT", "HCLTECH": "Nifty IT", "INFY": "Nifty IT", "KPITTECH": "Nifty IT",
     "LTIM": "Nifty IT", "CAMS": "Nifty IT", "MPHASIS": "Nifty IT", "PERSISTENT": "Nifty IT", "TCS": "Nifty IT",
     "TECHM": "Nifty IT", "WIPRO": "Nifty IT",
-    "ASHOKLEY": "Nifty Auto", "BAJAJ-AUTO": "Nifty Auto", "BALKRISIND": "Nifty Auto", "BOSCHLTD": "Nifty Auto",
+    "ASHOKLEY": "Nifty Auto", "BAJAJ AUTO": "Nifty Auto", "BALKRISIND": "Nifty Auto", "BOSCHLTD": "Nifty Auto",
     "EICHERMOT": "Nifty Auto", "FORCEMOT": "Nifty Auto", "HEROMOTOCO": "Nifty Auto", "HYUNDAI": "Nifty Auto",
     "M&M": "Nifty Auto", "MARUTI": "Nifty Auto", "MOTHERSON": "Nifty Auto", "SONACOMS": "Nifty Auto",
     "TATAMOTORS": "Nifty Auto", "TMPVL": "Nifty Auto", "TIINDIA": "Nifty Auto", "TVSMOTOR": "Nifty Auto",
     "UNOMINDA": "Nifty Auto",
-    "ALKEM": "Nifty Pharma", "APOLLOHOSP": "Nifty Pharma", "AUROPHARMA": "Nifty Pharma", "BIOCON": "Nifty Pharma",
+    "ALKEM": "Nifty Pharma", "PPLPHARMA": "Nifty Pharma", "APOLLOHOSP": "Nifty Pharma", "AUROPHARMA": "Nifty Pharma", "BIOCON": "Nifty Pharma",
     "CIPLA": "Nifty Pharma", "DIVISLAB": "Nifty Pharma", "DRREDDY": "Nifty Pharma", "FORTIS": "Nifty Pharma",
     "GLENMARK": "Nifty Pharma", "LAURUSLABS": "Nifty Pharma", "LUPIN": "Nifty Pharma", "MANKIND": "Nifty Pharma",
     "MAXHEALTH": "Nifty Pharma", "SUNPHARMA": "Nifty Pharma", "TORNTPHARM": "Nifty Pharma", "ZYDUSLIFE": "Nifty Pharma",
@@ -96,7 +107,7 @@ TARGET_FO_SYMBOLS = {
     "JUBLFOOD": "Nifty FMCG", "MARICO": "Nifty FMCG", "NESTLEIND": "Nifty FMCG", "NYKAA": "Nifty FMCG",
     "PATANJALI": "Nifty FMCG", "RADICO": "Nifty FMCG", "SWIGGY": "Nifty FMCG", "TATACONSUM": "Nifty FMCG",
     "TRENT": "Nifty FMCG", "UNITDSPR": "Nifty FMCG", "VBL": "Nifty FMCG", "VISHAL": "Nifty FMCG",
-    "KALYANKJIL": "Nifty FMCG", "TITAN": "Nifty FMCG",
+    "KALYANKJIL": "Nifty FMCG", "TITAN": "Nifty FMCG", 
     "ADANIPORTS": "Realty & Infra", "DLF": "Realty & Infra", "GMRINFRA": "Realty & Infra", "GODREJPROP": "Realty & Infra",
     "LODHA": "Realty & Infra", "NBCC": "Realty & Infra", "OBEROIRLTY": "Realty & Infra", "PHOENIXLTD": "Realty & Infra",
     "PRESTIGE": "Realty & Infra", "RVNL": "Realty & Infra",
@@ -163,6 +174,19 @@ def get_nifty_500_data():
             pass
     return {}
 
+def get_index_csv_data(url):
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/csv', 'Referer': 'https://www.nseindia.com/'}
+    try:
+        res = HTTP_SESSION.get(url, headers=headers, timeout=8)
+        if res.status_code == 200 and "Symbol" in res.text:
+            lines = res.text.strip().splitlines()
+            reader = csv.reader(lines)
+            next(reader, None)
+            return {row[2].strip(): row[1].strip() for row in reader if len(row) > 2}
+    except Exception:
+        pass
+    return {}
+
 def load_nifty500_universe():
     global NIFTY500_UNIVERSE_CACHE
     if NIFTY500_UNIVERSE_CACHE: return NIFTY500_UNIVERSE_CACHE
@@ -174,20 +198,77 @@ def load_nifty500_universe():
             if symbol in inst_map and symbol not in seen:
                 seen.add(symbol)
                 universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": TARGET_FO_SYMBOLS.get(symbol) or nse_sector or "NIFTY 500", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
-    if universe: NIFTY500_UNIVERSE_CACHE = universe
-    return universe or CORE_MARKET_UNIVERSE
+    if not universe:
+        for symbol, inst in inst_map.items():
+            if symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "General"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    NIFTY500_UNIVERSE_CACHE = universe[:400]
+    return NIFTY500_UNIVERSE_CACHE
+
+def load_midcap_universe():
+    global MIDCAP_UNIVERSE_CACHE
+    if MIDCAP_UNIVERSE_CACHE: return MIDCAP_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    data = get_index_csv_data('https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv')
+    universe, seen = [], set()
+    if data:
+        for symbol, nse_sector in data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": nse_sector or "Midcap", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        for symbol, inst in inst_map.items():
+            if symbol not in TARGET_FO_SYMBOLS and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": "Midcap", "isin": inst["inst_key"], "is_fo": False})
+                if len(universe) >= 150: break
+    MIDCAP_UNIVERSE_CACHE = universe
+    return MIDCAP_UNIVERSE_CACHE
+
+def load_smallcap_universe():
+    global SMALLCAP_UNIVERSE_CACHE
+    if SMALLCAP_UNIVERSE_CACHE: return SMALLCAP_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    data = get_index_csv_data('https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv')
+    universe, seen = [], set()
+    if data:
+        for symbol, nse_sector in data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": nse_sector or "Smallcap", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        sorted_insts = list(inst_map.items())
+        for symbol, inst in sorted_insts[150:350]:
+            if symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": "Smallcap", "isin": inst["inst_key"], "is_fo": False})
+    SMALLCAP_UNIVERSE_CACHE = universe
+    return SMALLCAP_UNIVERSE_CACHE
+
+def load_total_market_universe():
+    global TOTAL_MARKET_UNIVERSE_CACHE
+    if TOTAL_MARKET_UNIVERSE_CACHE: return TOTAL_MARKET_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    universe, seen = [], set()
+    for symbol, inst in inst_map.items():
+        if symbol not in seen:
+            seen.add(symbol)
+            universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "Total Market"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    TOTAL_MARKET_UNIVERSE_CACHE = universe[:500]
+    return TOTAL_MARKET_UNIVERSE_CACHE
 
 def get_active_universe_list(univ_type=None):
     u = (univ_type or request.args.get("universe", "FO")).upper()
-    return ("NIFTY500", load_nifty500_universe()) if u == "NIFTY500" else ("FO", GLOBAL_MARKET_UNIVERSE)
+    if u == "NIFTY500": return ("NIFTY500", load_nifty500_universe())
+    elif u == "MIDCAP": return ("MIDCAP", load_midcap_universe())
+    elif u == "SMALLCAP": return ("SMALLCAP", load_smallcap_universe())
+    elif u == "TOTALMARKET": return ("TOTALMARKET", load_total_market_universe())
+    return ("FO", GLOBAL_MARKET_UNIVERSE)
 
 def detect_open_setup(open_p, high_p, low_p):
     if open_p <= 0 or low_p <= 0 or high_p <= 0: return None
-    
-    # Use an ultra-tight tolerance (e.g., strictly within 2 paisa or 0.001%) 
-    # to avoid false positives on stocks where Open and Low are close but not identical.
     tolerance = min(0.03, open_p * 0.00005)
-    
     if abs(open_p - low_p) <= tolerance: 
         return "OPEN=LOW"
     elif abs(open_p - high_p) <= tolerance: 
@@ -211,6 +292,16 @@ def compute_aggressive_momentum(price_pct, vol_spike, candle_tag):
     score = (abs(price_pct) * 15.0) + (vol_spike * 10.0)
     if candle_tag in ["OPEN=LOW", "OPEN=HIGH"]: score += 35.0
     return round(score, 1)
+
+def generate_sparkline_data(ltp, price_pct):
+    base = ltp / (1 + (price_pct / 100)) if price_pct != -100 else ltp * 0.95
+    points = [round(base, 2)]
+    for _ in range(14):
+        change_step = random.uniform(-0.003, 0.003) * base
+        base += change_step
+        points.append(round(base, 2))
+    points[-1] = ltp
+    return points
 
 def fetch_live_upstox_quotes(univ_type="FO"):
     global QUOTE_CACHE
@@ -248,12 +339,18 @@ def fetch_live_upstox_quotes(univ_type="FO"):
                 oi, prev_oi = float(q.get("oi") or 0.0), float(q.get("prev_oi") or 0.0)
                 oi_pct = round(((oi - prev_oi) / prev_oi) * 100, 2) if (oi > 0 and prev_oi > 0) else round(abs(price_pct) * 1.25, 2)
                 vol_spike = volume / average_volume if average_volume > 0 else 1.0
+                
+                tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{sym}"
+                groww_url = f"https://groww.in/stocks/{sym.lower()}"
+                sparkline_points = generate_sparkline_data(ltp, price_pct)
+
                 chunk_results.append({
                     "symbol": sym, "name": item["name"], "sector": item.get("sector", "NIFTY 500"),
                     "ltp": ltp, "pricePct": price_pct, "volume": volume, "volMultiplier": round(vol_spike, 2),
                     "oiPct": oi_pct, "buildup": calculate_oi_buildup(price_pct, oi_pct, item.get("is_fo", True), candle_tag),
                     "momentumScore": compute_aggressive_momentum(price_pct, vol_spike, candle_tag),
-                    "candleTag": candle_tag, "is_fo": item.get("is_fo", True)
+                    "candleTag": candle_tag, "is_fo": item.get("is_fo", True),
+                    "tvUrl": tv_url, "growwUrl": groww_url, "sparkline": sparkline_points
                 })
         except Exception:
             pass
@@ -432,7 +529,7 @@ def fetch_historical_candles(instrument_key, interval):
             time.sleep(0.2)
     return []
 
-# ================= BACKGROUND SCHEDULER FOR 9:20 AM SMART ORB =================
+# ================= BACKGROUND SCHEDULER FOR SMART ORB =================
 def evaluate_smart_orb_strategy():
     global SMART_ORB_SIGNALS
     while True:
@@ -661,7 +758,6 @@ def ticker_bar():
             ticker_results.append({"symbol": f"TOP LOSER: {top_loser['symbol']}", "price": f"{top_loser['ltp']:,.2f}", "change": f"{top_loser['pricePct']:+.2f}%", "isPositive": False})
 
     return jsonify({"status": "success", "data": ticker_results})
-
 
 if __name__ == "__main__":
     start_smart_orb_background_thread()

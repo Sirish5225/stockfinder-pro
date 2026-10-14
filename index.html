@@ -6,7 +6,7 @@
   <title>Stock Finder - Pro Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   
   <script>
     const savedTheme = localStorage.getItem('theme');
@@ -34,7 +34,7 @@
     @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
     .skeleton { background: var(--border); border-radius: 6px; animation: pulse 1.4s infinite ease-in-out; }
     
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
     ::-webkit-scrollbar-thumb:hover { background: var(--text); }
@@ -50,6 +50,41 @@
     
     .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
     .sidebar-overlay.show { display: block; }
+
+    /* Custom Styled Universe Dropdown */
+    .universe-dropdown {
+      width: 100%;
+      background: var(--input-bg);
+      color: var(--strong-text);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8b93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-size: 14px;
+    }
+    .universe-dropdown:hover {
+      border-color: var(--primary);
+      background-color: var(--hover-bg);
+    }
+    .universe-dropdown:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 12px rgba(243, 156, 18, 0.2);
+    }
+    .universe-dropdown option {
+      background-color: var(--sidebar-bg);
+      color: var(--strong-text);
+      padding: 10px;
+    }
 
     .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
     .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
@@ -100,7 +135,7 @@
     .table-container.compact td { padding: 0.35rem 0.6rem; font-size: 0.78rem; }
 
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
-    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
+    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.70rem; border-bottom: 1px solid var(--border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
     td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
     tr:hover td { background: var(--hover-bg); }
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
@@ -122,58 +157,178 @@
     .bnav-btn.active { color: var(--primary); }
     .bnav-btn .icon { font-size: 1.2rem; }
 
-    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-    .sector-card { background-color: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; position: relative; backdrop-filter: blur(12px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .sector-card.bearish { box-shadow: inset 0 0 50px rgba(231, 76, 60, 0.03); }
-    .sector-card.bullish { box-shadow: inset 0 0 50px rgba(46, 204, 113, 0.03); }
-    .sector-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
-    .sector-title-wrapper { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: space-between; }
-    .sector-name { font-size: 0.85rem; font-weight: 700; margin: 0; text-transform: uppercase; color: var(--strong-text); }
-    .live-badge { background-color: rgba(231, 76, 60, 0.15); color: var(--red); font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
-    .strength-bar { height: 3px; width: 100%; background: var(--bar-track); }
-    .strength-bar .fill { height: 100%; transition: width 0.4s ease; }
-    .bearish .strength-bar .fill { background-color: var(--red); }
-    .bullish .strength-bar .fill { background-color: var(--green); }
-    .sector-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 250px; }
-    .sec-table { width: 100%; border-collapse: collapse; }
-    .sec-table th, .sec-table td { padding: 10px 16px; text-align: right; font-size: 0.75rem; border-bottom: 1px solid var(--border); }
-    .sec-table th:first-child, .sec-table td:first-child { text-align: left; }
-    .sec-table th { color: var(--muted); font-weight: 600; background: var(--th-bg); position: sticky; top: 0; text-transform: uppercase; font-size: 0.65rem; z-index: 5;}
-    .sec-table td { font-family: 'JetBrains Mono', monospace; color: var(--strong-text); }
-    .sec-table td span.sub-text { font-family: 'Plus Jakarta Sans', sans-serif; display: block; color: var(--muted); font-size: 0.65rem; margin-top: 2px; }
-    .text-green { color: var(--green) !important; font-weight: 600; }
-    .text-red { color: var(--red) !important; font-weight: 600; }
-    .extreme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-    .extreme-card { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; display: flex; flex-direction: column; justify-content: center; position: relative;}
-    .extreme-card.highest { box-shadow: inset 0 0 60px rgba(46, 204, 113, 0.05); border-color: rgba(46, 204, 113, 0.2); }
-    .extreme-card.lowest { box-shadow: inset 0 0 60px rgba(231, 76, 60, 0.05); border-color: rgba(231, 76, 60, 0.2); }
-    .ex-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; }
-    .ex-title-wrap { display: flex; flex-direction: column; gap: 4px; }
-    .ex-badge { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
-    .ex-name { font-size: 1.1rem; font-weight: 700; color: var(--strong-text); }
-    .ex-val { font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    .ex-bar-bg { width: 100%; height: 8px; background: var(--bar-track); border-radius: 99px; overflow: hidden; }
-    .ex-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
-    .bg-green { background: linear-gradient(90deg, #27ae60, var(--green)); }
-    .bg-red { background: linear-gradient(90deg, var(--red), #c0392b); }
+    /* --- SIDE-BY-SIDE SECTOR LAYOUT & GUIDE STYLING --- */
+    .sector-side-by-side {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media(max-width: 1200px) {
+      .sector-side-by-side {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .sec-section-title { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
     
-    .barchart-container { background: var(--card); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; width: 100%; }
-    .ranking-split-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1.5rem; align-items: start; width: 100%; }
-    .ranking-list-col { display: flex; flex-direction: column; gap: 5px; width: 100%; }
-    .barchart-row { display: flex; align-items: center; margin-bottom: 3px; font-size: 0.78rem; border-radius: 6px; padding: 6px 10px; width: 100%; border: 1px solid transparent; transition: all 0.2s; cursor: pointer; }
-    .barchart-row:hover { background: var(--hover-bg); border-color: var(--border); }
-    .barchart-row.selected { background: rgba(243, 156, 18, 0.1); border-color: var(--primary); }
-    .barchart-label { width: 180px; min-width: 180px; flex-shrink: 0; text-align: right; padding-right: 12px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .guide-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 1.5rem;
+    }
+    .guide-title {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: var(--primary);
+      text-transform: uppercase;
+      margin-bottom: 0.4rem;
+    }
+    .guide-heading {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--strong-text);
+      margin-bottom: 0.8rem;
+    }
+    .guide-text {
+      font-size: 0.78rem;
+      color: var(--text);
+      line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+    .guide-subheading {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--strong-text);
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+    }
+    .guide-list {
+      padding-left: 1.2rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .guide-list li {
+      margin-bottom: 4px;
+    }
+
+    /* Range Chip Filter Bar */
+    .range-chips-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+    .range-chip { padding: 4px 12px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--border); background: var(--input-bg); color: var(--muted); cursor: pointer; transition: all 0.2s; }
+    .range-chip.active { border-color: #fff; color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+    .range-chip.r-minus3 { background: #b71c1c; }
+    .range-chip.r-minus2 { background: #e53935; }
+    .range-chip.r-minus1 { background: #ef5350; }
+    .range-chip.r-zero { background: #374151; }
+    .range-chip.r-plus1 { background: #66bb6a; }
+    .range-chip.r-plus2 { background: #43a047; }
+    .range-chip.r-plus3 { background: #1b5e20; }
+    .range-chip.inactive { opacity: 0.35; filter: grayscale(0.5); }
+
+    .sector-treemap-grid { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+    .treemap-tile { 
+      border-radius: 8px; 
+      padding: 12px 8px; 
+      display: flex; 
+      flex-direction: column; 
+      justify-content: space-between; 
+      align-items: center; 
+      text-align: center; 
+      cursor: pointer; 
+      transition: transform 0.15s ease; 
+      border: 1px solid rgba(255,255,255,0.12); 
+      text-decoration: none; 
+      min-height: 95px; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .treemap-tile:hover { 
+      transform: scale(1.02); 
+      filter: brightness(1.15); 
+      z-index: 10; 
+      border-color: #fff; 
+    }
+    .tile-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #ffffff;
+      padding: 2px;
+      object-fit: contain;
+      margin-bottom: 4px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    }
+    .tile-logo-badge {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-size: 0.58rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .tile-name {
+      font-weight: 800; 
+      font-size: 0.78rem; 
+      color: #ffffff; 
+      letter-spacing: 0.3px;
+      text-transform: uppercase; 
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+    }
+    .tile-change {
+      font-family: 'JetBrains Mono', monospace; 
+      font-size: 0.72rem; 
+      font-weight: 700; 
+      color: #ffffff; 
+      margin-top: 2px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .ranking-list-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .barchart-row { 
+      display: flex; 
+      align-items: center; 
+      font-size: 0.78rem; 
+      border-radius: 8px; 
+      padding: 8px 12px; 
+      width: 100%; 
+      background: var(--input-bg);
+      border: 1px solid var(--border); 
+      transition: all 0.2s ease; 
+      cursor: pointer; 
+    }
+    .barchart-row:hover { 
+      background: var(--hover-bg); 
+      border-color: var(--primary); 
+      transform: translateX(4px);
+    }
+    .barchart-row.selected { 
+      background: rgba(243, 156, 18, 0.15); 
+      border: 1px solid var(--primary); 
+      box-shadow: 0 0 10px rgba(243, 156, 18, 0.2);
+    }
+    .barchart-label { width: 150px; min-width: 150px; flex-shrink: 0; text-align: right; padding-right: 12px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .barchart-track { flex: 1; height: 16px; position: relative; margin-left: 12px; margin-right: 12px; }
     .barchart-center { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); z-index: 1; }
     .barchart-bar { position: absolute; height: 10px; top: 3px; border-radius: 2px; z-index: 2; }
     .barchart-bar.pos { left: 50%; background-color: #5ebaa6; }
     .barchart-bar.neg { right: 50%; background-color: #f2726f; }
     .barchart-val { position: absolute; top: -1px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 700; color: var(--strong-text); }
-    
-    .sector-stocks-sidebar { background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; position: sticky; top: 1rem; max-height: 520px; display: flex; flex-direction: column; width: 100%; }
-    .sidebar-stocks-header { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--primary); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-    .sidebar-stocks-scroll { flex: 1; overflow-y: auto; padding-right: 2px; }
 
     .news-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(4px); padding: 1rem; }
     .news-modal-content { background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 650px; max-width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 1.5rem; color: var(--strong-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -184,7 +339,7 @@
     .news-title:hover { color: var(--primary); }
     .news-snippet { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
 
-   /* --- MOBILE RESPONSIVE FIXES --- */
+   /* --- MOBILE RESPONSIVE FIXES FOR SCREENER & TABLES --- */
    @media(max-width: 1024px) {
      body { height: 100vh; overflow: hidden; width: 100%; position: relative; display: flex; flex-direction: row; }
      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
@@ -197,16 +352,13 @@
      
      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
      .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-     .extreme-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-     .sectors-grid { grid-template-columns: 1fr; gap: 0.8rem; }
-     .ranking-split-layout { grid-template-columns: 1fr; gap: 1rem; }
-     .sector-stocks-sidebar { position: static; max-height: 320px; }
-     
      .toolbar { flex-direction: column; align-items: stretch; gap: 0.8rem; padding: 0.8rem; }
-     .filter-wrapper { width: 100%; overflow-x: auto; padding-bottom: 4px; display: flex; flex-wrap: nowrap; }
-     .search-box { width: 100%; max-width: 100%; }
-     
-     .table-container { max-height: calc(100vh - 340px); min-height: 300px; }
+     .search-box { width: 100%; }
+
+     /* Mobile Table Optimization */
+     .table-container { max-height: calc(100vh - 380px); min-height: 320px; }
+     table { font-size: 0.78rem; }
+     th, td { padding: 0.6rem 0.7rem; }
    }
   </style>
 </head>
@@ -224,9 +376,12 @@
     <div style="margin-top: auto;">
       <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
         <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
-        <select id="universe-selector" onchange="switchUniverse(this.value)" style="width: 100%; background: var(--input-bg); color: var(--strong-text); border: 1px solid var(--border); padding: 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; outline: none;">
-          <option value="FO">F&O Universe (Default)</option>
-          <option value="NIFTY500">NIFTY 500</option>
+        <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
+          <option value="FO">📊 F&O Universe (Default)</option>
+          <option value="NIFTY500">📈 NIFTY 500</option>
+          <option value="MIDCAP">🚀 Nifty Midcap 150</option>
+          <option value="SMALLCAP">⚡ Nifty Smallcap 250</option>
+          <option value="TOTALMARKET">🌐 Nifty Total Market</option>
         </select>
       </div>
       <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
@@ -298,10 +453,11 @@
                 <th onclick="toggleSort('oiPct')">OI % ↕</th>
                 <th onclick="toggleSort('buildup')">Buildup ↕</th>
                 <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
+                <th>Price Trend</th>
               </tr>
             </thead>
             <tbody id="tbody">
-              <tr><td colspan="7" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
+              <tr><td colspan="8" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -310,17 +466,73 @@
       <!-- ================= SECTOR VIEW ================= -->
       <div id="view-sec" style="display: none;">
         <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"><h3 style="font-size: 1.1rem; font-weight: 700; color: var(--strong-text);">Sector Performance Overview</h3></div>
+
           <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
             <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
             <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol" class="mono">--</strong></span>
           </div>
-          <div class="extreme-grid">
-            <div class="extreme-card highest"><div class="ex-header"><div class="ex-title-wrap"><span class="ex-badge text-green">🏆 Top Gainer</span><span class="ex-name" id="top-sec-name">--</span></div><span class="ex-val text-green" id="top-sec-val">--</span></div><div class="ex-bar-bg"><div class="ex-bar-fill bg-green" id="top-sec-bar" style="width:0%"></div></div></div>
-            <div class="extreme-card lowest"><div class="ex-header"><div class="ex-title-wrap"><span class="ex-badge text-red">📉 Top Loser</span><span class="ex-name" id="bot-sec-name">--</span></div><span class="ex-val text-red" id="bot-sec-val">--</span></div><div class="ex-bar-bg"><div class="ex-bar-fill bg-red" id="bot-sec-bar" style="width:0%"></div></div></div>
+
+          <div class="sector-side-by-side">
+            
+            <!-- LEFT COLUMN: HEATMAP OVERVIEW -->
+            <div class="panel" style="background: var(--card); border: 1px solid var(--border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 10px;">
+                <div class="sec-section-title" id="heatmap-section-header">🟩 1. Sector Heatmap</div>
+                <button class="filter-btn" id="reset-heatmap-btn" onclick="selectedHeatmapSector=null; renderSectors();" style="display: none; background: rgba(243, 156, 18, 0.15); color: var(--primary); padding: 0.3rem 0.6rem; font-size: 0.7rem;">⬅ Back to Sectors</button>
+              </div>
+
+              <!-- RANGE CHIPS FILTER BAR -->
+              <div class="range-chips-bar" id="rangeChipsBar" style="display: none;">
+                <span style="font-size: 0.7rem; font-weight: 700; color: var(--muted); margin-right: 4px;">FILTERS:</span>
+                <div class="range-chip r-minus3 active" onclick="toggleRangeFilter(-3, this)">-3% or lower</div>
+                <div class="range-chip r-minus2 active" onclick="toggleRangeFilter(-2, this)">-2%</div>
+                <div class="range-chip r-minus1 active" onclick="toggleRangeFilter(-1, this)">-1%</div>
+                <div class="range-chip r-zero active" onclick="toggleRangeFilter(0, this)">0%</div>
+                <div class="range-chip r-plus1 active" onclick="toggleRangeFilter(1, this)">+1%</div>
+                <div class="range-chip r-plus2 active" onclick="toggleRangeFilter(2, this)">+2%</div>
+                <div class="range-chip r-plus3 active" onclick="toggleRangeFilter(3, this)">+3% or higher</div>
+              </div>
+              
+              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; padding-right: 4px;">
+                <div style="color: var(--muted); padding: 1rem;">Loading Heatmap...</div>
+              </div>
+            </div>
+
+            <!-- RIGHT COLUMN: RELATIVE PERFORMANCE BARS -->
+            <div class="panel" style="background: var(--card); border: 1px solid var(--border);">
+              <div class="sec-section-title" style="margin-bottom: 0.4rem;">📊 2. Performance Rankings</div>
+              <p style="font-size: 0.7rem; color: var(--muted); margin-bottom: 1rem;">Click any sector bar to inspect its constituent stocks.</p>
+              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; padding-right: 4px;">
+                <div style="color: var(--muted); padding: 1rem;">Loading Rankings...</div>
+              </div>
+            </div>
+
           </div>
-          <div id="sector-bar-chart" class="barchart-container" style="display:none;"></div>
-          <div id="sectors-list" class="sectors-grid"></div>
+
+          <!-- GUIDE PANEL (Below Heatmap & Rankings) -->
+          <div class="guide-panel">
+            <div class="guide-title">Guide</div>
+            <div class="guide-heading">About Heatmap</div>
+            <div class="guide-text">
+              Heatmap is a colour-coded view of index constituents. Green tiles are stocks that are up; red tiles are stocks that are down. Stronger colour means a larger move, so you can scan the whole index at a glance.<br>
+              Use the sector menu or click performance bars to switch between sector constituents.
+            </div>
+            
+            <div class="guide-subheading">How to read it</div>
+            <ul class="guide-list">
+              <li>Each tile is one stock in the selected sector or index</li>
+              <li>Green is positive change; red is negative change</li>
+              <li>Deeper colour means a stronger move</li>
+              <li>Range chips (-3% to +3%) hide buckets you do not want to see</li>
+              <li>Click a symbol to open that stock's TradingView chart in a new tab</li>
+            </ul>
+
+            <div class="guide-subheading">How to use it</div>
+            <div class="guide-text" style="margin-bottom: 0;">
+              Pick a sector, then scan for clusters of colour. A block of green often points to a sector bid; a block of red flags relative weakness. Hover a tile for last price and day's change. Insights here are for analysis only and are not a trading signal.
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -366,7 +578,7 @@
               <tbody id="zones-tbody">
                 <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
               </tbody>
-          </table>
+            </table>
           </div>
         </div>
       </div>
@@ -382,10 +594,15 @@
   <script>
     let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
     let marketStocks = [], sectorsData = [], rawZonesData = [], currentZoneFilter = 'ALL';
+    let selectedHeatmapSector = null;
+    let activeRangeFilters = [-3, -2, -1, 0, 1, 2, 3];
     let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
-    let sortColumn = 'pricePct', sortDirection = 'desc', zoneSortCol = null, zoneSortDir = 'desc', zonePollingInterval = null;
-    let selectedRankingSector = null;
-    let sidebarStockSortDir = 'desc';
+    let sortColumn = 'pricePct', sortDirection = 'desc', zoneSortCol = null, zoneSortDir = 'desc';
+
+    function getStockLogoUrl(symbol) {
+      const cleanSym = symbol.trim().toLowerCase();
+      return `https://s3-symbol-logo.tradingview.com/nse/--${cleanSym}.svg`;
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
@@ -497,14 +714,15 @@
 
     async function switchUniverse(type) {
       currentUniverse = type;
-      if (type === 'NIFTY500' && ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'].includes(currentFilter)) {
+      if (['NIFTY500', 'MIDCAP', 'SMALLCAP', 'TOTALMARKET'].includes(type) && 
+          ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'].includes(currentFilter)) {
         currentFilter = 'ALL';
         document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('flt-all-btn').classList.add('active');
       }
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Switching Universe...</td></tr>`;
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Loading ${type} Market Universe...</td></tr>`;
       marketStocks = []; sectorsData = []; rawZonesData = [];
-      selectedRankingSector = null;
+      selectedHeatmapSector = null;
       await fetchData(); fetchTickerBar();
       if (currentTab === 'zones') fetchZones(currentZoneTF, null, true);
     }
@@ -610,7 +828,7 @@
       });
 
       const tbody = document.getElementById('tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
       tbody.innerHTML = filtered.map(s => `
         <tr>
@@ -626,8 +844,44 @@
           <td class="mono ${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
           <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : s.buildup === 'Short Covering' ? 'badge-blue' : 'badge-yellow'}">${s.buildup || 'CASH'}</span></td>
           <td class="mono" style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+          <td>
+            <canvas class="sparkline-canvas" width="100" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas>
+          </td>
         </tr>
       `).join('');
+
+      drawSparklines();
+    }
+
+    function drawSparklines() {
+      document.querySelectorAll('.sparkline-canvas').forEach(canvas => {
+        const ctx = canvas.getContext('2d');
+        const prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
+        const isPositive = parseFloat(canvas.getAttribute('data-change') || '0') >= 0;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!prices || prices.length < 2) return;
+
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const range = max - min || 1;
+        
+        const padding = 3;
+        const width = canvas.width - (padding * 2);
+        const height = canvas.height - (padding * 2);
+
+        ctx.beginPath();
+        prices.forEach((price, index) => {
+          const x = padding + (index / (prices.length - 1)) * width;
+          const y = padding + height - ((price - min) / range) * height;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+
+        ctx.strokeStyle = isPositive ? '#2ecc71' : '#e74c3c';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      });
     }
 
     function setFilter(flt, el) {
@@ -636,98 +890,127 @@
       renderTable();
     }
 
-    function selectSector(sectorName) {
-      selectedRankingSector = sectorName;
+    function filterHeatmapBySector(secName) {
+      selectedHeatmapSector = secName;
       renderSectors();
     }
 
-    function toggleSidebarStockSort() {
-      sidebarStockSortDir = sidebarStockSortDir === 'desc' ? 'asc' : 'desc';
+    function toggleRangeFilter(bucketVal, el) {
+      el.classList.toggle('active');
+      el.classList.toggle('inactive');
+      if (activeRangeFilters.includes(bucketVal)) {
+        activeRangeFilters = activeRangeFilters.filter(v => v !== bucketVal);
+      } else {
+        activeRangeFilters.push(bucketVal);
+      }
       renderSectors();
+    }
+
+    function getBucketValue(pct) {
+      if (pct <= -3.0) return -3;
+      if (pct <= -1.5) return -2;
+      if (pct < 0) return -1;
+      if (pct === 0) return 0;
+      if (pct <= 1.5) return 1;
+      if (pct <= 3.0) return 2;
+      return 3;
     }
 
     function renderSectors() {
-      const container = document.getElementById('sectors-list'), chartContainer = document.getElementById('sector-bar-chart');
-      if (!sectorsData.length && !marketStocks.length) { if (chartContainer) chartContainer.style.display = 'none'; return; }
-      const maxChange = Math.max(...sectorsData.map(s => Math.abs(s.avgChange || 0)), 0);
-      const scaleBase = maxChange > 0 ? maxChange : 1;
-      let sortedSectors = [...sectorsData].sort((a,b) => b.avgChange - a.avgChange);
-      
-      if (!selectedRankingSector && sortedSectors.length > 0) {
-        selectedRankingSector = sortedSectors[0].sector;
-      }
+      if (!sectorsData.length && !marketStocks.length) return;
 
-      const topSec = sortedSectors[0];
-      if (topSec) { document.getElementById('top-sec-name').innerText = topSec.sector; document.getElementById('top-sec-val').innerText = '+' + topSec.avgChange.toFixed(2) + '%'; document.getElementById('top-sec-bar').style.width = Math.min((topSec.avgChange / scaleBase) * 100, 100) + '%'; }
-      const botSec = sortedSectors[sortedSectors.length - 1];
-      if (botSec) { document.getElementById('bot-sec-name').innerText = botSec.sector; document.getElementById('bot-sec-val').innerText = (botSec.avgChange > 0 ? '+' : '') + botSec.avgChange.toFixed(2) + '%'; document.getElementById('bot-sec-bar').style.width = Math.min((Math.abs(botSec.avgChange) / scaleBase) * 100, 100) + '%'; }
+      let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
+      const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
 
-      if (chartContainer) {
-        let chartRowsHtml = '';
-        sortedSectors.forEach(sec => {
-          const isPos = sec.avgChange >= 0;
-          const widthPct = (Math.abs(sec.avgChange) / scaleBase) * 42;
-          const isSelected = selectedRankingSector && selectedRankingSector.toUpperCase() === sec.sector.toUpperCase();
-          chartRowsHtml += `
-            <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="selectSector('${sec.sector}')">
-              <div class="barchart-label">${sec.sector}</div>
-              <div class="barchart-track">
-                <div class="barchart-center"></div>
-                ${isPos ? `<div class="barchart-bar pos" style="width: ${widthPct}%;"></div><div class="barchart-val" style="left: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>` : `<div class="barchart-bar neg" style="width: ${widthPct}%;"></div><div class="barchart-val" style="right: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>`}
-              </div>
-            </div>`;
+      const heatmapContainer = document.getElementById('sec-heatmap-section');
+      const headerTitle = document.getElementById('heatmap-section-header');
+      const resetBtn = document.getElementById('reset-heatmap-btn');
+      const rangeChipsBar = document.getElementById('rangeChipsBar');
+
+      if (selectedHeatmapSector) {
+        headerTitle.innerText = `STOCKS: ${selectedHeatmapSector}`;
+        resetBtn.style.display = 'inline-block';
+        rangeChipsBar.style.display = 'flex';
+
+        let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
+        
+        sectorStocks = sectorStocks.filter(s => {
+          const bucket = getBucketValue(Number(s.pricePct || 0));
+          return activeRangeFilters.includes(bucket);
         });
 
-        let activeSecObj = sortedSectors.find(s => s.sector.toUpperCase() === (selectedRankingSector || '').toUpperCase()) || sortedSectors[0];
-        let activeStocks = [];
-        if (activeSecObj) {
-          activeStocks = (activeSecObj.stocks && activeSecObj.stocks.length) ? [...activeSecObj.stocks] : marketStocks.filter(s => s.sector === activeSecObj.sector);
-          activeStocks.sort((a, b) => {
-            const pA = Number(a.pricePct || 0), pB = Number(b.pricePct || 0);
-            return sidebarStockSortDir === 'desc' ? pB - pA : pA - pB;
-          });
-        }
+        sectorStocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
 
-        const stocksSidebarHtml = activeStocks.length ? activeStocks.map(s => `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 0.75rem;">
-            <div>
-              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
-              ${s.hasNews ? `<button onclick="openStockNews('${s.symbol}')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 1px 4px; border-radius: 4px; font-size: 0.58rem; cursor: pointer; margin-left: 4px;">📰 News</button>` : ''}
-              <span style="font-size: 0.6rem; color: var(--muted); display: block;">${s.name || activeSecObj.sector}</span>
-            </div>
-            <div style="text-align: right;" class="mono">
-              <div style="font-weight: 600; color: var(--strong-text);">₹${Number(s.ltp || s.price || 0).toFixed(2)}</div>
-              <div class="${(s.pricePct || 0) >= 0 ? 'text-green' : 'text-red'}" style="font-size: 0.68rem;">${(s.pricePct || 0) > 0 ? '+' : ''}${s.pricePct}%</div>
-            </div>
-          </div>
-        `).join('') : '<div style="text-align: center; color: var(--muted); padding: 2rem; font-size: 0.72rem;">No constituent stocks available.</div>';
+        heatmapContainer.innerHTML = sectorStocks.map(s => {
+          const pct = Number(s.pricePct || 0);
+          let bg = '#374151';
+          if (pct <= -3.0) bg = '#b71c1c';
+          else if (pct < -1.5) bg = '#e53935';
+          else if (pct < 0) bg = '#ef5350';
+          else if (pct > 0 && pct <= 1.0) bg = '#66bb6a';
+          else if (pct > 1.0 && pct <= 2.5) bg = '#43a047';
+          else if (pct > 2.5) bg = '#1b5e20';
 
-        chartContainer.innerHTML = `
-          <div style="margin-bottom: 12px; font-size: 0.95rem; font-weight: 700; color: var(--strong-text);">Relative Performance Ranking & Sector Constituents</div>
-          <div class="ranking-split-layout">
-            <div class="ranking-list-col">${chartRowsHtml}</div>
-            <div class="sector-stocks-sidebar">
-              <div class="sidebar-stocks-header">
-                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;">📍 ${activeSecObj ? activeSecObj.sector : 'Select Sector'}</span>
-                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                  <span style="font-size: 0.62rem; color: var(--muted); font-weight: normal;">${activeStocks.length} Stocks</span>
-                  <button onclick="toggleSidebarStockSort()" class="filter-btn" style="padding: 2px 6px; font-size: 0.65rem;" title="Toggle Sort">Chg % ${sidebarStockSortDir === 'desc' ? '▼' : '▲'}</button>
-                </div>
-              </div>
-              <div class="sidebar-stocks-scroll">${stocksSidebarHtml}</div>
+          const arrow = pct >= 0 ? '▲' : '▼';
+          const absMov = Math.min(Math.max(Math.abs(pct), 0.5), 5.0);
+          const flexW = Math.round(120 * (absMov / 1.5));
+          const logoUrl = getStockLogoUrl(s.symbol);
+          const tooltipText = `LTP: ₹${s.ltp || 0} | Chg: ${pct}% | Vol: ${Number(s.volume || 0).toLocaleString('en-IN')}`;
+
+          return `
+            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile" style="background-color: ${bg}; flex: ${absMov} 1 ${flexW}px;" title="${tooltipText}">
+              <img src="${logoUrl}" class="tile-logo" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'tile-logo-badge', innerText: '${s.symbol.substring(0,3)}'}))">
+              <div class="tile-name">${s.symbol}</div>
+              <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
+            </a>
+          `;
+        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks match the selected range filters.</div>`;
+
+      } else {
+        headerTitle.innerText = `🟩 1. Sector Heatmap`;
+        resetBtn.style.display = 'none';
+        rangeChipsBar.style.display = 'none';
+
+        heatmapContainer.innerHTML = sortedSectors.map(sec => {
+          const avg = sec.avgChange || 0;
+          let bg = '#374151';
+          if (avg <= -3.0) bg = '#b71c1c';
+          else if (avg < -1.5) bg = '#e53935';
+          else if (avg < 0) bg = '#ef5350';
+          else if (avg > 0 && avg <= 1.0) bg = '#66bb6a';
+          else if (avg > 1.0 && avg <= 2.5) bg = '#43a047';
+          else if (avg > 2.5) bg = '#1b5e20';
+
+          const arrow = avg >= 0 ? '▲' : '▼';
+          const absMov = Math.min(Math.max(Math.abs(avg), 0.5), 5.0);
+          const flexW = Math.round(130 * (absMov / 1.5));
+          const tooltipText = `Sector: ${sec.sector} | Avg Change: ${avg.toFixed(2)}%`;
+
+          return `
+            <div class="treemap-tile" style="background-color: ${bg}; flex: ${absMov} 1 ${flexW}px;" onclick="filterHeatmapBySector('${sec.sector}')" title="${tooltipText}">
+              <div class="tile-name" style="margin-top: auto; margin-bottom: auto; font-size: 0.82rem;">${sec.sector}</div>
+              <div class="tile-change">${arrow} ${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</div>
             </div>
-          </div>
-        `;
-        chartContainer.style.display = 'block';
+          `;
+        }).join('');
       }
 
-      container.innerHTML = sectorsData.map(sec => {
-        const avg = sec.avgChange || 0, isBullish = avg >= 0;
-        const stocks = (sec.stocks && sec.stocks.length) ? [...sec.stocks] : marketStocks.filter(s => s.sector === sec.sector);
-        stocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
-        const stocksHtml = stocks.map(s => `<tr><td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a> ${s.hasNews ? `<button onclick="openStockNews('${s.symbol}')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 1px 4px; border-radius: 4px; font-size: 0.58rem; cursor: pointer; margin-left: 4px;">📰 News</button>` : ''}<span class="sub-text">${s.name || sec.sector}</span></td><td class="mono">₹${Number(s.ltp || s.price || 0).toFixed(2)}</td><td class="mono ${s.pricePct >= 0 ? 'text-green' : 'text-red'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td></tr>`).join('');
-        return `<div class="sector-card ${isBullish ? 'bullish' : 'bearish'}"><div class="sector-header"><div class="sector-title-wrapper"><h3 class="sector-name">${sec.sector} <span style="font-size:0.7rem; color: var(--muted); margin-left:8px; text-transform:none;">Avg: <span class="${isBullish ? 'text-green' : 'text-red'}">${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</span></span></h3><span class="live-badge">● LIVE</span></div></div><div class="strength-bar"><div class="fill" style="width: ${Math.min((Math.abs(avg)/scaleBase)*100, 100)}%;"></div></div><div class="sector-table-wrap"><table class="sec-table"><thead><tr><th>SYMBOL</th><th>PRICE (₹)</th><th>CHG %</th></tr></thead><tbody>${stocksHtml || '<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:1rem;">No stocks</td></tr>'}</tbody></table></div></div>`;
-      }).join('');
+      const barsContainer = document.getElementById('sec-bars-section');
+      let chartRowsHtml = '';
+      sortedSectors.forEach(sec => {
+        const isPos = sec.avgChange >= 0;
+        const widthPct = (Math.abs(sec.avgChange) / maxChange) * 42;
+        const isSelected = selectedHeatmapSector && selectedHeatmapSector.toUpperCase() === sec.sector.toUpperCase();
+        chartRowsHtml += `
+          <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="filterHeatmapBySector('${sec.sector}')" title="Click to view constituent stocks">
+            <div class="barchart-label">${sec.sector}</div>
+            <div class="barchart-track">
+              <div class="barchart-center"></div>
+              ${isPos ? `<div class="barchart-bar pos" style="width: ${widthPct}%;"></div><div class="barchart-val" style="left: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>` : `<div class="barchart-bar neg" style="width: ${widthPct}%;"></div><div class="barchart-val" style="right: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>`}
+            </div>
+          </div>`;
+      });
+      barsContainer.innerHTML = chartRowsHtml;
     }
 
     async function fetchZones(tf, btnElement = null, forceRefresh = false) {

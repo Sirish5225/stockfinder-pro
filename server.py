@@ -11,14 +11,32 @@ import time
 from datetime import datetime, date, timedelta
 import pytz
 import concurrent.futures
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, url_for, session
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
 from collections import defaultdict
 import threading
 import random
+import numpy as np
+import pandas as pd
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = "stock_finder_pro_secret_key"
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# User Database Model for Server Data Saving
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+with app.app_context():
+    db.create_all()
 
 # Persistent HTTP Session Pool to prevent Windows Socket crashes
 HTTP_SESSION = requests.Session()
@@ -369,17 +387,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
         return results
     return {"error": "No market data retrieved."}
 
-# ================= D&S ZONES LOGIC =================
-def get_chart_benchmark(candles, idx, lookback=50):
-    start = max(0, idx - lookback)
-    subset = candles[start:idx]
-    if not subset:
-        c = candles[idx]
-        return max(abs(c[4] - c[1]), 0.01), max(c[2] - c[3], 0.01)
-    bodies = [abs(c[4] - c[1]) for c in subset]
-    ranges = [max(c[2] - c[3], 0.0001) for c in subset]
-    return max(sum(bodies) / len(bodies), 0.0001), max(sum(ranges) / len(ranges), 0.0001)
-
+# ================= STRICT INSTITUTIONAL D&S ZONES ENGINE =================
 def aggregate_candles(candles, factor):
     aggregated = []
     for i in range(0, len(candles), factor):
@@ -393,113 +401,87 @@ def aggregate_candles(candles, factor):
         aggregated.append([chunk[0][0], o, h, l, c_close, vol])
     return aggregated
 
-def scan_chart_for_active_zones(candles, current_ltp, tf="day"):
-    if len(candles) < 12: return []
-    raw_valid_zones = []
-    start_idx = max(5, len(candles) - 150)
-    for i in range(len(candles) - 1, start_idx, -1):
-        c_out1 = candles[i]
-        out1_o, out1_h, out1_l, out1_c = c_out1[1], c_out1[2], c_out1[3], c_out1[4]
-        out1_range = out1_h - out1_l
-        if out1_range <= 0: continue
-        out1_body = abs(out1_c - out1_o)
-        if (out1_body / out1_range) < 0.48: continue
-        chart_avg_body, chart_avg_range = get_chart_benchmark(candles, max(1, i - 4), lookback=50)
-        if out1_body < (chart_avg_body * 0.75): continue
-        t_out1 = "RALLY" if out1_c > out1_o else "DROP"
-        bias = "DEMAND" if t_out1 == "RALLY" else "SUPPLY"
+def scan_strict_multitimeframe_zones(candles, current_ltp, symbol, tf):
+    zones = []
+    if len(candles) < 15: return zones
 
-        leg_outs = [c_out1]
-        pattern = None
-        proximal, distal = 0.0, 0.0
-        ratio_vs_legin = 1.0
+    for num_bases in [1, 2]:
+        for i in range(num_bases, len(candles) - 2):
+            legin_idx = i - num_bases
+            base_start_idx = i
+            base_end_idx = i + num_bases - 1
+            legout_idx = base_end_idx + 1
 
-        for num_bases in (2, 1):
-            if i - num_bases - 1 < 0: continue
-            base_candles = candles[i - num_bases : i]
-            c_in = candles[i - num_bases - 1]
-            in_o, in_h, in_l, in_c = c_in[1], c_in[2], c_in[3], c_in[4]
-            in_range = in_h - in_l
-            if in_range <= 0: continue
-            in_body = abs(in_c - in_o)
-            if (in_body / in_range) < 0.48 or in_body < (chart_avg_body * 0.75): continue
+            if legin_idx < 0 or legout_idx >= len(candles): continue
 
+            legin_o, legin_c = candles[legin_idx][1], candles[legin_idx][4]
+            legout_o, legout_c = candles[legout_idx][1], candles[legout_idx][4]
+
+            legin_body = abs(legin_c - legin_o)
+            legout_body = abs(legout_c - legout_o)
+
+            base_candles = candles[base_start_idx : base_end_idx + 1]
             all_bases_valid = True
+            
             for bc in base_candles:
-                bc_o, bc_h, bc_l, bc_c = bc[1], bc[2], bc[3], bc[4]
-                bc_rng = bc_h - bc_l
+                bc_o, bc_c = bc[1], bc[4]
+                bc_range = bc[2] - bc[3]
                 bc_body = abs(bc_c - bc_o)
-                if bc_rng <= 0 or (bc_body / bc_rng) > 0.55 or bc_body > (in_body * 0.55):
+                # Strict Doji Base: body must be <= 25% of total range
+                if bc_range <= 0 or (bc_body > bc_range * 0.25):
                     all_bases_valid = False
                     break
+
             if not all_bases_valid: continue
 
-            if bias == "DEMAND":
+            max_base_body = max(abs(bc[4] - bc[1]) for bc in base_candles)
+            if not (legin_body >= (max_base_body * 1.5) and legout_body > (legin_body * 1.2)): continue
+
+            pattern, bias, proximal, distal = None, None, 0.0, 0.0
+
+            # --- RALLY-BASE-RALLY / DROP-BASE-RALLY (DEMAND) ---
+            if legout_c > legout_o:
+                bias = "DEMAND"
+                pattern = "Drop-Base-Rally" if legin_c < legin_o else "Rally-Base-Rally"
+                # Proximal = Highest Body of the base cluster
                 proximal = max(max(bc[1], bc[4]) for bc in base_candles)
+                # Distal = Lowest Wick (Low) of the base cluster
                 distal = min(bc[3] for bc in base_candles)
-            else:
+
+            # --- RALLY-BASE-DROP / DROP-BASE-DROP (SUPPLY) ---
+            elif legout_c < legout_o:
+                bias = "SUPPLY"
+                pattern = "Rally-Base-Drop" if legin_c > legin_o else "Drop-Base-Drop"
+                # Proximal = Lowest Body of the base cluster
                 proximal = min(min(bc[1], bc[4]) for bc in base_candles)
+                # Distal = Highest Wick (High) of the base cluster
                 distal = max(bc[2] for bc in base_candles)
 
-            cluster_high = max(bc[2] for bc in base_candles)
-            cluster_low = min(bc[3] for bc in base_candles)
-            cluster_range = cluster_high - cluster_low
-            if cluster_range <= 0 or cluster_range > (chart_avg_range * 1.45): continue
+            if not pattern or proximal <= 0 or distal <= 0 or proximal == distal: continue
+            risk = round(abs(proximal - distal), 2)
+            if risk <= 0: continue
 
-            in_prefix = "R" if in_c > in_o else "D"
-            base_str = "-".join(["B"] * num_bases)
-            out_str = "-".join(["R" if t_out1 == "RALLY" else "D"] * len(leg_outs))
-            pattern = f"{in_prefix}-{base_str}-{out_str}"
-            ratio_vs_legin = round(sum(abs(c[4]-c[1]) for c in leg_outs) / max(in_body, 0.01), 2)
-            break
-
-        if not pattern or proximal <= 0 or distal <= 0 or proximal == distal: continue
-        risk = round(abs(proximal - distal), 2)
-        if risk <= 0: continue
-        if bias == "DEMAND" and current_ltp < distal: continue
-        if bias == "SUPPLY" and current_ltp > distal: continue
-
-        violated = False
-        touch_count = 0
-        has_left_zone = (i == len(candles) - 1)
-        for j in range(i + 1, len(candles)):
-            c_high, c_low = candles[j][2], candles[j][3]
+            status = "Untested (Fresh)"
             if bias == "DEMAND":
-                if c_low < distal: violated = True; break
-                if not has_left_zone:
-                    if c_low > proximal: has_left_zone = True
-                else:
-                    if c_low <= proximal: touch_count += 1
+                if distal <= current_ltp <= proximal: status = "🎯 In Zone (Actionable)"
+                elif current_ltp < distal: status = "Violated / Broken"
             else:
-                if c_high > distal: violated = True; break
-                if not has_left_zone:
-                    if c_high < proximal: has_left_zone = True
-                else:
-                    if c_high >= proximal: touch_count += 1
+                if proximal <= current_ltp <= distal: status = "🎯 In Zone (Actionable)"
+                elif current_ltp > distal: status = "Violated / Broken"
 
-        if violated or not has_left_zone: continue
-        status = "Untested (Fresh)" if touch_count == 0 else f"Tested ({touch_count}x)"
-        if bias == "DEMAND":
-            if distal <= current_ltp <= proximal: status = "🎯 In Zone (Actionable)"
-            elif proximal < current_ltp <= proximal + (risk * 2.5): status = "⚡ Approaching H2"
-        else:
-            if proximal <= current_ltp <= distal: status = "🎯 In Zone (Actionable)"
-            elif proximal - (risk * 2.5) <= current_ltp < proximal: status = "⚡ Approaching L2"
+            if "Violated" in status: continue
 
-        dist_pct = (abs(proximal - current_ltp) / current_ltp) * 100 if current_ltp > 0 else 100.0
-        raw_valid_zones.append({
-            "pattern": pattern, "bias": bias, "proximal": round(proximal, 2), "distal": round(distal, 2),
-            "risk": risk, "status": status, "multiplier": ratio_vs_legin, "dist_pct": dist_pct
-        })
+            zones.append({
+                "pattern": pattern, "bias": bias, "proximal": round(proximal, 2), "distal": round(distal, 2),
+                "risk": risk, "target1R2": round(proximal + (risk * 2.0) if bias == 'DEMAND' else proximal - (risk * 2.0), 2),
+                "target1R3": round(proximal + (risk * 3.0) if bias == 'DEMAND' else proximal - (risk * 3.0), 2),
+                "status": status, "multiplier": round(legout_body / max(legin_body, 0.01), 2),
+                "tvUrl": f"https://www.tradingview.com/chart/?symbol=NSE:{symbol}",
+                "brokerUrl": f"https://groww.in/stocks/{symbol.lower()}",
+                "timeframe": tf.upper()
+            })
 
-    distinct_zones = []
-    for z in raw_valid_zones:
-        z_low, z_high = min(z["proximal"], z["distal"]), max(z["proximal"], z["distal"])
-        if not any(e["bias"] == z["bias"] and max(z_low, min(e["proximal"], e["distal"])) <= min(z_high, max(e["proximal"], e["distal"])) for e in distinct_zones):
-            distinct_zones.append(z)
-    distinct_zones.sort(key=lambda x: x["dist_pct"])
-    for z in distinct_zones: del z["dist_pct"]
-    return distinct_zones
+    return zones
 
 def fetch_historical_candles(instrument_key, interval):
     global CANDLE_CACHE
@@ -528,7 +510,7 @@ def fetch_historical_candles(instrument_key, interval):
             time.sleep(0.2)
     return []
 
-# ================= BACKGROUND SCHEDULER FOR SMART ORB =================
+# Background Smart ORB Evaluator
 def evaluate_smart_orb_strategy():
     global SMART_ORB_SIGNALS
     while True:
@@ -573,7 +555,242 @@ def start_smart_orb_background_thread():
     t = threading.Thread(target=evaluate_smart_orb_strategy, daemon=True)
     t.start()
 
-# ================= ENDPOINTS =================
+# ================= LANDING PAGE & LOGIN/SIGNUP HTML TEMPLATES =================
+LANDING_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Finder Pro - Institutional Supply & Demand Screener</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.7); --border: rgba(255, 255, 255, 0.08);
+      --text: #e0e0e0; --muted: #8b8b93; --green: #2ecc71; --red: #e74c3c; --primary: #f39c12;
+      --strong-text: #ffffff; --hover-bg: rgba(255, 255, 255, 0.03);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); overflow-x: hidden; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 5%; border-bottom: 1px solid var(--border); background: rgba(10, 10, 12, 0.8); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }
+    .brand { font-weight: 800; font-size: 1.25rem; display: flex; align-items: center; gap: 10px; color: var(--primary); letter-spacing: -0.5px; }
+    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); }
+    .nav-cta { background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; padding: 0.7rem 1.4rem; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 0.85rem; box-shadow: 0 4px 20px rgba(243, 156, 18, 0.3); transition: transform 0.2s; }
+    .nav-cta:hover { transform: translateY(-2px); }
+    .hero { text-align: center; padding: 6rem 5% 4rem; max-width: 900px; margin: 0 auto; }
+    .badge-pill { display: inline-flex; align-items: center; gap: 6px; background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); color: var(--primary); padding: 6px 14px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; margin-bottom: 1.5rem; text-transform: uppercase; }
+    h1 { font-size: 3.2rem; font-weight: 800; color: var(--strong-text); line-height: 1.2; margin-bottom: 1.5rem; letter-spacing: -1px; }
+    h1 span { color: var(--primary); text-shadow: 0 0 30px rgba(243, 156, 18, 0.4); }
+    p.hero-sub { font-size: 1.1rem; color: var(--muted); line-height: 1.6; margin-bottom: 2.5rem; max-width: 700px; margin-left: auto; margin-right: auto; }
+    .cta-group { display: flex; gap: 1rem; justify-content: center; align-items: center; margin-bottom: 4rem; }
+    .btn-primary { background: var(--primary); color: #000; padding: 0.9rem 2rem; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 0.95rem; box-shadow: 0 0 25px rgba(243, 156, 18, 0.4); transition: all 0.2s; }
+    .btn-primary:hover { background: #e67e22; transform: translateY(-2px); }
+    .btn-secondary { background: var(--card); border: 1px solid var(--border); color: var(--strong-text); padding: 0.9rem 2rem; border-radius: 12px; font-weight: 600; text-decoration: none; font-size: 0.95rem; transition: all 0.2s; }
+    .btn-secondary:hover { border-color: var(--primary); background: var(--hover-bg); }
+    .preview-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1rem; box-shadow: 0 20px 50px rgba(0,0,0,0.6); max-width: 1000px; margin: 0 auto 6rem; backdrop-filter: blur(12px); }
+    .preview-header { display: flex; gap: 6px; margin-bottom: 1rem; padding-left: 0.5rem; }
+    .mac-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #e74c3c; } .dot-y { background: #f1c40f; } .dot-g { background: #2ecc71; }
+    .preview-img-box { background: #0f0f12; border-radius: 10px; border: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'JetBrains Mono', monospace; color: var(--muted); font-size: 0.9rem; }
+    .features-section { padding: 4rem 5%; max-width: 1200px; margin: 0 auto; }
+    .section-title { text-align: center; font-size: 2.0rem; font-weight: 800; color: var(--strong-text); margin-bottom: 3rem; }
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+    .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; transition: transform 0.2s, border-color 0.2s; }
+    .feature-card:hover { transform: translateY(-5px); border-color: var(--primary); }
+    .feature-icon { font-size: 2rem; margin-bottom: 1rem; display: block; }
+    .feature-card h3 { font-size: 1.1rem; color: var(--strong-text); margin-bottom: 0.75rem; font-weight: 700; }
+    .feature-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+    footer { text-align: center; padding: 3rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; margin-top: 4rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><div class="dot"></div> STOCK FINDER PRO</div>
+    <div style="display: flex; gap: 10px;">
+      <a href="/login" class="nav-cta" style="background: transparent; border: 1px solid var(--border);">Login</a>
+      <a href="/signup" class="nav-cta">Sign Up 🚀</a>
+    </div>
+  </header>
+  <section class="hero">
+    <div class="badge-pill">⚡ Strict Institutional Order Flow Screener</div>
+    <h1>Scan Indian Equities Like <span>Smart Money</span></h1>
+    <p class="hero-sub">Automatically detect strict unviolated institutional Demand & Supply zones with high-precision Doji-base rules.</p>
+    <div class="cta-group">
+      <a href="/signup" class="btn-primary">Get Started Free 🚀</a>
+      <a href="/login" class="btn-secondary">Login to Terminal 🔐</a>
+    </div>
+  </section>
+  <div class="preview-card">
+    <div class="preview-header">
+      <div class="mac-dot dot-r"></div>
+      <div class="mac-dot dot-y"></div>
+      <div class="mac-dot dot-g"></div>
+    </div>
+    <div class="preview-img-box">
+      📊 Live NSE/BSE F&O Scanner • Strict Multi-Timeframe D&S Zone Detector Active
+    </div>
+  </div>
+  <footer>
+    &copy; 2026 Stock Finder Pro Terminal. Built for high-performance intraday and swing trading.
+  </footer>
+</body>
+</html>
+"""
+
+LOGIN_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Stock Finder Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .login-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); backdrop-filter: blur(16px); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
+    .btn-login { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; transition: background 0.2s; }
+    .btn-login:hover { background: #e67e22; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--strong-text); }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">⚡ TERMINAL LOGIN</div>
+    {% if error %}
+      <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    <form action="/login" method="POST">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn-login">Login to Terminal 🚀</button>
+    </form>
+    <a href="/signup" class="back-link">Don't have an account? Sign Up</a>
+  </div>
+</body>
+</html>
+"""
+
+SIGNUP_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up - Stock Finder Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .signup-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); backdrop-filter: blur(16px); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
+    .btn-signup { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; transition: background 0.2s; }
+    .btn-signup:hover { background: #e67e22; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--strong-text); }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="signup-card">
+    <div class="brand">⚡ CREATE ACCOUNT</div>
+    {% if error %}
+      <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    <form action="/signup" method="POST">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn-signup">Sign Up & Save 🚀</button>
+    </form>
+    <a href="/login" class="back-link">Already have an account? Login</a>
+  </div>
+</body>
+</html>
+"""
+
+# ================= FLASK ROUTING & AUTHENTICATION =================
+@app.route("/")
+def landing_page():
+    return render_template_string(LANDING_PAGE_HTML)
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+        
+        user_exists = User.query.filter_by(email=email).first()
+        if user_exists:
+            return render_template_string(SIGNUP_PAGE_HTML, error="Email already registered! Please login.")
+        
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+        new_user = User(email=email, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        
+        session['user'] = email
+        return redirect(url_for('terminal_app'))
+    return render_template_string(SIGNUP_PAGE_HTML)
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+        
+        user = User.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password, password):
+            session['user'] = email
+            return redirect(url_for('terminal_app'))
+        return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
+    return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route("/terminal")
+def terminal_app():
+    if 'user' not in session:
+        return redirect(url_for('login_page'))
+    return send_from_directory('.', 'index.html')
+
+@app.route("/logout")
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('landing_page'))
+
+# ================= ALL ORIGINAL SCREENER & ZONE ENDPOINTS =================
 @app.route("/api/smart-orb", methods=["GET"])
 def get_smart_orb():
     try:
@@ -612,10 +829,6 @@ def get_smart_orb():
     except Exception:
         return jsonify({"status": "success", "data": []})
 
-@app.route("/")
-def index():
-    return send_from_directory('.', 'index.html')
-
 @app.route("/api/zone-screener", methods=["GET"])
 def zone_screener():
     try:
@@ -643,12 +856,14 @@ def zone_screener():
                 if not candles or len(candles) < 10: 
                     return []
                 ltp = live_quotes.get(item["symbol"], candles[-1][4] if candles else 0)
-                zones = scan_chart_for_active_zones(candles, ltp, tf)
+                zones = scan_strict_multitimeframe_zones(candles, ltp, item["symbol"], tf)
                 return [{
                     "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp,
                     "pattern": z["pattern"], "bias": z["bias"], "proximal": z["proximal"], "distal": z["distal"],
                     "risk": z["risk"], "risk_pct": round((z["risk"] / ltp) * 100, 2) if ltp > 0 else 0,
-                    "status": z["status"], "multiplier": z.get("multiplier", 1.0)
+                    "target1R2": z["target1R2"], "target1R3": z["target1R3"],
+                    "status": z["status"], "multiplier": z.get("multiplier", 1.0),
+                    "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"]
                 } for z in zones]
             except Exception:
                 return []
@@ -658,7 +873,7 @@ def zone_screener():
                 if res: 
                     results.extend(res)
 
-        results.sort(key=lambda x: (0 if x["pattern"].startswith("R-B-") and x["bias"] == "DEMAND" else 1, 0 if "🎯" in x["status"] else 1 if "⚡" in x["status"] else 2, -x.get("multiplier", 1.0)))
+        results.sort(key=lambda x: (0 if x["bias"] == "DEMAND" else 1, -x.get("multiplier", 1.0)))
         
         univ_zone_cache[tf] = results
         univ_zone_cache["last_updated"][tf] = time.time()

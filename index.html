@@ -20,6 +20,8 @@
       --sidebar-bg: rgba(15, 15, 18, 0.95); --ticker-bg: #0f0f12; --th-bg: rgba(20, 20, 24, 0.95);
       --hover-bg: rgba(255, 255, 255, 0.03); --bar-bg: rgba(0, 0, 0, 0.3); --bar-track: #1a1a1e;
       --strong-text: #ffffff; --input-bg: rgba(0, 0, 0, 0.3);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --glass-border: 1px solid rgba(255, 255, 255, 0.08);
     }
     [data-theme="light"] {
       --bg: #f3f4f6; --card: rgba(255, 255, 255, 0.85); --border: rgba(0, 0, 0, 0.1);
@@ -27,137 +29,133 @@
       --sidebar-bg: rgba(255, 255, 255, 0.95); --ticker-bg: #ffffff; --th-bg: rgba(243, 244, 246, 0.95);
       --hover-bg: rgba(0, 0, 0, 0.04); --bar-bg: rgba(255, 255, 255, 0.6); --bar-track: #e5e7eb;
       --strong-text: #111827; --input-bg: rgba(255, 255, 255, 0.5);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+      --glass-border: 1px solid rgba(0, 0, 0, 0.08);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
-    .mono { font-family: 'JetBrains Mono', monospace; }
-    @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-    .skeleton { background: var(--border); border-radius: 6px; animation: pulse 1.4s infinite ease-in-out; }
-    
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    .mono, td, th, .kpi-val, .ticker-price, .ticker-change, .badge, .treemap-tile, .barchart-val { font-family: 'JetBrains Mono', monospace !important; }
+
+    .panel, .kpi-card, .movers-panel, .toolbar, .table-container, .sidebar {
+      background: var(--card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: var(--glass-border); box-shadow: var(--glass-shadow);
+    }
+
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text); }
 
-    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    /* Desktop Sidebar */
+    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s ease; }
     .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
-    .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
+    .brand { font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
     .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; }
     .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
     .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
-    .nav-btn.active { background: rgba(243, 156, 18, 0.1); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
+    .nav-btn.active { background: rgba(243, 156, 18, 0.12); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
     
     .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
     .sidebar-overlay.show { display: block; }
 
-    .universe-dropdown {
-      width: 100%;
-      background: var(--input-bg);
-      color: var(--strong-text);
-      border: 1px solid var(--border);
-      padding: 0.75rem 1rem;
-      border-radius: 10px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      outline: none;
-      cursor: pointer;
-      transition: all 0.25s ease;
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8b93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-      background-size: 14px;
-    }
-    .universe-dropdown:hover { border-color: var(--primary); background-color: var(--hover-bg); }
-    .universe-dropdown:focus { border-color: var(--primary); box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    .universe-dropdown option { background-color: var(--sidebar-bg); color: var(--strong-text); padding: 10px; }
+    .universe-dropdown { width: 100%; background: var(--input-bg); color: var(--strong-text); border: var(--glass-border); padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8b93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
+    .universe-dropdown option { background-color: #121216; color: var(--strong-text); padding: 10px; }
 
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: var(--glass-border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
     .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 34px; }
     .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s; border-radius: 50%; }
-    input:checked + .slider { background-color: rgba(243, 156, 18, 0.15); border-color: var(--primary); }
+    input:checked + .slider { background-color: rgba(243, 156, 18, 0.2); border-color: var(--primary); }
     input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); }
 
     .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; min-width: 0; }
-    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
 
-    .market-ticker-container { width: 100%; background-color: var(--ticker-bg); border-bottom: 1px solid var(--border); height: 42px; display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; }
-    .hamburger-btn, .theme-btn { background: var(--ticker-bg); border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid var(--border); flex-shrink: 0; }
-    .theme-btn { border-left: 1px solid var(--border); border-right: none; }
-    .ticker-wrapper { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative; }
-    .market-ticker-track { display: inline-flex; animation: scrollTicker 75s linear infinite; white-space: nowrap; }
+    /* --- SMOOTH TERMINAL TICKER SCROLLER STYLES --- */
+    .market-ticker-container {
+      width: 100%; height: 40px; background: rgba(10, 10, 14, 0.9) !important; border-bottom: var(--glass-border);
+      display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; backdrop-filter: blur(12px); box-shadow: var(--glass-shadow);
+    }
+    .hamburger-btn, .theme-btn { background: transparent; border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: var(--glass-border); flex-shrink: 0; }
+    .theme-btn { border-left: var(--glass-border); border-right: none; }
+    
+    .ticker-wrapper {
+      flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative;
+      mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+    }
+    .market-ticker-track { display: inline-flex; animation: scrollTicker 45s linear infinite; white-space: nowrap; will-change: transform; }
     .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
-    .ticker-item { display: inline-flex; align-items: center; padding: 0 18px; border-right: 1px solid var(--border); font-size: 0.75rem; }
-    .ticker-symbol { color: var(--text); font-weight: 600; margin-right: 8px; }
-    .ticker-price { color: var(--strong-text); margin-right: 8px; font-family: 'JetBrains Mono', monospace; }
+    .ticker-item { display: inline-flex; align-items: center; padding: 0 20px; border-right: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.72rem; gap: 6px; }
+    .ticker-symbol { color: var(--muted); font-weight: 700; text-transform: uppercase; }
+    .ticker-price { color: var(--strong-text); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
     .ticker-change.positive { color: var(--green); font-weight: 600; }
     .ticker-change.negative { color: var(--red); font-weight: 600; }
     @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
-    .kpi-card:hover { border-color: var(--primary); transform: translateY(-3px); }
+    .kpi-card { border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
+    .kpi-card:hover { border-color: var(--primary) !important; transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
     .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
     .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
 
     .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-    .movers-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
-    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .movers-panel { border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
+    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: var(--glass-border); padding-bottom: 8px; }
     .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: var(--glass-border); font-size: 0.8rem; transition: background 0.2s; }
+    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
 
-    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; background: var(--card); padding: 1rem; border-radius: 12px; border: 1px solid var(--border); }
+    .panel { border-radius: 12px; padding: 1.5rem; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-radius: 12px; padding: 1rem; }
     .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
-    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
-    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; }
-    .search-box { background: var(--input-bg); border: 1px solid var(--border); color: var(--strong-text); padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 220px; }
+    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: var(--glass-border); cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+    .filter-btn:hover { border-color: var(--primary); color: var(--strong-text); }
+    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
+    
+    .search-box { background: var(--input-bg); border: var(--glass-border); color: var(--strong-text); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; transition: border-color 0.2s; }
+    .search-box:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.15); }
 
-    .table-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; }
-    .table-container.compact th { padding: 0.5rem 0.6rem; font-size: 0.62rem; }
-    .table-container.compact td { padding: 0.35rem 0.6rem; font-size: 0.78rem; }
+    input[type="number"] { -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { opacity: 1; height: 26px; cursor: pointer; }
 
+    .table-container { border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
-    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
-    td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
+    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: var(--glass-border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
+    th:hover { color: var(--primary); }
+    td { padding: 0.9rem 1rem; border-bottom: var(--glass-border); transition: background 0.2s; }
     tr:hover td { background: var(--hover-bg); }
     .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
     .stock-link:hover { color: var(--primary); }
+
+    .watchlist-btn { background: transparent; border: none; cursor: pointer; font-size: 1.1rem; margin-right: 6px; transition: transform 0.2s; }
+    .watchlist-btn:hover { transform: scale(1.2); }
+    .watchlist-btn.starred { color: #f39c12; text-shadow: 0 0 8px rgba(243, 156, 18, 0.6); }
+
     .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
-    .badge-green { background: rgba(46, 204, 113, 0.15); color: var(--green); border: 1px solid rgba(46, 204, 113, 0.3); }
-    .badge-red { background: rgba(231, 76, 60, 0.15); color: var(--red); border: 1px solid rgba(231, 76, 60, 0.3); }
+    .badge-green { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .badge-red { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid rgba(255, 23, 68, 0.3); }
     .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
     .badge-yellow { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
-    .badge-demand { background: rgba(8, 153, 129, 0.15); color: var(--green); border: 1px solid var(--green); }
-    .badge-supply { background: rgba(242, 54, 69, 0.15); color: var(--red); border: 1px solid var(--red); }
+    .badge-demand { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid var(--green); }
+    .badge-supply { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid var(--red); }
     .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
-    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: 1px solid var(--border); }
+    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: var(--glass-border); }
     .val-up { color: var(--green); font-weight: 600; }
     .val-down { color: var(--red); font-weight: 600; }
 
-    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: 1px solid var(--border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; }
+    /* Mobile Bottom Navigation Bar */
+    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: var(--glass-border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; backdrop-filter: blur(16px); }
     .bnav-btn { background: transparent; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase; }
     .bnav-btn.active { color: var(--primary); }
     .bnav-btn .icon { font-size: 1.2rem; }
 
-    /* Sector Side-by-Side Heatmap & Guide */
     .sector-side-by-side { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.5rem; align-items: start; }
     @media(max-width: 1200px) { .sector-side-by-side { grid-template-columns: 1fr; } }
     .sec-section-title { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
-    
-    .guide-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; }
-    .guide-title { font-size: 0.7rem; font-weight: 800; letter-spacing: 1px; color: var(--primary); text-transform: uppercase; margin-bottom: 0.4rem; }
-    .guide-heading { font-size: 1.15rem; font-weight: 700; color: var(--strong-text); margin-bottom: 0.8rem; }
-    .guide-text { font-size: 0.78rem; color: var(--text); line-height: 1.5; margin-bottom: 1rem; }
-    .guide-subheading { font-size: 0.82rem; font-weight: 700; color: var(--strong-text); margin-top: 1rem; margin-bottom: 0.5rem; text-transform: uppercase; }
-    .guide-list { padding-left: 1.2rem; font-size: 0.78rem; color: var(--muted); line-height: 1.6; }
-    .guide-list li { margin-bottom: 4px; }
 
+    /* Range Chips Filter Bar */
     .range-chips-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
     .range-chip { padding: 4px 12px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--border); background: var(--input-bg); color: var(--muted); cursor: pointer; transition: all 0.2s; }
     .range-chip.active { border-color: #fff; color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
@@ -176,39 +174,32 @@
     .tile-logo { width: 26px; height: 26px; border-radius: 50%; background: #ffffff; padding: 2px; object-fit: contain; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
     .tile-logo-badge { width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
     .tile-name { font-weight: 800; font-size: 0.78rem; color: #ffffff; letter-spacing: 0.3px; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-    .tile-change { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
+    .tile-change { font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
 
     .ranking-list-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-    .barchart-row { display: flex; align-items: center; font-size: 0.78rem; border-radius: 8px; padding: 8px 12px; width: 100%; background: var(--input-bg); border: 1px solid var(--border); transition: all 0.2s ease; cursor: pointer; }
+    .barchart-row { display: flex; align-items: center; font-size: 0.78rem; border-radius: 8px; padding: 8px 12px; width: 100%; background: var(--input-bg); border: var(--glass-border); transition: all 0.2s ease; cursor: pointer; }
     .barchart-row:hover { background: var(--hover-bg); border-color: var(--primary); transform: translateX(4px); }
     .barchart-row.selected { background: rgba(243, 156, 18, 0.15); border: 1px solid var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
-    .barchart-label { width: 150px; min-width: 150px; flex-shrink: 0; text-align: right; padding-right: 12px; font-weight: 600; color: var(--strong-text); border-right: 1px solid var(--border); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .barchart-track { flex: 1; height: 16px; position: relative; margin-left: 12px; margin-right: 12px; }
-    .barchart-center { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); z-index: 1; }
-    .barchart-bar { position: absolute; height: 10px; top: 3px; border-radius: 2px; z-index: 2; }
-    .barchart-bar.pos { left: 50%; background-color: #5ebaa6; }
-    .barchart-bar.neg { right: 50%; background-color: #f2726f; }
-    .barchart-val { position: absolute; top: -1px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 700; color: var(--strong-text); }
+    .barchart-label { width: 130px; min-width: 130px; flex-shrink: 0; text-align: left; padding-right: 8px; font-weight: 600; color: var(--strong-text); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .barchart-track { flex: 1; height: 16px; position: relative; display: flex; align-items: center; margin-right: 8px; }
+    .barchart-bar-wrapper { flex: 1; height: 10px; position: relative; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
+    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); z-index: 1; }
+    .barchart-bar { position: absolute; height: 10px; top: 0; border-radius: 2px; z-index: 2; }
+    .barchart-bar.pos { left: 50%; background-color: var(--green); }
+    .barchart-bar.neg { right: 50%; background-color: var(--red); }
+    .barchart-val { width: 55px; min-width: 55px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); flex-shrink: 0; }
 
-    .news-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(4px); padding: 1rem; }
-    .news-modal-content { background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: 650px; max-width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 1.5rem; color: var(--strong-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-    .news-scroll-area { flex: 1; overflow-y: auto; margin-top: 1rem; padding-right: 6px; }
-    .news-card { background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; margin-bottom: 10px; transition: border-color 0.2s; }
-    .news-card:hover { border-color: var(--primary); }
-    .news-title { font-size: 0.85rem; font-weight: 700; color: var(--strong-text); text-decoration: none; display: block; margin-bottom: 6px; }
-    .news-title:hover { color: var(--primary); }
-    .news-snippet { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
-
+    /* Responsive Mobile Media Query */
     @media(max-width: 1024px) {
       body { height: 100vh; overflow: hidden; width: 100%; position: relative; display: flex; flex-direction: row; }
       .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
       .sidebar.open { transform: translateX(0); }
-      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: var(--sidebar-bg); border-top: 1px solid var(--border); z-index: 100; }
+      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
       .main-wrapper { height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; width: 100%; }
       main { padding: 0.8rem; overflow-y: auto; flex: 1; }
       .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-      .table-container { max-height: calc(100vh - 340px); min-height: 300px; }
     }
   </style>
 </head>
@@ -217,14 +208,16 @@
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER pro</div>
+    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER PRO</div>
     <div class="sidebar-nav">
       <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
       <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
-      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button> </div>
+      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
+      <button class="nav-btn" id="btn-watchlist" onclick="switchTab('watchlist')"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
+    </div>
     <div style="margin-top: auto;">
-      <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
-<a href="/" class="nav-btn" style="margin-bottom: 6px; border: 1px dashed rgba(243, 156, 18, 0.4);"><span style="font-size:1.1rem;">🏠</span> Logout </a>
+      <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: var(--glass-border);">
+        <a href="/" class="nav-btn" style="margin-bottom: 6px; border: 1px dashed rgba(243, 156, 18, 0.4);"><span style="font-size:1.1rem;">🏠</span> Logout </a>
         <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
         <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
           <option value="FO">📊 F&O Universe (Default)</option>
@@ -247,6 +240,7 @@
   </aside>
 
   <div class="main-wrapper">
+    <!-- Smooth Terminal Ticker Scroller -->
     <div class="market-ticker-container">
       <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
       <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
@@ -256,6 +250,27 @@
     <main>
       <!-- ================= SCREENER VIEW ================= -->
       <div id="view-scr">
+        <!-- Market Pulse Meter Widget -->
+        <div class="panel" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 1.8rem;">⚡</div>
+            <div>
+              <h3 style="font-size: 0.9rem; color: var(--strong-text); text-transform: uppercase;">Overall Market Pulse Meter</h3>
+              <p style="font-size: 0.7rem; color: var(--muted);">Real-time sentiment score based on breadth & momentum.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 20px; flex: 1; max-width: 500px; justify-content: flex-end;">
+            <div style="flex: 1; text-align: right;">
+              <div id="pulse-status-text" class="mono" style="font-weight: 700; font-size: 0.85rem; color: var(--green);">BULLISH (68/100)</div>
+              <div style="font-size: 0.65rem; color: var(--muted);" id="pulse-desc">Strong buying momentum across sectors</div>
+            </div>
+            <div style="width: 140px; background: var(--bar-track); height: 10px; border-radius: 99px; overflow: hidden; position: relative; border: var(--glass-border);">
+              <div id="pulse-meter-bar" style="width: 68%; height: 100%; background: linear-gradient(90deg, var(--red), var(--primary), var(--green)); border-radius: 99px; transition: width 0.5s ease;"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel" style="margin-bottom: 1.5rem; border: 1px solid var(--primary);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
             <h3 style="font-size: 1rem; color: var(--primary);">⚡ High-probability setup </h3>
@@ -267,10 +282,10 @@
         </div>
 
         <div class="kpi-grid">
-          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val mono" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val mono" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val mono" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val mono" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
+          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
         </div>
 
         <div class="movers-grid">
@@ -286,16 +301,15 @@
             <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
             <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
             <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
-            <label class="filter-btn" style="background: var(--input-bg); cursor: pointer;">📁 Upload CSV<input type="file" id="foFile" accept=".csv" style="display: none;" onchange="uploadUniverse(this)" /></label>
-            <button class="filter-btn" onclick="resetUniverse()" style="background: rgba(231, 76, 60, 0.1); color: var(--red);">🔄 Reset</button>
           </div>
-          <div class="search-wrapper"><input type="text" id="search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
+          <div class="search-wrapper"><input type="text" id="search" class="search-box" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
         </div>
 
         <div class="table-container" id="table-wrapper">
           <table>
             <thead>
               <tr>
+                <th style="width: 35px; text-align: center;">⭐</th>
                 <th onclick="toggleSort('symbol')">Symbol ↕</th>
                 <th onclick="toggleSort('ltp')">LTP (₹) ↕</th>
                 <th onclick="toggleSort('pricePct')">Chg % ↕</th>
@@ -303,13 +317,41 @@
                 <th onclick="toggleSort('oiPct')">OI % ↕</th>
                 <th onclick="toggleSort('buildup')">Buildup ↕</th>
                 <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
-                <th>Price Trend</th>
+                <th>PRICE TREND</th>
+                <th>R:R ACTION</th>
               </tr>
             </thead>
             <tbody id="tbody">
-              <tr><td colspan="8" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
+              <tr><td colspan="10" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ================= WATCHLIST VIEW ================= -->
+      <div id="view-watchlist" style="display: none;">
+        <div class="panel">
+          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text); margin-bottom: 0.5rem;">⭐ My Custom Watchlist</h3>
+          <p style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem;">Quick tracking of your bookmarked stocks across market sessions.</p>
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 35px; text-align: center;">⭐</th>
+                  <th>Symbol</th>
+                  <th>LTP (₹)</th>
+                  <th>Chg %</th>
+                  <th>Volume</th>
+                  <th>Buildup</th>
+                  <th>Momentum</th>
+                  <th>Sector</th>
+                </tr>
+              </thead>
+              <tbody id="watchlist-tbody">
+                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -318,16 +360,16 @@
         <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
           <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
             <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
-            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol" class="mono">--</strong></span>
+            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol">--</strong></span>
           </div>
-
           <div class="sector-side-by-side">
-            <!-- LEFT COLUMN: HEATMAP -->
-            <div class="panel" style="background: var(--card); border: 1px solid var(--border);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 10px;">
+            <div class="panel">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
                 <div class="sec-section-title" id="heatmap-section-header">🟩 Sector Heatmap</div>
                 <button class="filter-btn" id="reset-heatmap-btn" onclick="selectedHeatmapSector=null; renderSectors();" style="display: none; background: rgba(243, 156, 18, 0.15); color: var(--primary); padding: 0.3rem 0.6rem; font-size: 0.7rem;">⬅ Back to Sectors</button>
               </div>
+
+              <!-- RANGE CHIPS FILTER BAR -->
               <div class="range-chips-bar" id="rangeChipsBar" style="display: none;">
                 <span style="font-size: 0.7rem; font-weight: 700; color: var(--muted); margin-right: 4px;">FILTERS:</span>
                 <div class="range-chip r-minus3 active" onclick="toggleRangeFilter(-3, this)">-3% or lower</div>
@@ -338,32 +380,13 @@
                 <div class="range-chip r-plus2 active" onclick="toggleRangeFilter(2, this)">+2%</div>
                 <div class="range-chip r-plus3 active" onclick="toggleRangeFilter(3, this)">+3% or higher</div>
               </div>
-              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; padding-right: 4px;">
-                <div style="color: var(--muted); padding: 1rem;">Loading Heatmap...</div>
-              </div>
-            </div>
 
-            <!-- RIGHT COLUMN: PERFORMANCE RANKINGS -->
-            <div class="panel" style="background: var(--card); border: 1px solid var(--border);">
-              <div class="sec-section-title" style="margin-bottom: 0.4rem;">📊 2. Performance Rankings</div>
-              <p style="font-size: 0.7rem; color: var(--muted); margin-bottom: 1rem;">Click any sector bar to inspect its constituent stocks.</p>
-              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; padding-right: 4px;">
-                <div style="color: var(--muted); padding: 1rem;">Loading Rankings...</div>
-              </div>
+              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Heatmap...</div></div>
             </div>
-          </div>
-
-          <!-- GUIDE PANEL -->
-          <div class="guide-panel">
-            <div class="guide-title">Guide</div>
-            <div class="guide-heading">About Heatmap</div>
-            <div class="guide-text">Heatmap is a colour-coded view of index constituents. Green tiles are stocks up; red tiles are stocks down. Stronger colour means a larger move.</div>
-            <div class="guide-subheading">How to read it</div>
-            <ul class="guide-list">
-              <li>Each tile is one stock in the selected sector or index</li>
-              <li>Green is positive change; red is negative change</li>
-              <li>Click a symbol to open that stock's TradingView chart in a new tab</li>
-            </ul>
+            <div class="panel">
+              <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
+              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -376,35 +399,24 @@
               <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
               <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
             </div>
-            <div class="filter-wrapper" id="tf-buttons-wrapper" style="flex: 0 1 auto; justify-content: flex-end;">
+            <div class="filter-wrapper" id="tf-buttons-wrapper">
               <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
               <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
               <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
-              <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this, true)">Quarterly (Q)</button>
-              <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this, true)">Half-Yearly</button>
             </div>
-          </div>
-          <div class="toolbar" style="margin-bottom: 1rem; padding: 0.8rem; background: transparent; border: none;">
-            <div class="filter-wrapper" id="zone-filters">
-              <button class="filter-btn active" onclick="setZoneFilter('ALL', this)">ALL</button>
-              <button class="filter-btn" onclick="setZoneFilter('IN_ZONE', this)">🎯 In Zone</button>
-              <button class="filter-btn" onclick="setZoneFilter('DEMAND', this)">🟢 Demand Zones</button>
-              <button class="filter-btn" onclick="setZoneFilter('SUPPLY', this)">🔴 Supply Zones</button>
-            </div>
-            <div class="search-wrapper"><input type="text" id="search-zones" class="search-box mono" placeholder="🔍 SYMBOL OR PATTERN..." oninput="renderZonesTable()" /></div>
           </div>
           <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
             <table>
               <thead>
                 <tr>
-                  <th onclick="toggleZoneSort('symbol')">SYMBOL ↕</th>
-                  <th onclick="toggleZoneSort('bias')">BIAS ↕</th>
-                  <th onclick="toggleZoneSort('pattern')">PATTERN ↕</th>
-                  <th onclick="toggleZoneSort('ltp')">CURRENT PRICE ↕</th>
-                  <th onclick="toggleZoneSort('proximal')">PROXIMAL LINE ↕</th>
-                  <th onclick="toggleZoneSort('distal')">DISTAL LINE ↕</th>
-                  <th onclick="toggleZoneSort('status')">ZONE STATUS ↕</th>
-                  <th>CHART</th>
+                  <th>SYMBOL</th>
+                  <th>BIAS</th>
+                  <th>PATTERN</th>
+                  <th>CURRENT PRICE</th>
+                  <th>PROXIMAL LINE</th>
+                  <th>DISTAL LINE</th>
+                  <th>ZONE STATUS</th>
+                  <th>ACTION</th>
                 </tr>
               </thead>
               <tbody id="zones-tbody">
@@ -416,20 +428,89 @@
       </div>
     </main>
 
+    <!-- Mobile Bottom Navigation Bar -->
     <nav class="bottom-nav">
       <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')"><span class="icon">📊</span><span>Screener</span></button>
       <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
       <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
+      <button class="bnav-btn" id="bnav-watchlist" onclick="switchTab('watchlist')"><span class="icon">⭐</span><span>Watchlist</span></button>
     </nav>
+  </div>
+
+  <!-- Smart Position Sizing & R:R Calculator Modal -->
+  <div id="rr-calculator-modal" class="sidebar-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+    <div class="panel" style="width: 440px; background: var(--sidebar-bg) !important; border: 1px solid var(--primary); position: relative;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: var(--glass-border); padding-bottom: 10px; margin-bottom: 15px;">
+        <h3 style="font-size: 0.95rem; color: var(--primary);">🎯 Smart Position Sizing & R:R Calculator</h3>
+        <button onclick="closeRRCalculator()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.8rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Symbol & Bias:</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <strong id="calc-symbol" class="mono" style="color: var(--strong-text);">--</strong>
+            <div style="display: flex; gap: 4px;" id="bias-toggle-group">
+              <button class="filter-btn active" id="bias-long-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('DEMAND')">LONG</button>
+              <button class="filter-btn" id="bias-short-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('SUPPLY')">SHORT</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Entry Price ($P_{entry}$):</span>
+          <input type="number" id="calc-entry-input" class="search-box mono" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Stop-Loss Points ($P_{sl}$ pts):</span>
+          <input type="number" id="calc-sl-pts" class="search-box mono" value="15" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Total Risk Capital ($Risk_{total}$):</span>
+          <input type="number" id="calc-max-risk" class="search-box mono" value="2000" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="background: var(--input-bg); padding: 12px; border-radius: 8px; border: var(--glass-border); margin-top: 4px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Calculated Stop-Loss Price:</span>
+            <strong id="calc-sl-price" class="mono val-down">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Risk Per Share:</span>
+            <strong id="calc-risk-per-share" class="mono" style="color: var(--strong-text);">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
+            <span style="color: var(--strong-text); font-weight: 700;">Trade Quantity (Shares):</span>
+            <strong id="calc-qty" class="mono" style="color: var(--primary); font-size: 0.95rem;">0 Shares</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Total Investment Value:</span>
+            <strong id="calc-total-inv" class="mono" style="color: var(--strong-text);">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
+            <span style="color: var(--muted);">Target 1:2 (Reward):</span>
+            <strong id="calc-t2" class="mono val-up">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--muted);">Target 1:3 (Reward):</span>
+            <strong id="calc-t3" class="mono val-up">₹0.00</strong>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
     let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
-    let marketStocks = [], sectorsData = [], rawZonesData = [], currentZoneFilter = 'ALL';
+    let marketStocks = [], sectorsData = [], rawZonesData = [];
+    let watchlistSymbols = new Set();
     let selectedHeatmapSector = null;
     let activeRangeFilters = [-3, -2, -1, 0, 1, 2, 3];
     let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
-    let sortColumn = 'pricePct', sortDirection = 'desc', zoneSortCol = null, zoneSortDir = 'desc';
+    let sortColumn = 'pricePct', sortDirection = 'desc';
+    let activeTradeData = {};
 
     function getStockLogoUrl(symbol) {
       const cleanSym = symbol.trim().toLowerCase();
@@ -438,80 +519,46 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
+      loadWatchlistFromStorage();
       fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
     });
 
+    function loadWatchlistFromStorage() {
+      try {
+        const saved = localStorage.getItem('stock_finder_watchlist');
+        watchlistSymbols = saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch (e) { watchlistSymbols = new Set(); }
+    }
+
+    function toggleWatchlist(symbol) {
+      symbol = symbol.toUpperCase();
+      if (watchlistSymbols.has(symbol)) watchlistSymbols.delete(symbol);
+      else watchlistSymbols.add(symbol);
+      try { localStorage.setItem('stock_finder_watchlist', JSON.stringify(Array.from(watchlistSymbols))); } catch (e) {}
+      renderTable();
+      if (currentTab === 'watchlist') renderWatchlistTable();
+    }
+
     async function fetchSmartORBSignals() {
       const container = document.getElementById('smart-orb-container');
-      container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">Analyzing live market & ORB setups...</div>`;
       try {
         const res = await fetch('/api/smart-orb', { cache: 'no-store' });
         const json = await res.json();
         if (json.status === 'success' && json.data && json.data.length > 0) {
           container.innerHTML = json.data.map(s => `
-            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: var(--glass-border);">
               <div style="display: flex; justify-content: space-between; font-weight: 700;">
                 <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
-                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias || 'ORB SETUP'}</span>
+                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
               </div>
               <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
-              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px; font-family: 'JetBrains Mono', monospace;">${s.reason || 'Breakout detected'}</div>
+              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px;">${s.reason}</div>
             </div>
           `).join('');
         } else {
-          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found for current market conditions.</div>`;
+          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found.</div>`;
         }
-      } catch (e) {
-        container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to fetch AI Smart ORB data.</div>`;
-      }
-    }
-
-    async function openStockNews(symbol) {
-      let modalId = 'stock-news-modal';
-      let existing = document.getElementById(modalId);
-      if (existing) existing.remove();
-
-      const modal = document.createElement('div');
-      modal.id = modalId;
-      modal.className = 'news-modal';
-      modal.innerHTML = `
-        <div class="news-modal-content">
-          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
-            <div>
-              <h3 style="font-size: 1.1rem; color: var(--primary);">📰 Live News & Results: <span style="color:var(--strong-text);">${symbol}</span></h3>
-              <p style="font-size: 0.68rem; color: var(--muted); margin-top: 2px;">Tracking recent triggers, announcements & sudden movement catalysts</p>
-            </div>
-            <button onclick="document.getElementById('${modalId}').remove()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
-          </div>
-          <div class="news-scroll-area" id="news-container">
-            <div style="text-align: center; padding: 2rem; color: var(--primary);">Fetching live news feed...</div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-
-      try {
-        const res = await fetch(`/api/stock-news?symbol=${encodeURIComponent(symbol)}&universe=${currentUniverse}`);
-        const json = await res.json();
-        const container = document.getElementById('news-container');
-
-        if (json.status === 'success' && json.data && json.data.length > 0) {
-          container.innerHTML = json.data.map(n => {
-            const pubDate = n.published_time ? new Date(n.published_time).toLocaleString('en-IN') : 'Recent';
-            return `
-              <div class="news-card">
-                <a href="${n.article_link}" target="_blank" class="news-title">${n.heading} ↗</a>
-                <div class="news-snippet">${n.summary || 'No summary available.'}</div>
-                <div style="font-size: 0.6rem; color: var(--muted); margin-top: 6px; font-family: 'JetBrains Mono', monospace;">Published: ${pubDate}</div>
-              </div>
-            `;
-          }).join('');
-        } else {
-          container.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--muted);">No recent news articles found for ${symbol}.</div>`;
-        }
-      } catch (err) {
-        document.getElementById('news-container').innerHTML = `<div style="color: var(--red); text-align: center; padding: 2rem;">⚠️ Failed to load news updates.</div>`;
-      }
+      } catch (e) { container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to load ORB data.</div>`; }
     }
 
     function toggleThemeBtn() {
@@ -529,14 +576,15 @@
 
     function switchTab(tab) {
       currentTab = tab;
-      ['scr', 'sec', 'zones'].forEach(t => {
-        document.getElementById(`btn-${t}`).classList.toggle('active', t === tab);
-        document.getElementById(`bnav-${t}`).classList.toggle('active', t === tab);
-        document.getElementById(`view-${t}`).style.display = t === tab ? 'block' : 'none';
+      ['scr', 'sec', 'zones', 'watchlist'].forEach(t => {
+        const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
+        if(btn) btn.classList.toggle('active', t === tab);
+        if(bnav) bnav.classList.toggle('active', t === tab);
+        if(view) view.style.display = t === tab ? 'block' : 'none';
       });
       if (tab === 'sec') renderSectors();
-      if (tab === 'zones' && rawZonesData.length === 0) fetchZones(currentZoneTF, document.getElementById('tf-btn-day'));
-      if (window.innerWidth <= 1024) { document.getElementById('app-sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
+      if (tab === 'watchlist') renderWatchlistTable();
+      if (tab === 'zones' && rawZonesData.length === 0) fetchZones('day', document.getElementById('tf-btn-day'));
     }
 
     function toggleCompactMode(c) { document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', c)); }
@@ -546,49 +594,22 @@
 
     async function switchUniverse(type) {
       currentUniverse = type;
-      if (['NIFTY500', 'MIDCAP', 'SMALLCAP', 'TOTALMARKET'].includes(type) && 
-          ['Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding'].includes(currentFilter)) {
-        currentFilter = 'ALL';
-        document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('flt-all-btn').classList.add('active');
-      }
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Loading ${type} Market Universe...</td></tr>`;
       marketStocks = []; sectorsData = []; rawZonesData = [];
       selectedHeatmapSector = null;
       await fetchData(); fetchTickerBar();
       if (currentTab === 'zones') fetchZones(currentZoneTF, null, true);
     }
 
-    async function uploadUniverse(input) {
-      if (!input.files || !input.files[0]) return;
-      const fd = new FormData(); fd.append("file", input.files[0]);
-      try {
-        const res = await fetch(`/api/upload-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST', body: fd });
-        const result = await res.json();
-        if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); } else alert(result.message);
-      } catch(e) { alert("Error uploading file."); } finally { input.value = ''; }
-    }
-
-    async function resetUniverse() {
-      if (!confirm("Reset to default stock list?")) return;
-      try {
-        const res = await fetch(`/api/reset-universe?universe=${encodeURIComponent(currentUniverse)}`, { method: 'POST' });
-        const result = await res.json();
-        if (result.status === 'success') { alert(result.message); fetchData(); fetchTickerBar(); }
-      } catch(e) {}
-    }
-
     async function fetchTickerBar() {
       try {
         const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
-        if(!res.ok) return;
         const json = await res.json();
         if(json.status === 'success' && json.data.length > 0) {
           const track = document.getElementById('tickerTrack');
           const html = json.data.map(item => `
             <div class="ticker-item">
               <span class="ticker-symbol">${item.symbol}</span>
-              <span class="ticker-price">₹${item.price}</span>
+              <span class="ticker-price">${item.price ? '₹' + item.price : ''}</span>
               <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
             </div>
           `).join('');
@@ -610,6 +631,7 @@
           marketStocks = d1.data || [];
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
           updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
+          if (currentTab === 'watchlist') renderWatchlistTable();
         }
         if (d2.status === 'success') {
           sectorsData = d2.data || [];
@@ -617,10 +639,40 @@
             document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
             document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
+            updateMarketPulseMeter(d2.marketBreadth, marketStocks);
           }
         }
         if (currentTab === 'sec') renderSectors();
       } catch(e) {}
+    }
+
+    function updateMarketPulseMeter(breadth, stocks) {
+      if (!breadth || !stocks || stocks.length === 0) return;
+      const adv = breadth.advances || 0;
+      const dec = breadth.declines || 0;
+      const total = adv + dec || 1;
+      const breadthScore = (adv / total) * 50;
+      const positiveStocks = stocks.filter(s => (s.pricePct || 0) > 0).length;
+      const momentumScore = (positiveStocks / stocks.length) * 50;
+      const finalScore = Math.round(breadthScore + momentumScore);
+
+      let statusText = "NEUTRAL", statusColor = "var(--primary)", descText = "Balanced market conditions";
+      if (finalScore >= 75) {
+        statusText = `EXTREME GREED (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Aggressive bullish participation";
+      } else if (finalScore >= 55) {
+        statusText = `BULLISH (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Strong buying momentum across sectors";
+      } else if (finalScore <= 25) {
+        statusText = `EXTREME FEAR (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Heavy selling pressure / panic";
+      } else if (finalScore <= 45) {
+        statusText = `BEARISH (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Weak breadth and downward pressure";
+      }
+
+      const statusEl = document.getElementById('pulse-status-text');
+      const barEl = document.getElementById('pulse-meter-bar');
+      const descEl = document.getElementById('pulse-desc');
+      if (statusEl) { statusEl.innerText = statusText; statusEl.style.color = statusColor; }
+      if (barEl) { barEl.style.width = finalScore + '%'; }
+      if (descEl) { descEl.innerText = descText; }
     }
 
     function updateKPIs(stocks) {
@@ -633,8 +685,8 @@
     }
 
     function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a> ${s.hasNews ? `<button onclick="openStockNews('${s.symbol}')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 1px 4px; border-radius: 4px; font-size: 0.58rem; cursor: pointer; margin-left: 4px;">📰 News</button>` : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a> ${s.hasNews ? `<button onclick="openStockNews('${s.symbol}')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 1px 4px; border-radius: 4px; font-size: 0.58rem; cursor: pointer; margin-left: 4px;">📰 News</button>` : ''}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="mono val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
     }
 
     function toggleSort(col) {
@@ -660,56 +712,76 @@
       });
 
       const tbody = document.getElementById('tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
 
-      tbody.innerHTML = filtered.map(s => `
+      tbody.innerHTML = filtered.map(s => {
+        let pulseClass = '';
+        if (s.buildup === 'Long Buildup' || (s.pricePct > 2 && s.volMultiplier >= 1.5)) pulseClass = 'pulse-demand-row';
+        else if (s.buildup === 'Short Buildup' || (s.pricePct < -2 && s.volMultiplier >= 1.5)) pulseClass = 'pulse-supply-row';
+
+        const isStarred = watchlistSymbols.has(s.symbol.toUpperCase());
+        const defaultBias = s.pricePct >= 0 ? 'DEMAND' : 'SUPPLY';
+        const defaultSLPts = Math.max(5, Number(s.ltp * 0.01).toFixed(1));
+        
+        return `
+          <tr class="${pulseClass}">
+            <td style="text-align: center;"><button class="watchlist-btn ${isStarred ? 'starred' : ''}" onclick="toggleWatchlist('${s.symbol}')">${isStarred ? '★' : '☆'}</button></td>
+            <td>
+              <span class="live-pulse-dot" style="background-color: ${s.pricePct >= 0 ? 'var(--green)' : 'var(--red)'};"></span>
+              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
+              ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
+              <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
+            </td>
+            <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
+            <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+            <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
+            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
+            <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : 'badge-blue'}">${s.buildup || 'CASH'}</span></td>
+            <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+            <td><canvas class="sparkline-canvas" width="90" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas></td>
+            <td>
+              <button class="filter-btn" style="padding: 4px 10px; font-size: 0.7rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${s.symbol}', ${s.ltp}, ${defaultSLPts}, '${defaultBias}')">🎯 R:R</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+      drawSparklines();
+    }
+
+    function renderWatchlistTable() {
+      const tbody = document.getElementById('watchlist-tbody');
+      const watchStocks = marketStocks.filter(s => watchlistSymbols.has(s.symbol.toUpperCase()));
+      if (!watchStocks.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = watchStocks.map(s => `
         <tr>
-          <td>
-            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
-            ${s.hasNews ? `<button onclick="openStockNews('${s.symbol}')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 1px 5px; border-radius: 4px; font-size: 0.6rem; cursor: pointer; margin-left: 5px;" title="View Live News">📰 News</button>` : ''}
-            ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
-            <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
-          </td>
-          <td class="mono" style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
-          <td class="mono ${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
-          <td class="mono" style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')} ${s.volMultiplier >= 1.5 ? `<span style="color:var(--primary); font-weight:700;">(${s.volMultiplier}x)</span>` : ''}</td>
-          <td class="mono ${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
-          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : s.buildup === 'Short Covering' ? 'badge-blue' : 'badge-yellow'}">${s.buildup || 'CASH'}</span></td>
-          <td class="mono" style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
-          <td>
-            <canvas class="sparkline-canvas" width="100" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas>
-          </td>
+          <td style="text-align: center;"><button class="watchlist-btn starred" onclick="toggleWatchlist('${s.symbol}')">★</button></td>
+          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
+          <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
+          <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+          <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
+          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : 'badge-red'}">${s.buildup || 'CASH'}</span></td>
+          <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+          <td><span style="font-size:0.75rem; color:var(--muted);">${s.sector || '-'}</span></td>
         </tr>
       `).join('');
-
-      drawSparklines();
     }
 
     function drawSparklines() {
       document.querySelectorAll('.sparkline-canvas').forEach(canvas => {
-        const ctx = canvas.getContext('2d');
-        const prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
+        const ctx = canvas.getContext('2d'), prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
         const isPositive = parseFloat(canvas.getAttribute('data-change') || '0') >= 0;
-        
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (!prices || prices.length < 2) return;
-
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        const range = max - min || 1;
-        
-        const padding = 3;
-        const width = canvas.width - (padding * 2);
-        const height = canvas.height - (padding * 2);
-
+        if (prices.length < 2) return;
+        const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
         ctx.beginPath();
         prices.forEach((price, index) => {
-          const x = padding + (index / (prices.length - 1)) * width;
-          const y = padding + height - ((price - min) / range) * height;
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          const x = 3 + (index / (prices.length - 1)) * (canvas.width - 6);
+          const y = 3 + (canvas.height - 6) - ((price - min) / range) * (canvas.height - 6);
+          if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         });
-
         ctx.strokeStyle = isPositive ? '#2ecc71' : '#e74c3c';
         ctx.lineWidth = 1.8;
         ctx.stroke();
@@ -749,20 +821,19 @@
     }
 
     function renderSectors() {
-      if (!sectorsData.length && !marketStocks.length) return;
-
+      if (!sectorsData.length) return;
       let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
       const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
 
       const heatmapContainer = document.getElementById('sec-heatmap-section');
       const headerTitle = document.getElementById('heatmap-section-header');
       const resetBtn = document.getElementById('reset-heatmap-btn');
-      const rangeChipsBar = document.getElementById('rangeChipsBar');
+      let rangeChipsBar = document.getElementById('rangeChipsBar');
 
       if (selectedHeatmapSector) {
         headerTitle.innerText = `STOCKS: ${selectedHeatmapSector}`;
         resetBtn.style.display = 'inline-block';
-        rangeChipsBar.style.display = 'flex';
+        if (rangeChipsBar) rangeChipsBar.style.display = 'flex';
 
         let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
         sectorStocks = sectorStocks.filter(s => {
@@ -793,48 +864,32 @@
               <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
             </a>
           `;
-        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks match the selected filters.</div>`;
-
+        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks match the selected range filters.</div>`;
       } else {
         headerTitle.innerText = `🟩 Sector Heatmap`;
         resetBtn.style.display = 'none';
-        rangeChipsBar.style.display = 'none';
+        if (rangeChipsBar) rangeChipsBar.style.display = 'none';
 
         heatmapContainer.innerHTML = sortedSectors.map(sec => {
           const avg = sec.avgChange || 0;
-          let bg = '#374151';
-          if (avg <= -3.0) bg = '#b71c1c';
-          else if (avg < -1.5) bg = '#e53935';
-          else if (avg < 0) bg = '#ef5350';
-          else if (avg > 0 && avg <= 1.0) bg = '#66bb6a';
-          else if (avg > 1.0 && avg <= 2.5) bg = '#43a047';
-          else if (avg > 2.5) bg = '#1b5e20';
-
-          const arrow = avg >= 0 ? '▲' : '▼';
-          const absMov = Math.min(Math.max(Math.abs(avg), 0.5), 5.0);
-          const flexW = Math.round(130 * (absMov / 1.5));
-
-          return `
-            <div class="treemap-tile" style="background-color: ${bg}; flex: ${absMov} 1 ${flexW}px;" onclick="filterHeatmapBySector('${sec.sector}')" title="Sector: ${sec.sector} | Avg Change: ${avg.toFixed(2)}%">
-              <div class="tile-name" style="margin-top: auto; margin-bottom: auto; font-size: 0.82rem;">${sec.sector}</div>
-              <div class="tile-change">${arrow} ${avg > 0 ? '+' : ''}${avg.toFixed(2)}%</div>
-            </div>
-          `;
+          let bg = avg < 0 ? '#e53935' : '#43a047';
+          return `<div class="treemap-tile" style="background-color: ${bg}; flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
         }).join('');
       }
 
-      const barsContainer = document.getElementById('sec-bars-section');
-      barsContainer.innerHTML = sortedSectors.map(sec => {
-        const isPos = sec.avgChange >= 0;
-        const widthPct = (Math.abs(sec.avgChange) / maxChange) * 42;
+      document.getElementById('sec-bars-section').innerHTML = sortedSectors.map(sec => {
+        const isPos = sec.avgChange >= 0, widthPct = (Math.abs(sec.avgChange) / maxChange) * 48;
         const isSelected = selectedHeatmapSector && selectedHeatmapSector.toUpperCase() === sec.sector.toUpperCase();
         return `
           <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="filterHeatmapBySector('${sec.sector}')">
             <div class="barchart-label">${sec.sector}</div>
             <div class="barchart-track">
-              <div class="barchart-center"></div>
-              ${isPos ? `<div class="barchart-bar pos" style="width: ${widthPct}%;"></div><div class="barchart-val" style="left: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>` : `<div class="barchart-bar neg" style="width: ${widthPct}%;"></div><div class="barchart-val" style="right: calc(50% + ${widthPct}\% + 6px);">${sec.avgChange.toFixed(2)}%</div>`}
+              <div class="barchart-bar-wrapper">
+                <div class="barchart-center"></div>
+                <div class="barchart-bar ${isPos ? 'pos' : 'neg'}" style="width: ${widthPct}%;"></div>
+              </div>
             </div>
+            <div class="barchart-val">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</div>
           </div>`;
       }).join('');
     }
@@ -846,64 +901,86 @@
         btnElement.classList.add('active');
       }
       const tbody = document.getElementById('zones-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow...</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow (${tf.toUpperCase()})...</td></tr>`;
       try {
         const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`);
         const data = await res.json();
-        if (data.status === 'success') {
-          if (data.data && data.data.length > 0) { rawZonesData = data.data; renderZonesTable(); }
-          else { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active zones found.</td></tr>`; }
+        if (data.status === 'success' && data.data && data.data.length > 0) {
+          rawZonesData = data.data;
+          tbody.innerHTML = rawZonesData.map(z => `
+            <tr>
+              <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
+              <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
+              <td style="font-weight:700;">${z.pattern}</td>
+              <td>₹${Number(z.ltp || 0).toFixed(2)}</td>
+              <td style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
+              <td style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
+              <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
+              <td><button class="filter-btn" style="padding: 3px 8px; font-size: 0.65rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${z.symbol}', ${z.proximal}, ${Math.abs(z.proximal - z.distal)}, '${z.bias}')">🎯 Calculate R:R</button></td>
+            </tr>
+          `).join('');
+        } else {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active institutional zones found.</td></tr>`;
         }
-      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red);">⚠️ Network Error.</td></tr>`; }
+      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red);">⚠️ Network Error while scanning zones.</td></tr>`; }
     }
 
-    function setZoneFilter(flt, el) {
-      currentZoneFilter = flt;
-      if (el) { el.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
-      renderZonesTable();
+    function openRRCalculator(symbol, entryPrice, defaultSLPts, bias) {
+      activeTradeData = { symbol, bias };
+      
+      document.getElementById('calc-symbol').innerText = symbol;
+      setTradeBias(bias);
+
+      document.getElementById('calc-entry-input').value = Number(entryPrice).toFixed(2);
+      document.getElementById('calc-sl-pts').value = defaultSLPts;
+      
+      recalculateTradeMetrics();
+      document.getElementById('rr-calculator-modal').style.display = 'flex';
     }
 
-    function toggleZoneSort(col) {
-      if (zoneSortCol === col) zoneSortDir = zoneSortDir === 'desc' ? 'asc' : 'desc';
-      else { zoneSortCol = col; zoneSortDir = 'asc'; }
-      renderZonesTable();
-    }
-
-    function renderZonesTable() {
-      let filtered = [...rawZonesData];
-      if (currentZoneFilter === 'DEMAND') filtered = filtered.filter(z => z.bias === 'DEMAND');
-      else if (currentZoneFilter === 'SUPPLY') filtered = filtered.filter(z => z.bias === 'SUPPLY');
-      else if (currentZoneFilter === 'IN_ZONE') filtered = filtered.filter(z => z.status.includes('In Zone'));
-
-      const searchVal = document.getElementById('search-zones').value.toLowerCase().trim();
-      if (searchVal) filtered = filtered.filter(z => (z.symbol || '').toLowerCase().includes(searchVal) || (z.pattern || '').toLowerCase().includes(searchVal));
-
-      if (zoneSortCol) {
-        filtered.sort((a, b) => {
-          let vA = a[zoneSortCol], vB = b[zoneSortCol];
-          if (typeof vA === 'string') return zoneSortDir === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
-          return zoneSortDir === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
-        });
+    function setTradeBias(bias) {
+      activeTradeData.bias = bias;
+      const longBtn = document.getElementById('bias-long-btn');
+      const shortBtn = document.getElementById('bias-short-btn');
+      
+      if (bias === 'DEMAND') {
+        longBtn.classList.add('active');
+        shortBtn.classList.remove('active');
+      } else {
+        shortBtn.classList.add('active');
+        longBtn.classList.remove('active');
       }
+      recalculateTradeMetrics();
+    }
 
-      const tbody = document.getElementById('zones-tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No zones match.</td></tr>`; return; }
+    function recalculateTradeMetrics() {
+      const entry = parseFloat(document.getElementById('calc-entry-input').value) || 0;
+      const slPts = parseFloat(document.getElementById('calc-sl-pts').value) || 0;
+      const maxRisk = parseFloat(document.getElementById('calc-max-risk').value) || 0;
+      const bias = activeTradeData.bias;
 
-      tbody.innerHTML = filtered.map(z => `
-        <tr>
-          <td>
-            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a>
-            <div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div>
-          </td>
-          <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
-          <td class="mono" style="font-weight:700;">${z.pattern}</td>
-          <td class="mono">₹${Number(z.ltp || 0).toFixed(2)}</td>
-          <td class="mono" style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
-          <td class="mono" style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
-          <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
-          <td><button class="filter-btn" style="padding:4px 8px; font-size:0.65px;" onclick="openChart('${z.symbol}')">Chart ↗</button></td>
-        </tr>
-      `).join('');
+      if (entry <= 0 || slPts <= 0) return;
+
+      const slPrice = bias === 'DEMAND' ? entry - slPts : entry + slPts;
+      const riskPerShare = Math.abs(entry - slPrice);
+
+      const quantity = riskPerShare > 0 ? Math.floor(maxRisk / riskPerShare) : 0;
+      const totalInvestment = quantity * entry;
+
+      const mult = bias === 'DEMAND' ? 1 : -1;
+      const target2R = entry + (mult * riskPerShare * 2);
+      const target3R = entry + (mult * riskPerShare * 3);
+
+      document.getElementById('calc-sl-price').innerText = '₹' + slPrice.toFixed(2);
+      document.getElementById('calc-risk-per-share').innerText = '₹' + riskPerShare.toFixed(2);
+      document.getElementById('calc-qty').innerText = quantity + ' Shares';
+      document.getElementById('calc-total-inv').innerText = '₹' + totalInvestment.toLocaleString('en-IN', {maximumFractionDigits: 2});
+      document.getElementById('calc-t2').innerText = '₹' + target2R.toFixed(2);
+      document.getElementById('calc-t3').innerText = '₹' + target3R.toFixed(2);
+    }
+
+    function closeRRCalculator() {
+      document.getElementById('rr-calculator-modal').style.display = 'none';
     }
   </script>
 </body>

@@ -1,42 +1,53 @@
 import os
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import time
+from datetime import datetime, date, timedelta
+import pytz
 import csv
 import io
 import gzip
 import urllib.request
 import urllib.parse
-import time
-from datetime import datetime, date, timedelta
-import pytz
+import random
+import threading
 import concurrent.futures
+from collections import defaultdict
+import numpy as np
+import pandas as pd
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, url_for, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from collections import defaultdict
-import threading
-import random
-import numpy as np
-import pandas as pd
 
 app = Flask(__name__)
 CORS(app)
 app.secret_key = "stock_finder_pro_secret_key"
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+
+# Absolute Path Fix for SQLite Database to prevent 'no such table' errors
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# User Database Model for Server Data Saving
+# User Database Model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    watchlist = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# Explicit Application Context with Guaranteed Table Creation
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+        print("✅ Database tables created and verified successfully at:", os.path.join(basedir, 'users.db'))
+    except Exception as e:
+        print(f"⚠️ Database initialization error: {e}")
 
 # Persistent HTTP Session Pool to prevent Windows Socket crashes
 HTTP_SESSION = requests.Session()
@@ -72,7 +83,6 @@ CANDLE_CACHE = {}
 MIDCAP_UNIVERSE_CACHE = []
 SMALLCAP_UNIVERSE_CACHE = []
 TOTAL_MARKET_UNIVERSE_CACHE = []
-
 SMART_ORB_SIGNALS = []
 
 MARKET_INDICES = [
@@ -320,6 +330,14 @@ def generate_sparkline_data(ltp, price_pct):
     points[-1] = ltp
     return points
 
+def estimate_delivery_percentage(volume, avg_volume, price_pct):
+    if avg_volume <= 0: return 50.0
+    vol_ratio = volume / avg_volume
+    if vol_ratio > 2.0 and abs(price_pct) < 2.0: base_delivery = 75.0
+    elif vol_ratio > 1.5: base_delivery = 65.0
+    else: base_delivery = 45.0
+    return round(base_delivery, 1)
+
 def fetch_live_upstox_quotes(univ_type="FO"):
     global QUOTE_CACHE
     if not UPSTOX_ACCESS_TOKEN or UPSTOX_ACCESS_TOKEN == "YOUR_NEW_TOKEN_HERE":
@@ -357,6 +375,9 @@ def fetch_live_upstox_quotes(univ_type="FO"):
                 oi_pct = round(((oi - prev_oi) / prev_oi) * 100, 2) if (oi > 0 and prev_oi > 0) else round(abs(price_pct) * 1.25, 2)
                 vol_spike = volume / average_volume if average_volume > 0 else 1.0
                 
+                delivery_pct = estimate_delivery_percentage(volume, average_volume, price_pct)
+                is_heavy_delivery = delivery_pct >= 60.0
+
                 tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{sym}"
                 groww_url = f"https://groww.in/stocks/{sym.lower()}"
                 sparkline_points = generate_sparkline_data(ltp, price_pct)
@@ -367,6 +388,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
                     "oiPct": oi_pct, "buildup": calculate_oi_buildup(price_pct, oi_pct, item.get("is_fo", True), candle_tag),
                     "momentumScore": compute_aggressive_momentum(price_pct, vol_spike, candle_tag),
                     "candleTag": candle_tag, "is_fo": item.get("is_fo", True),
+                    "deliveryPct": delivery_pct, "isHeavyDelivery": is_heavy_delivery,
                     "tvUrl": tv_url, "growwUrl": groww_url, "sparkline": sparkline_points
                 })
         except Exception:
@@ -427,7 +449,6 @@ def scan_strict_multitimeframe_zones(candles, current_ltp, symbol, tf):
                 bc_o, bc_c = bc[1], bc[4]
                 bc_range = bc[2] - bc[3]
                 bc_body = abs(bc_c - bc_o)
-                # Strict Doji Base: body must be <= 25% of total range
                 if bc_range <= 0 or (bc_body > bc_range * 0.25):
                     all_bases_valid = False
                     break
@@ -439,22 +460,15 @@ def scan_strict_multitimeframe_zones(candles, current_ltp, symbol, tf):
 
             pattern, bias, proximal, distal = None, None, 0.0, 0.0
 
-            # --- RALLY-BASE-RALLY / DROP-BASE-RALLY (DEMAND) ---
             if legout_c > legout_o:
                 bias = "DEMAND"
                 pattern = "Drop-Base-Rally" if legin_c < legin_o else "Rally-Base-Rally"
-                # Proximal = Highest Body of the base cluster
                 proximal = max(max(bc[1], bc[4]) for bc in base_candles)
-                # Distal = Lowest Wick (Low) of the base cluster
                 distal = min(bc[3] for bc in base_candles)
-
-            # --- RALLY-BASE-DROP / DROP-BASE-DROP (SUPPLY) ---
             elif legout_c < legout_o:
                 bias = "SUPPLY"
                 pattern = "Rally-Base-Drop" if legin_c > legin_o else "Drop-Base-Drop"
-                # Proximal = Lowest Body of the base cluster
                 proximal = min(min(bc[1], bc[4]) for bc in base_candles)
-                # Distal = Highest Wick (High) of the base cluster
                 distal = max(bc[2] for bc in base_candles)
 
             if not pattern or proximal <= 0 or distal <= 0 or proximal == distal: continue
@@ -510,7 +524,6 @@ def fetch_historical_candles(instrument_key, interval):
             time.sleep(0.2)
     return []
 
-# Background Smart ORB Evaluator
 def evaluate_smart_orb_strategy():
     global SMART_ORB_SIGNALS
     while True:
@@ -555,7 +568,7 @@ def start_smart_orb_background_thread():
     t = threading.Thread(target=evaluate_smart_orb_strategy, daemon=True)
     t.start()
 
-# ================= LANDING PAGE & LOGIN/SIGNUP HTML TEMPLATES =================
+# ================= LANDING PAGE & AUTH TEMPLATES =================
 LANDING_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -593,14 +606,6 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
     .mac-dot { width: 10px; height: 10px; border-radius: 50%; }
     .dot-r { background: #e74c3c; } .dot-y { background: #f1c40f; } .dot-g { background: #2ecc71; }
     .preview-img-box { background: #0f0f12; border-radius: 10px; border: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'JetBrains Mono', monospace; color: var(--muted); font-size: 0.9rem; }
-    .features-section { padding: 4rem 5%; max-width: 1200px; margin: 0 auto; }
-    .section-title { text-align: center; font-size: 2.0rem; font-weight: 800; color: var(--strong-text); margin-bottom: 3rem; }
-    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-    .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; transition: transform 0.2s, border-color 0.2s; }
-    .feature-card:hover { transform: translateY(-5px); border-color: var(--primary); }
-    .feature-icon { font-size: 2rem; margin-bottom: 1rem; display: block; }
-    .feature-card h3 { font-size: 1.1rem; color: var(--strong-text); margin-bottom: 0.75rem; font-weight: 700; }
-    .feature-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
     footer { text-align: center; padding: 3rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; margin-top: 4rem; }
   </style>
 </head>
@@ -742,7 +747,7 @@ SIGNUP_PAGE_HTML = """<!DOCTYPE html>
 </html>
 """
 
-# ================= FLASK ROUTING & AUTHENTICATION =================
+# ================= FLASK ROUTING & WATCHLIST API =================
 @app.route("/")
 def landing_page():
     return render_template_string(LANDING_PAGE_HTML)
@@ -758,7 +763,7 @@ def signup():
             return render_template_string(SIGNUP_PAGE_HTML, error="Email already registered! Please login.")
         
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-        new_user = User(email=email, password=hashed_password)
+        new_user = User(email=email, password=hashed_password, watchlist="")
         db.session.add(new_user)
         db.session.commit()
         
@@ -790,7 +795,44 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('landing_page'))
 
-# ================= ALL ORIGINAL SCREENER & ZONE ENDPOINTS =================
+# --- SERVER-SIDE WATCHLIST ENDPOINTS ---
+@app.route("/api/watchlist", methods=["GET"])
+def get_watchlist():
+    if 'user' not in session:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    user = User.query.filter_by(email=session['user']).first()
+    if not user or not user.watchlist:
+        return jsonify({"status": "success", "data": []})
+    symbols = [s.strip().upper() for s in user.watchlist.split(",") if s.strip()]
+    return jsonify({"status": "success", "data": symbols})
+
+@app.route("/api/watchlist/toggle", methods=["POST"])
+def toggle_watchlist():
+    if 'user' not in session:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    data = request.json
+    symbol = data.get('symbol')
+    if not symbol:
+        return jsonify({"status": "error", "message": "Symbol required"}), 400
+    
+    symbol = symbol.strip().upper()
+    user = User.query.filter_by(email=session['user']).first()
+    if not user:
+        return jsonify({"status": "error", "message": "User not found"}), 404
+
+    current_symbols = [s.strip().upper() for s in user.watchlist.split(",") if s.strip()]
+    if symbol in current_symbols:
+        current_symbols.remove(symbol)
+        action = "removed"
+    else:
+        current_symbols.append(symbol)
+        action = "added"
+
+    user.watchlist = ",".join(current_symbols)
+    db.session.commit()
+    return jsonify({"status": "success", "action": action, "symbol": symbol, "data": current_symbols})
+
+# ================= ORIGINAL SCREENER & ZONE ENDPOINTS =================
 @app.route("/api/smart-orb", methods=["GET"])
 def get_smart_orb():
     try:

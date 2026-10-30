@@ -382,12 +382,46 @@
               </div>
 
               <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Heatmap...</div></div>
+          </div>
+          <div class="panel">
+            <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
+            <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
+          </div>
+        </div>
+
+        <!-- ABOUT & HOW TO USE HEATMAP GUIDANCE PANEL -->
+        <div class="panel" style="margin-top: 20px; border: var(--glass-border); padding: 20px;">
+          <div style="font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--primary); letter-spacing: 1px; margin-bottom: 4px;">GUIDE</div>
+          <h3 style="font-size: 1.1rem; color: var(--strong-text); font-weight: 800; margin-bottom: 10px;">About Heatmap</h3>
+          <p style="font-size: 0.8rem; color: var(--muted); line-height: 1.5; margin-bottom: 15px;">
+            Heatmap is a colour-coded view of NSE/BSE sector constituents and market breadth. Green tiles represent stocks that are up; red tiles represent stocks that are down. Stronger colour intensity indicates a larger price move, allowing you to scan market momentum at a glance.
+          </p>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 15px; border-top: var(--glass-border); padding-top: 15px;">
+            <!-- How to read it -->
+            <div>
+              <h4 style="font-size: 0.85rem; color: var(--strong-text); font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">How to read it</h4>
+              <ul style="font-size: 0.78rem; color: var(--muted); padding-left: 16px; display: flex; flex-direction: column; gap: 6px;">
+                <li>Each tile represents an individual stock within the selected sector.</li>
+                <li><strong style="color: var(--green);">Green</strong> indicates positive price change; <strong style="color: var(--red);">Red</strong> indicates negative change.</li>
+                <li>Deeper color shades signify stronger momentum and bigger percentage moves.</li>
+                <li>Range filter chips (-3% to +3%) let you hide or isolate specific performance buckets.</li>
+                <li>Clicking any tile or bar filters or opens the respective stock chart for analysis.</li>
+              </ul>
             </div>
-            <div class="panel">
-              <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
-              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
+
+            <!-- How to use it for Intraday -->
+            <div>
+              <h4 style="font-size: 0.85rem; color: var(--strong-text); font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">How to use it (Intraday Strategy)</h4>
+              <ul style="font-size: 0.78rem; color: var(--muted); padding-left: 16px; display: flex; flex-direction: column; gap: 6px;">
+                <li>Scan for color clusters. A block of green points to heavy sector buying; a block of red flags relative weakness.</li>
+                <li><strong>Top-Down Approach:</strong> Pick stocks from the strongest sector for Longs, and weakest sector for Shorts.</li>
+                <li>Always look for volume confirmation alongside sector momentum before entering intraday breakout trades.</li>
+              </ul>
             </div>
           </div>
+        </div>
+
         </div>
       </div>
 
@@ -550,7 +584,7 @@
               <div style="display: flex; justify-content: space-between; font-weight: 700;">
                 <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
                 <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
-              </div>
+            </div>
               <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
               <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px;">${s.reason}</div>
             </div>

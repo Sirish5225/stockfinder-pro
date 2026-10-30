@@ -24,8 +24,14 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-CORS(app)
-app.secret_key = "stock_finder_pro_secret_key"
+CORS(app, supports_credentials=True)
+
+# Persistent Session Security Configuration to prevent log-out bugs
+app.secret_key = os.getenv("SECRET_KEY", "stock_finder_pro_super_secure_static_key_2026")
+app.config['SESSION_COOKIE_NAME'] = 'sfp_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 
 # Absolute Path Fix for SQLite Database to prevent 'no such table' errors
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -61,7 +67,7 @@ HTTP_SESSION.mount("http://", adapter)
 
 UPSTOX_ACCESS_TOKEN = os.getenv(
     "UPSTOX_ACCESS_TOKEN",
-    "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJDTDgwMDQiLCJqdGkiOiI2YTZlZGU0YTdkMDdkYzI0NTcxY2IwNjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlzRXh0ZW5kZWQiOnRydWUsImlhdCI6MTc4NTY1MDc2MiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxODE3MjQ0MDAwfQ.QevX5BwRdiDzZNmuSc0CGqDZcN5VP1qK6GXbvziEAik"
+    "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJDTDgwMDQiLCJqdGkiOiJ2YTZlZGU0YTdkMDdkYzI0NTcxY2IwNjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlzRXh0ZW5kZWQiOnRydWUsImlhdCI6MTc4NTY1MDc2MiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxODE3MjQ0MDAwfQ.QevX5BwRdiDzZNmuSc0CGqDZcN5VP1qK6GXbvziEAik"
 ).strip()
 
 QUOTE_CACHE = {
@@ -767,6 +773,7 @@ def signup():
         db.session.add(new_user)
         db.session.commit()
         
+        session.permanent = True
         session['user'] = email
         return redirect(url_for('terminal_app'))
     return render_template_string(SIGNUP_PAGE_HTML)
@@ -779,6 +786,7 @@ def login_page():
         
         user = User.query.filter_by(email=email).first()
         if user and check_password_hash(user.password, password):
+            session.permanent = True
             session['user'] = email
             return redirect(url_for('terminal_app'))
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")

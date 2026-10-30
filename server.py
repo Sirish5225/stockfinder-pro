@@ -26,6 +26,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 CORS(app)
 app.secret_key = "stock_finder_pro_secret_key"
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 
 # Absolute Path Fix for SQLite Database to prevent 'no such table' errors
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -46,7 +47,7 @@ class User(db.Model):
 with app.app_context():
     try:
         db.create_all()
-        print("✅ Database tables created and verified successfully at:", os.path.join(basedir, 'users.db'))
+        print("✅ Database tables created and verified successfully at:", db_path)
     except Exception as e:
         print(f"⚠️ Database initialization error: {e}")
 
@@ -756,18 +757,27 @@ def landing_page():
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        email = request.form.get("email")
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
         
+        print(f"📝 Attempting signup for email: {email}")
         user_exists = User.query.filter_by(email=email).first()
         if user_exists:
+            print("⚠️ Signup failed: Email already registered.")
             return render_template_string(SIGNUP_PAGE_HTML, error="Email already registered! Please login.")
         
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-        new_user = User(email=email, password=hashed_password, watchlist="")
-        db.session.add(new_user)
-        db.session.commit()
+        try:
+            hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+            new_user = User(email=email, password=hashed_password, watchlist="")
+            db.session.add(new_user)
+            db.session.commit()
+            print(f"✅ Successfully registered and committed user: {email}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ Database commit error during signup: {e}")
+            return render_template_string(SIGNUP_PAGE_HTML, error="Database error during signup. Try again.")
         
+        session.permanent = True
         session['user'] = email
         return redirect(url_for('terminal_app'))
     return render_template_string(SIGNUP_PAGE_HTML)
@@ -775,13 +785,23 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == "POST":
-        email = request.form.get("email")
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
         
+        print(f"🔑 Login attempt for email: {email}")
         user = User.query.filter_by(email=email).first()
-        if user and check_password_hash(user.password, password):
-            session['user'] = email
-            return redirect(url_for('terminal_app'))
+        if user:
+            print(f"👤 User found in database. Verifying password...")
+            if check_password_hash(user.password, password):
+                print(f"✅ Password verified successfully for {email}")
+                session.permanent = True
+                session['user'] = email
+                return redirect(url_for('terminal_app'))
+            else:
+                print("❌ Password check failed (incorrect password).")
+        else:
+            print(f"❌ User not found in database for email: {email}")
+            
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)
 

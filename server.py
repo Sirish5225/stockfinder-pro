@@ -621,8 +621,8 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
   </header>
   <section class="hero">
     <div class="badge-pill">⚡ Strict Institutional Order Flow Screener</div>
-    <h1>Scan Indian Equities Like <span>Smart Money</span></h1>
-    <p class="hero-sub">Automatically detect strict unviolated institutional Demand & Supply zones with high-precision Doji-base rules.</p>
+    <h1>Dominate Intraday Setups Like <span>Smart Money</span></h1>
+    <p class="hero-sub">Instantly detect strict unviolated institutional Demand & Supply zones with high-precision price action.</p>
     <div class="cta-group">
       <a href="/signup" class="btn-primary">Get Started Free 🚀</a>
       <a href="/login" class="btn-secondary">Login to Terminal 🔐</a>
@@ -635,7 +635,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <div class="mac-dot dot-g"></div>
     </div>
     <div class="preview-img-box">
-      📊 Live NSE/BSE F&O Scanner • Strict Multi-Timeframe D&S Zone Detector Active
+      ⚡ Real-Time Intraday Scanner • Advanced Institutional Price Action & Trend Tracker Active"
     </div>
   </div>
   <footer>
@@ -1040,3 +1040,4 @@ if __name__ == "__main__":
     start_smart_orb_background_thread()
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+

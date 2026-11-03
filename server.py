@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import pytz
 import csv
 import io
@@ -13,6 +13,9 @@ import concurrent.futures
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -35,12 +38,14 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# User Database Model
+# User Database Model with OTP Recovery Support
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
     watchlist = db.Column(db.Text, default="")
+    reset_otp = db.Column(db.String(6), nullable=True)
+    otp_expiry = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Explicit Application Context with Guaranteed Table Creation
@@ -570,7 +575,35 @@ def start_smart_orb_background_thread():
     t = threading.Thread(target=evaluate_smart_orb_strategy, daemon=True)
     t.start()
 
-# ================= LANDING PAGE & AUTH TEMPLATES =================
+# ================= GMAIL SMTP EMAIL DISPATCH =================
+import resend
+
+resend.api_key = "re_3QUHWtcz_D3v3az6wpHkNwN2HPFwswwMZ"  # Make sure this is your active key starting with re_
+
+def send_otp_email(to_email, otp_code):
+    try:
+        params = {
+            "from": "Stock Finder Pro <onboarding@resend.dev>",  # Use this test domain unless you added a custom domain
+            "to": [to_email],
+            "subject": "Password Reset OTP - Stock Finder Pro",
+            "html": f"""
+                <div style="font-family: Arial, sans-serif; color: #333;">
+                    <h2>Password Reset Request</h2>
+                    <p>Your password reset verification code is:</p>
+                    <h1 style="color: #f39c12; letter-spacing: 4px;">{otp_code}</h1>
+                    <p>This code is valid for 10 minutes.</p>
+                </div>
+            """
+        }
+        
+        response = resend.Emails.send(params)
+        print(f"✅ OTP email successfully dispatched via Resend to {to_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send email via Resend API: {e}")
+        return False
+
+# ================= HTML TEMPLATES =================
 LANDING_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -635,7 +668,7 @@ LANDING_PAGE_HTML = """<!DOCTYPE html>
       <div class="mac-dot dot-g"></div>
     </div>
     <div class="preview-img-box">
-      ⚡ Real-Time Intraday Scanner • Advanced Institutional Price Action & Trend Tracker Active"
+      ⚡ Real-Time Intraday Scanner • Advanced Institutional Price Action & Trend Tracker Active
     </div>
   </div>
   <footer>
@@ -669,6 +702,8 @@ LOGIN_PAGE_HTML = """<!DOCTYPE html>
     input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
     .btn-login { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; transition: background 0.2s; }
     .btn-login:hover { background: #e67e22; }
+    .forgot-link { display: block; text-align: right; margin-top: 0.5rem; font-size: 0.75rem; color: var(--primary); text-decoration: none; }
+    .forgot-link:hover { text-decoration: underline; }
     .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--strong-text); }
     .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
@@ -688,6 +723,7 @@ LOGIN_PAGE_HTML = """<!DOCTYPE html>
       <div class="form-group">
         <label>Password</label>
         <input type="password" name="password" placeholder="••••••••" required />
+        <a href="/forgot-password" class="forgot-link">Forgot Password?</a>
       </div>
       <button type="submit" class="btn-login">Login to Terminal 🚀</button>
     </form>
@@ -749,7 +785,112 @@ SIGNUP_PAGE_HTML = """<!DOCTYPE html>
 </html>
 """
 
-# ================= FLASK ROUTING & WATCHLIST API =================
+FORGOT_PASSWORD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Forgot Password - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">🔒 RESET PASSWORD</div>
+    {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+    <form action="/forgot-password" method="POST">
+      <div class="form-group">
+        <label>Registered Email</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
+      </div>
+      <button type="submit" class="btn">Send OTP Code 🚀</button>
+    </form>
+    <a href="/login" class="back-link">Back to Login</a>
+  </div>
+</body>
+</html>
+"""
+
+VERIFY_OTP_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Verify OTP - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 1.1rem; text-align: center; letter-spacing: 4px; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">📬 ENTER 6-DIGIT OTP</div>
+    {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+    <form action="/verify-otp" method="POST">
+      <div class="form-group">
+        <label>Verification Code</label>
+        <input type="text" name="otp" maxlength="6" placeholder="123456" required />
+      </div>
+      <button type="submit" class="btn">Verify OTP ⚡</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+RESET_PASSWORD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>New Password - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">🔑 NEW PASSWORD</div>
+    <form action="/reset-password" method="POST">
+      <div class="form-group">
+        <label>Enter New Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn">Update Password 🚀</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+# ================= FLASK ROUTING & AUTHENTICATION =================
 @app.route("/")
 def landing_page():
     return render_template_string(LANDING_PAGE_HTML)
@@ -760,10 +901,8 @@ def signup():
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
         
-        print(f"📝 Attempting signup for email: {email}")
         user_exists = User.query.filter_by(email=email).first()
         if user_exists:
-            print("⚠️ Signup failed: Email already registered.")
             return render_template_string(SIGNUP_PAGE_HTML, error="Email already registered! Please login.")
         
         try:
@@ -771,10 +910,8 @@ def signup():
             new_user = User(email=email, password=hashed_password, watchlist="")
             db.session.add(new_user)
             db.session.commit()
-            print(f"✅ Successfully registered and committed user: {email}")
         except Exception as e:
             db.session.rollback()
-            print(f"❌ Database commit error during signup: {e}")
             return render_template_string(SIGNUP_PAGE_HTML, error="Database error during signup. Try again.")
         
         session.permanent = True
@@ -788,22 +925,83 @@ def login_page():
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
         
-        print(f"🔑 Login attempt for email: {email}")
         user = User.query.filter_by(email=email).first()
-        if user:
-            print(f"👤 User found in database. Verifying password...")
-            if check_password_hash(user.password, password):
-                print(f"✅ Password verified successfully for {email}")
-                session.permanent = True
-                session['user'] = email
-                return redirect(url_for('terminal_app'))
-            else:
-                print("❌ Password check failed (incorrect password).")
-        else:
-            print(f"❌ User not found in database for email: {email}")
+        if user and check_password_hash(user.password, password):
+            session.permanent = True
+            session['user'] = email
+            return redirect(url_for('terminal_app'))
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            otp = str(random.randint(100000, 999999))
+            user.reset_otp = otp
+            user.otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+            db.session.commit()
+            
+            # Dispatch email via Resend HTTP API
+            email_sent = send_otp_email(email, otp)
+            if not email_sent:
+                return render_template_string(FORGOT_PASSWORD_HTML, error="Failed to send email. Please check your Resend API key.")
+            
+            session['reset_email'] = email
+            return redirect(url_for('verify_otp'))
+        else:
+            return render_template_string(FORGOT_PASSWORD_HTML, error="Email address not found!")
+            
+    return render_template_string(FORGOT_PASSWORD_HTML)
+
+@app.route("/verify-otp", methods=["GET", "POST"])
+def verify_otp():
+    if 'reset_email' not in session:
+        return redirect(url_for('forgot_password'))
+        
+    if request.method == "POST":
+        entered_otp = request.form.get("otp", "").strip()
+        email = session['reset_email']
+        user = User.query.filter_by(email=email).first()
+        
+        # Ensure timezone-aware comparison for datetime expiry
+        expiry = user.otp_expiry
+        if expiry and expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+            
+        if user and user.reset_otp == entered_otp and expiry and expiry > datetime.now(timezone.utc):
+            session['otp_verified'] = True
+            return redirect(url_for('reset_password'))
+        else:
+            return render_template_string(VERIFY_OTP_HTML, error="Invalid or expired OTP code.")
+            
+    return render_template_string(VERIFY_OTP_HTML)
+
+@app.route("/reset-password", methods=["GET", "POST"])
+def reset_password():
+    if not session.get('otp_verified') or 'reset_email' not in session:
+        return redirect(url_for('forgot_password'))
+        
+    if request.method == "POST":
+        new_password = request.form.get("password")
+        email = session['reset_email']
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
+            user.reset_otp = None
+            user.otp_expiry = None
+            db.session.commit()
+            
+            session.pop('reset_email', None)
+            session.pop('otp_verified', None)
+            return redirect(url_for('login_page'))
+            
+    return render_template_string(RESET_PASSWORD_HTML)
 
 @app.route("/terminal")
 def terminal_app():
@@ -816,7 +1014,27 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('landing_page'))
 
-# --- SERVER-SIDE WATCHLIST ENDPOINTS ---
+# ================= ADMIN / DEBUG CHECK OTP ROUTE =================
+@app.route("/api/admin/check-otps", methods=["GET"])
+def api_check_otps():
+    try:
+        users = User.query.all()
+        if not users:
+            return jsonify({"status": "success", "message": "No users found in database.", "data": []})
+        
+        user_list = []
+        for u in users:
+            user_list.append({
+                "email": u.email,
+                "reset_otp": u.reset_otp if u.reset_otp else "None",
+                "otp_expiry": str(u.otp_expiry) if u.otp_expiry else "N/A",
+                "created_at": str(u.created_at)
+            })
+        return jsonify({"status": "success", "database_path": db_path, "users": user_list})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ================= SERVER-SIDE WATCHLIST API =================
 @app.route("/api/watchlist", methods=["GET"])
 def get_watchlist():
     if 'user' not in session:
@@ -853,7 +1071,7 @@ def toggle_watchlist():
     db.session.commit()
     return jsonify({"status": "success", "action": action, "symbol": symbol, "data": current_symbols})
 
-# ================= ORIGINAL SCREENER & ZONE ENDPOINTS =================
+# ================= SCREENER & ZONE ENDPOINTS =================
 @app.route("/api/smart-orb", methods=["GET"])
 def get_smart_orb():
     try:
@@ -1040,4 +1258,3 @@ if __name__ == "__main__":
     start_smart_orb_background_thread()
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
-

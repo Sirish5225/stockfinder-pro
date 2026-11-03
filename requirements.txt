@@ -1,9 +1,9 @@
 flask
 flask-cors
-Flask-SQLAlchemy
+flask-sqlalchemy
 requests
-pandas
-numpy
 pytz
-urllib3
+numpy
+pandas
+resend
 gunicorn

@@ -576,9 +576,10 @@ def start_smart_orb_background_thread():
     t.start()
 
 # ================= GMAIL SMTP EMAIL DISPATCH =================
+import os 
 import resend
 
-resend.api_key = "re_3QUHWtcz_D3v3az6wpHkNwN2HPFwswwMZ"  # Make sure this is your active key starting with re_
+resend.api_key = os.getenv("re_3QUHWtcz_D3v3az6wpHkNwN2HPFwswwMZ")
 
 def send_otp_email(to_email, otp_code):
     try:

@@ -709,7 +709,7 @@ def fetch_historical_candles(instrument_key, interval):
 
 # ================= GMAIL / RESEND SMTP EMAIL DISPATCH =================
 import resend
-resend.api_key = os.getenv("RESEND_API_KEY", "")
+resend.api_key = os.getenv("RESEND_API_KEY", "re_PXnppuZw_3EHdCanGDBsMMyETMGQWB5wS")
 
 def send_otp_email(to_email, otp_code):
     try:

@@ -1,1021 +1,152 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />  
-  <title>Stock Finder - Pro Terminal</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
-  </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07090d">
+<meta name="description" content="Stock Finder Pro — institutional-style intraday stock scanning and price action analysis.">
+<title>Stock Finder Pro | Trade with an Edge</title>
+<style>
+:root{--bg:#07090d;--panel:#10141b;--line:#252c36;--text:#f7f8fb;--muted:#929ba9;--orange:#ff9e0b;--green:#22d982;--red:#ff5364;--blue:#42a5ff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-x:hidden}a{color:inherit;text-decoration:none}
+#market-bg{position:fixed;inset:0;width:100%;height:100%;z-index:-3;opacity:.72;pointer-events:none}
+.bg-vignette{position:fixed;inset:0;z-index:-2;pointer-events:none;background:radial-gradient(ellipse at 50% 34%,transparent 0%,rgba(7,9,13,.28) 45%,#07090d 100%),linear-gradient(180deg,rgba(7,9,13,.15),#07090d 92%)}
+.scanline{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.12;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.025) 4px)}
+.wrap{width:min(1200px,calc(100% - 48px));margin:auto}
+header{height:76px;border-bottom:1px solid #ffffff13;background:rgba(7,9,13,.72);display:flex;align-items:center;justify-content:space-between;padding:0 max(24px,calc((100vw - 1690px)/2));position:sticky;top:0;z-index:10;backdrop-filter:blur(18px)}
+.brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:900;letter-spacing:-.55px;color:var(--orange)}.brand-dot{height:9px;width:9px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green),0 0 20px #22d98288;animation:pulse 1.8s infinite}
+.nav-actions{display:flex;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:800;border:1px solid transparent;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer}.btn:hover{transform:translateY(-3px)}.btn-dark{background:#11151c;border-color:#303743;box-shadow:0 5px 18px #0008}.btn-orange{background:linear-gradient(110deg,#ffb21a,#ff8b00);color:#111;box-shadow:0 0 25px #ff990033,0 8px 28px #0008}.btn-orange:hover{box-shadow:0 0 34px #ff990066}
+.hero{position:relative;text-align:center;padding:88px 20px 76px;min-height:730px;display:flex;flex-direction:column;align-items:center;isolation:isolate}
+.hero:before{content:"";position:absolute;width:min(850px,90vw);height:470px;top:40px;left:50%;transform:translateX(-50%);z-index:-1;background:radial-gradient(ellipse,#ff990b12 0%,#ff990b05 38%,transparent 70%);filter:blur(18px);animation:glow 6s ease-in-out infinite alternate}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid #a5671c88;background:#21170b99;color:#ffb13b;border-radius:30px;font-size:10px;font-weight:900;letter-spacing:.65px;margin-bottom:25px;box-shadow:0 0 25px #ff9d0a12}.live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;box-shadow:0 0 9px var(--green)}
+h1{font-size:clamp(40px,5vw,62px);line-height:1.08;letter-spacing:-2.8px;margin:0 auto 22px;max-width:850px;font-weight:900;text-shadow:0 4px 45px #000} .accent{color:var(--orange);text-shadow:0 0 35px #ff9d0a30}
+.hero-copy{max-width:610px;color:#a3adbb;font-size:15px;line-height:1.8;margin:0 auto 32px}.hero-actions{display:flex;gap:13px;justify-content:center;flex-wrap:wrap}.hero-actions .btn{min-width:190px;min-height:48px}
+.market-tape{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:32px}.ticker{border:1px solid #ffffff18;background:#0c1118b8;border-radius:8px;padding:7px 12px;font:700 10px ui-monospace,monospace;color:#b5bfcd;backdrop-filter:blur(8px)}.up{color:var(--green)}.down{color:var(--red)}
+.terminal{width:min(900px,100%);margin-top:75px;background:linear-gradient(145deg,#151b24eF,#0c1017ed);border:1px solid #ffffff20;border-radius:16px;padding:13px;box-shadow:0 25px 75px #000b,0 0 45px #ff9d0a0b;text-align:left;position:relative;overflow:hidden;backdrop-filter:blur(12px)}
+.terminal:after{content:"";position:absolute;top:-120%;left:-40%;width:25%;height:340%;transform:rotate(28deg);background:linear-gradient(90deg,transparent,#ffffff0c,transparent);animation:shine 8s ease-in-out infinite}
+.terminal-top{height:23px;display:flex;align-items:flex-start;gap:5px;padding-left:7px}.light{width:9px;height:9px;border-radius:50%}.light.red{background:#ff514a}.light.yellow{background:#ffbd2e}.light.green{background:#28c840}
+.terminal-screen{min-height:78px;border:1px solid #ffffff12;background:#090d13c9;border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#9ba5b4;font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.1px}.terminal-screen b{color:var(--orange);margin-right:9px;font-size:15px}
+.status{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:14px;color:#7f8a99;font:10px ui-monospace,monospace}.status span:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin:0 7px 1px 0;box-shadow:0 0 8px var(--green)}
+section.content{padding:78px 0;border-top:1px solid #ffffff12;background:linear-gradient(180deg,#090d13b5,#080b10eF)}
+.section-head{text-align:center;max-width:680px;margin:0 auto 38px}.kicker{color:var(--orange);font-size:10px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase}.section-head h2{font-size:clamp(28px,3.5vw,40px);line-height:1.18;letter-spacing:-1.3px;margin:10px 0}.section-head p{color:var(--muted);font-size:14px;margin:0}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{padding:25px;border:1px solid #ffffff19;border-radius:14px;background:linear-gradient(145deg,#151c27df,#0c1119e8);backdrop-filter:blur(10px);transition:.25s;position:relative;overflow:hidden}.card:hover{transform:translateY(-5px);border-color:#ff9d0a66;box-shadow:0 18px 45px #0006}.icon{width:43px;height:43px;border-radius:12px;display:grid;place-items:center;background:#2a1d0b;color:var(--orange);font-size:21px;margin-bottom:16px;box-shadow:inset 0 0 18px #ff9d0a14}.card h3{font-size:17px;margin:0 0 8px}.card p{font-size:13px;color:var(--muted);margin:0}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.step{padding:21px;border:1px solid #ffffff19;border-radius:12px;background:#101720d9;backdrop-filter:blur(8px)}.step small{color:var(--orange);font-weight:900;letter-spacing:1px}.step h3{font-size:15px;margin:8px 0 5px}.step p{font-size:12px;color:var(--muted);margin:0}
+.cta{padding:50px 24px;text-align:center;border:1px solid #a66b2355;border-radius:18px;background:radial-gradient(ellipse at 50% 0%,#ff9d0a20,transparent 65%),#111720eF;box-shadow:0 20px 65px #0007}.cta h2{font-size:clamp(27px,3.5vw,40px);margin:8px 0}.cta p{max-width:560px;color:var(--muted);margin:0 auto 23px;font-size:14px}
+.footer{padding:25px 0;border-top:1px solid #ffffff16;color:#777f8b;font-size:12px;background:#07090d}.footer-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.disclaimer{max-width:850px;margin-top:12px;color:#626b78;font-size:11px}
+@keyframes pulse{50%{box-shadow:0 0 3px var(--green),0 0 12px #22d98255;opacity:.7}}@keyframes glow{to{opacity:.55;transform:translateX(-50%) scale(1.12)}}@keyframes shine{0%,60%{left:-45%}100%{left:130%}}
+@media(max-width:760px){header{height:68px;padding:0 18px}.brand{font-size:15px}.btn{min-height:40px;padding:0 13px;font-size:12px}.hero{padding:72px 16px 60px;min-height:auto}.terminal{margin-top:60px}.cards{grid-template-columns:1fr 1fr}.steps{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.wrap{width:calc(100% - 30px)}header{padding:0 13px}.brand{font-size:13px}.nav-actions{gap:6px}.nav-actions .btn{padding:0 10px}.hero{padding-top:64px}h1{font-size:39px;letter-spacing:-1.8px}.hero-copy{font-size:14px}.hero-actions{width:100%;gap:10px}.hero-actions .btn{width:100%}.market-tape{gap:6px}.ticker{font-size:9px;padding:6px 8px}.terminal{margin-top:48px;padding:10px}.terminal-screen{font-size:10px;line-height:1.6}.cards,.steps{grid-template-columns:1fr}section.content{padding:58px 0}.footer-row{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}
 
-  <style>
-    :root {
-      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.7); --border: rgba(255, 255, 255, 0.08);
-      --text: #e0e0e0; --muted: #8b8b93; --green: #2ecc71; --red: #e74c3c; --primary: #f39c12;
-      --sidebar-bg: rgba(15, 15, 18, 0.95); --ticker-bg: #0f0f12; --th-bg: rgba(20, 20, 24, 0.95);
-      --hover-bg: rgba(255, 255, 255, 0.03); --bar-bg: rgba(0, 0, 0, 0.3); --bar-track: #1a1a1e;
-      --strong-text: #ffffff; --input-bg: rgba(0, 0, 0, 0.3);
-      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-      --glass-border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    [data-theme="light"] {
-      --bg: #f3f4f6; --card: rgba(255, 255, 255, 0.85); --border: rgba(0, 0, 0, 0.1);
-      --text: #374151; --muted: #6b7280; --green: #059669; --red: #dc2626; --primary: #d97706;
-      --sidebar-bg: rgba(255, 255, 255, 0.95); --ticker-bg: #ffffff; --th-bg: rgba(243, 244, 246, 0.95);
-      --hover-bg: rgba(0, 0, 0, 0.04); --bar-bg: rgba(255, 255, 255, 0.6); --bar-track: #e5e7eb;
-      --strong-text: #111827; --input-bg: rgba(255, 255, 255, 0.5);
-      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
-      --glass-border: 1px solid rgba(0, 0, 0, 0.08);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
-    .mono, td, th, .kpi-val, .ticker-price, .ticker-change, .badge, .treemap-tile, .barchart-val { font-family: 'JetBrains Mono', monospace !important; }
+.pricing-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:stretch}
+.price-card{position:relative;padding:25px 20px 22px;border:1px solid #ffffff1c;border-radius:15px;background:linear-gradient(155deg,#171e29ed,#0d121aef);backdrop-filter:blur(12px);display:flex;flex-direction:column;min-height:330px;transition:.25s;overflow:hidden}
+.price-card:hover{transform:translateY(-6px);border-color:#ff9d0a88;box-shadow:0 20px 45px #0008,0 0 24px #ff9d0a12}
+.price-card.featured{border-color:#ff9d0a99;background:linear-gradient(155deg,#2a1d0fee,#111720f5);box-shadow:0 0 32px #ff9d0a12}
+.plan-tag{position:absolute;top:13px;right:13px;padding:4px 8px;border-radius:20px;background:#ff9d0a1c;color:#ffb43d;font-size:9px;font-weight:900;letter-spacing:.5px}
+.plan-name{font-size:16px;font-weight:850;margin:0 0 5px}.plan-duration{font-size:11px;color:#8f9aaa}
+.plan-price{font-size:34px;line-height:1.2;font-weight:900;letter-spacing:-1.5px;margin:22px 0 2px}.plan-price span{font-size:13px;color:#9ba5b4;font-weight:650;letter-spacing:0}
+.plan-monthly{font-size:11px;color:#9ba5b4;min-height:20px}.plan-save{font-size:10px;color:var(--green);font-weight:800;margin-top:9px;min-height:16px}
+.plan-rule{height:1px;background:#ffffff16;margin:18px 0 15px}.plan-points{list-style:none;padding:0;margin:0 0 20px;color:#aeb7c4;font-size:11px;display:grid;gap:9px}.plan-points li:before{content:"✓";color:var(--green);font-weight:900;margin-right:8px}
+.price-card .btn{width:100%;margin-top:auto;min-height:42px}.pricing-note{text-align:center;color:#778291;font-size:11px;margin:22px auto 0;max-width:700px}
+@media(max-width:900px){.pricing-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.pricing-grid{grid-template-columns:1fr}.price-card{min-height:0}.plan-price{margin-top:15px}}
 
-    .panel, .kpi-card, .movers-panel, .toolbar, .table-container, .sidebar {
-      background: var(--card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: var(--glass-border); box-shadow: var(--glass-shadow);
-    }
-
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
-
-    /* Desktop Sidebar */
-    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s ease; }
-    .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
-    .brand { font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
-    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; }
-    .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
-    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; text-decoration: none; }
-    .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
-    .nav-btn.active { background: rgba(243, 156, 18, 0.12); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
-    
-    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
-    .sidebar-overlay.show { display: block; }
-
-    .universe-dropdown { width: 100%; background: var(--input-bg); color: var(--strong-text); border: var(--glass-border); padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8b93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
-    .universe-dropdown option { background-color: #121216; color: var(--strong-text); padding: 10px; }
-
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: var(--glass-border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
-    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 34px; }
-    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s; border-radius: 50%; }
-    input:checked + .slider { background-color: rgba(243, 156, 18, 0.2); border-color: var(--primary); }
-    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); }
-
-    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; min-width: 0; }
-    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
-
-    /* --- SMOOTH TERMINAL TICKER SCROLLER STYLES --- */
-    .market-ticker-container {
-      width: 100%; height: 40px; background: rgba(10, 10, 14, 0.9) !important; border-bottom: var(--glass-border);
-      display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; backdrop-filter: blur(12px); box-shadow: var(--glass-shadow);
-    }
-    .hamburger-btn, .theme-btn { background: transparent; border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: var(--glass-border); flex-shrink: 0; }
-    .theme-btn { border-left: var(--glass-border); border-right: none; }
-    
-    .ticker-wrapper {
-      flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative;
-      mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
-      -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
-    }
-    .market-ticker-track { display: inline-flex; animation: scrollTicker 45s linear infinite; white-space: nowrap; will-change: transform; }
-    .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
-    .ticker-item { display: inline-flex; align-items: center; padding: 0 20px; border-right: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.72rem; gap: 6px; }
-    .ticker-symbol { color: var(--muted); font-weight: 700; text-transform: uppercase; }
-    .ticker-price { color: var(--strong-text); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .ticker-change.positive { color: var(--green); font-weight: 600; }
-    .ticker-change.negative { color: var(--red); font-weight: 600; }
-    @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-    .kpi-card { border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
-    .kpi-card:hover { border-color: var(--primary) !important; transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
-    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
-    .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
-
-    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-    .movers-panel { border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
-    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: var(--glass-border); padding-bottom: 8px; }
-    .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: var(--glass-border); font-size: 0.8rem; transition: background 0.2s; }
-    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
-
-    .panel { border-radius: 12px; padding: 1.5rem; }
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-radius: 12px; padding: 1rem; }
-    .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
-    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: var(--glass-border); cursor: pointer; white-space: nowrap; transition: all 0.2s; }
-    .filter-btn:hover { border-color: var(--primary); color: var(--strong-text); }
-    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    
-    .search-box { background: var(--input-bg); border: var(--glass-border); color: var(--strong-text); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; transition: border-color 0.2s; }
-    .search-box:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.15); }
-
-    input[type="number"] { -moz-appearance: textfield; }
-    input[type="number"]::-webkit-outer-spin-button,
-    input[type="number"]::-webkit-inner-spin-button { opacity: 1; height: 26px; cursor: pointer; }
-
-    .table-container { border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
-    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: var(--glass-border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
-    th:hover { color: var(--primary); }
-    td { padding: 0.9rem 1rem; border-bottom: var(--glass-border); transition: background 0.2s; }
-    tr:hover td { background: var(--hover-bg); }
-    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
-    .stock-link:hover { color: var(--primary); }
-
-    .watchlist-btn { background: transparent; border: none; cursor: pointer; font-size: 1.1rem; margin-right: 6px; transition: transform 0.2s; }
-    .watchlist-btn:hover { transform: scale(1.2); }
-    .watchlist-btn.starred { color: #f39c12; text-shadow: 0 0 8px rgba(243, 156, 18, 0.6); }
-
-    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
-    .badge-green { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.3); }
-    .badge-red { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid rgba(255, 23, 68, 0.3); }
-    .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
-    .badge-yellow { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
-    .badge-demand { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid var(--green); }
-    .badge-supply { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid var(--red); }
-    .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
-    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: var(--glass-border); }
-    .val-up { color: var(--green); font-weight: 600; }
-    .val-down { color: var(--red); font-weight: 600; }
-
-    /* Mobile Bottom Navigation Bar */
-    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: var(--glass-border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; backdrop-filter: blur(16px); }
-    .bnav-btn { background: transparent; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase; }
-    .bnav-btn.active { color: var(--primary); }
-    .bnav-btn .icon { font-size: 1.2rem; }
-
-    .sector-side-by-side { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.5rem; align-items: start; }
-    @media(max-width: 1200px) { .sector-side-by-side { grid-template-columns: 1fr; } }
-    .sec-section-title { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
-
-    /* Range Chips Filter Bar */
-    .range-chips-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
-    .range-chip { padding: 4px 12px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--border); background: var(--input-bg); color: var(--muted); cursor: pointer; transition: all 0.2s; }
-    .range-chip.active { border-color: #fff; color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
-    .range-chip.r-minus3 { background: #b71c1c; }
-    .range-chip.r-minus2 { background: #e53935; }
-    .range-chip.r-minus1 { background: #ef5350; }
-    .range-chip.r-zero { background: #374151; }
-    .range-chip.r-plus1 { background: #66bb6a; }
-    .range-chip.r-plus2 { background: #43a047; }
-    .range-chip.r-plus3 { background: #1b5e20; }
-    .range-chip.inactive { opacity: 0.35; filter: grayscale(0.5); }
-
-    .sector-treemap-grid { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
-    .treemap-tile { border-radius: 8px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; cursor: pointer; transition: transform 0.15s ease; border: 1px solid rgba(255,255,255,0.12); text-decoration: none; min-height: 95px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-    .treemap-tile:hover { transform: scale(1.02); filter: brightness(1.15); z-index: 10; border-color: #fff; }
-    .tile-logo { width: 26px; height: 26px; border-radius: 50%; background: #ffffff; padding: 2px; object-fit: contain; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
-    .tile-logo-badge { width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
-    .tile-name { font-weight: 800; font-size: 0.78rem; color: #ffffff; letter-spacing: 0.3px; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-    .tile-change { font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
-
-    .ranking-list-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-    .barchart-row { display: flex; align-items: center; font-size: 0.78rem; border-radius: 8px; padding: 8px 12px; width: 100%; background: var(--input-bg); border: var(--glass-border); transition: all 0.2s ease; cursor: pointer; }
-    .barchart-row:hover { background: var(--hover-bg); border-color: var(--primary); transform: translateX(4px); }
-    .barchart-row.selected { background: rgba(243, 156, 18, 0.15); border: 1px solid var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
-    .barchart-label { width: 130px; min-width: 130px; flex-shrink: 0; text-align: left; padding-right: 8px; font-weight: 600; color: var(--strong-text); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    
-    .barchart-track { flex: 1; height: 16px; position: relative; display: flex; align-items: center; margin-right: 8px; }
-    .barchart-bar-wrapper { flex: 1; height: 10px; position: relative; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
-    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); z-index: 1; }
-    .barchart-bar { position: absolute; height: 10px; top: 0; border-radius: 2px; z-index: 2; }
-    .barchart-bar.pos { left: 50%; background-color: var(--green); }
-    .barchart-bar.neg { right: 50%; background-color: var(--red); }
-    .barchart-val { width: 55px; min-width: 55px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); flex-shrink: 0; }
-
-    /* Responsive Mobile Media Query */
-    @media(max-width: 1024px) {
-      body { height: 100vh; overflow: hidden; width: 100%; position: relative; display: flex; flex-direction: row; }
-      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
-      .sidebar.open { transform: translateX(0); }
-      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
-      .main-wrapper { height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; width: 100%; }
-      main { padding: 0.8rem; overflow-y: auto; flex: 1; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
-      .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-    }
-  </style>
+</style>
 </head>
 <body>
+<canvas id="market-bg" aria-hidden="true"></canvas><div class="bg-vignette"></div><div class="scanline"></div>
+<header>
+  <a class="brand" href="#home"><span class="brand-dot"></span> STOCK FINDER PRO</a>
+  <nav class="nav-actions" aria-label="Account navigation"><a class="btn btn-dark" href="#pricing">Plans</a><a class="btn btn-dark" href="/login">Login</a><a class="btn btn-orange" href="/signup">Sign Up 🚀</a></nav>
+</header>
+<main id="home">
+  <section class="hero">
+    <div class="eyebrow"><span class="live-dot"></span> STRICT INSTITUTIONAL ORDER FLOW SCREENER</div>
+    <h1>Dominate Intraday Setups<br>Like <span class="accent">Smart Money</span></h1>
+    <p class="hero-copy">Instantly detect strict unviolated institutional Demand &amp; Supply zones with high-precision price action.</p>
+    <div class="hero-actions"><a class="btn btn-orange" href="/signup">Get Started Free 🚀</a><a class="btn btn-dark" href="/login">Login to Terminal 🔐</a></div>
+    <div class="market-tape" aria-label="Illustrative market ticker"><span class="ticker">NIFTY <b class="up">▲ 0.82%</b></span><span class="ticker">BANKNIFTY <b class="up">▲ 0.46%</b></span><span class="ticker">RELIANCE <b class="down">▼ 0.21%</b></span><span class="ticker">HDFCBANK <b class="up">▲ 1.14%</b></span></div>
+    <div class="terminal"><div class="terminal-top"><i class="light red"></i><i class="light yellow"></i><i class="light green"></i></div><div class="terminal-screen"><span><b>ϟ</b> Real-Time Intraday Scanner · Advanced Institutional Price Action &amp; Trend Tracker Active</span></div><div class="status"><span>SCANNER ENGINE READY</span><span>PRICE ACTION MONITORING</span><span>MARKET DATA PREVIEW</span></div></div>
+  </section>
+  <section class="content" id="features"><div class="wrap"><div class="section-head"><div class="kicker">Built for focused traders</div><h2>Find high-quality setups. Skip the chart noise.</h2><p>Bring your stock scanning, zone analysis and trend checks into one focused workflow.</p></div><div class="cards">
+    <article class="card"><div class="icon">⌕</div><h3>Intraday Stock Scanner</h3><p>Scan your selected stock universe and quickly shortlist symbols that match your setup conditions.</p></article>
+    <article class="card"><div class="icon">↕</div><h3>Institutional Demand &amp; Supply</h3><p>Identify potential unviolated demand and supply areas to focus your price-action analysis.</p></article>
+    <article class="card"><div class="icon">⌁</div><h3>Trend &amp; Multi-Timeframe View</h3><p>Review trend direction and higher-timeframe context before planning a trade.</p></article>
+  </div></div></section>
+  <section class="content" id="workflow"><div class="wrap"><div class="section-head"><div class="kicker">Your trading workflow</div><h2>Scan smarter. Execute with a plan.</h2><p>Use the scanner to find candidates, then validate every setup with your own rules.</p></div><div class="steps">
+    <article class="step"><small>01 / SCAN</small><h3>Scan the market</h3><p>Find stocks matching your selected scanning conditions.</p></article>
+    <article class="step"><small>02 / IDENTIFY</small><h3>Mark key zones</h3><p>Review potential institutional demand and supply areas.</p></article>
+    <article class="step"><small>03 / CONFIRM</small><h3>Validate price action</h3><p>Check trend, structure and entry confirmation on your chart.</p></article>
+    <article class="step"><small>04 / EXECUTE</small><h3>Manage your risk</h3><p>Define stop-loss and position size before entering a trade.</p></article>
+  </div></div></section>
 
-  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-  <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER PRO</div>
-    <div class="sidebar-nav">
-      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
-      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
-      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
-      <button class="nav-btn" id="btn-watchlist" onclick="switchTab('watchlist')"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
+  <section class="content" id="pricing">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Simple, transparent pricing</div>
+        <h2>Choose your trading edge.</h2>
+        <p>Choose a plan that fits your trading journey. Upgrade your access whenever you need.</p>
+      </div>
+      <div class="pricing-grid">
+        <article class="price-card">
+          <h3 class="plan-name">Monthly</h3><div class="plan-duration">1 month access</div>
+          <div class="plan-price">₹499<span> / plan</span></div>
+          <div class="plan-monthly">₹499 per month</div>
+          <div class="plan-save">&nbsp;</div>
+          <div class="plan-rule"></div>
+          <ul class="plan-points"><li>Scanner access for 1 month</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>
+          <a class="btn btn-dark" href="/checkout?plan=monthly">Choose Monthly</a>
+        </article>
+        <article class="price-card featured">
+          <span class="plan-tag">BEST VALUE</span>
+          <h3 class="plan-name">Quarterly</h3><div class="plan-duration">3 months access</div>
+          <div class="plan-price">₹1,199<span> / plan</span></div>
+          <div class="plan-monthly">About ₹400 per month</div>
+          <div class="plan-save">Save ₹298 · 20% vs monthly</div>
+          <div class="plan-rule"></div>
+          <ul class="plan-points"><li>Scanner access for 3 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>
+          <a class="btn btn-orange" href="/checkout?plan=quarterly">Choose Quarterly</a>
+        </article>
+        <article class="price-card">
+          <h3 class="plan-name">Half-Yearly</h3><div class="plan-duration">6 months access</div>
+          <div class="plan-price">₹2,499<span> / plan</span></div>
+          <div class="plan-monthly">About ₹417 per month</div>
+          <div class="plan-save">Save ₹495 · 17% vs monthly</div>
+          <div class="plan-rule"></div>
+          <ul class="plan-points"><li>Scanner access for 6 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>
+          <a class="btn btn-dark" href="/checkout?plan=halfyearly">Choose Half-Yearly</a>
+        </article>
+        <article class="price-card">
+          <span class="plan-tag">LONG-TERM</span>
+          <h3 class="plan-name">Yearly</h3><div class="plan-duration">12 months access</div>
+          <div class="plan-price">₹4,999<span> / plan</span></div>
+          <div class="plan-monthly">About ₹417 per month</div>
+          <div class="plan-save">Save ₹989 · 17% vs monthly</div>
+          <div class="plan-rule"></div>
+          <ul class="plan-points"><li>Scanner access for 12 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>
+          <a class="btn btn-dark" href="/checkout?plan=yearly">Choose Yearly</a>
+        </article>
+      </div>
+      <p class="pricing-note">Prices are in INR. Selecting a plan opens secure Razorpay checkout after account creation or login. Access activates only after payment verification.</p>
     </div>
-    <div style="margin-top: auto;">
-      <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: var(--glass-border);">
-        <a href="/" class="nav-btn" style="margin-bottom: 6px; border: 1px dashed rgba(243, 156, 18, 0.4);"><span style="font-size:1.1rem;">🏠</span> Logout </a>
-        <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
-        <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
-          <option value="FO">📊 F&O Universe (Default)</option>
-          <option value="NIFTY500">📈 NIFTY 500</option>
-          <option value="MIDCAP">🚀 Nifty Midcap 150</option>
-          <option value="SMALLCAP">⚡ Nifty Smallcap 250</option>
-          <option value="TOTALMARKET">🌐 Nifty Total Market</option>
-        </select>
-      </div>
-      <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
-        <span class="toggle-label">⚏ Compact View</span>
-        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)"><span class="slider"></span></label>
-      </div>
-      <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
-        <span class="toggle-label">🔄 Auto-Refresh</span>
-        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)"><span class="slider"></span></label>
-      </div>
-      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span></div>
-    </div>
-  </aside>
-
-  <div class="main-wrapper">
-    <!-- Smooth Terminal Ticker Scroller -->
-    <div class="market-ticker-container">
-      <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
-      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
-      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
-    </div>
-
-    <main>
-      <!-- ================= SCREENER VIEW ================= -->
-      <div id="view-scr">
-        <!-- Market Pulse Meter Widget -->
-        <div class="panel" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 1px solid var(--border);">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="font-size: 1.8rem;">⚡</div>
-            <div>
-              <h3 style="font-size: 0.9rem; color: var(--strong-text); text-transform: uppercase;">Overall Market Pulse Meter</h3>
-              <p style="font-size: 0.7rem; color: var(--muted);">Real-time sentiment score based on breadth & momentum.</p>
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: center; gap: 20px; flex: 1; max-width: 500px; justify-content: flex-end;">
-            <div style="flex: 1; text-align: right;">
-              <div id="pulse-status-text" class="mono" style="font-weight: 700; font-size: 0.85rem; color: var(--green);">BULLISH (68/100)</div>
-              <div style="font-size: 0.65rem; color: var(--muted);" id="pulse-desc">Strong buying momentum across sectors</div>
-            </div>
-            <div style="width: 140px; background: var(--bar-track); height: 10px; border-radius: 99px; overflow: hidden; position: relative; border: var(--glass-border);">
-              <div id="pulse-meter-bar" style="width: 68%; height: 100%; background: linear-gradient(90deg, var(--red), var(--primary), var(--green)); border-radius: 99px; transition: width 0.5s ease;"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" style="margin-bottom: 1.5rem; border: 1px solid var(--primary);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-            <h3 style="font-size: 1rem; color: var(--primary);">⚡ High-probability setup </h3>
-            <button class="filter-btn" onclick="fetchSmartORBSignals()" style="font-size: 0.65rem;">🔄 Refresh</button>
-          </div>
-          <div id="smart-orb-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div style="color: var(--muted); font-size: 0.8rem;">Scanning market sentiments & 9:20 AM breakouts...</div>
-          </div>
-        </div>
-
-        <div class="kpi-grid">
-          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val" id="k-lb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val" id="k-sb"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val" id="k-sc"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val" id="k-lu"><div class="skeleton" style="width: 45px; height: 26px;"></div></div></div>
-        </div>
-
-        <div class="movers-grid">
-          <div class="movers-panel"><div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div><div class="movers-list-scroll" id="top-gainers-list"><div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div></div></div>
-          <div class="movers-panel"><div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div><div class="movers-list-scroll" id="top-losers-list"><div style="padding: 0.8rem;"><div class="skeleton" style="width: 100%; height: 32px; margin-bottom: 8px;"></div><div class="skeleton" style="width: 100%; height: 32px;"></div></div></div></div>
-        </div>
-
-        <div class="toolbar">
-          <div class="filter-wrapper" id="screener-filters">
-            <button class="filter-btn active" id="flt-all-btn" onclick="setFilter('ALL', this)">ALL</button>
-            <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
-            <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
-            <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
-            <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
-            <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
-          </div>
-          <div class="search-wrapper"><input type="text" id="search" class="search-box" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
-        </div>
-
-        <div class="table-container" id="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 35px; text-align: center;">⭐</th>
-                <th onclick="toggleSort('symbol')">Symbol ↕</th>
-                <th onclick="toggleSort('ltp')">LTP (₹) ↕</th>
-                <th onclick="toggleSort('pricePct')">Chg % ↕</th>
-                <th onclick="toggleSort('volume')">Volume ↕</th>
-                <th onclick="toggleSort('oiPct')">OI % ↕</th>
-                <th onclick="toggleSort('buildup')">Buildup ↕</th>
-                <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
-                <th>PRICE TREND</th>
-                <th>R:R ACTION</th>
-              </tr>
-            </thead>
-            <tbody id="tbody">
-              <tr><td colspan="10" style="padding: 2rem;"><div class="skeleton" style="width: 100%; height: 38px; margin-bottom: 12px;"></div><div class="skeleton" style="width: 100%; height: 38px;"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- ================= WATCHLIST VIEW ================= -->
-      <div id="view-watchlist" style="display: none;">
-        <div class="panel">
-          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text); margin-bottom: 0.5rem;">⭐ My Custom Watchlist</h3>
-          <p style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem;">Quick tracking of your bookmarked stocks across market sessions.</p>
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 35px; text-align: center;">⭐</th>
-                  <th>Symbol</th>
-                  <th>LTP (₹)</th>
-                  <th>Chg %</th>
-                  <th>Volume</th>
-                  <th>Buildup</th>
-                  <th>Momentum</th>
-                  <th>Sector</th>
-                </tr>
-              </thead>
-              <tbody id="watchlist-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================= SECTOR VIEW ================= -->
-      <div id="view-sec" style="display: none;">
-        <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
-          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
-            <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
-            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol">--</strong></span>
-          </div>
-          <div class="sector-side-by-side">
-            <div class="panel">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                <div class="sec-section-title" id="heatmap-section-header">🟩 Sector Heatmap</div>
-                <button class="filter-btn" id="reset-heatmap-btn" onclick="selectedHeatmapSector=null; renderSectors();" style="display: none; background: rgba(243, 156, 18, 0.15); color: var(--primary); padding: 0.3rem 0.6rem; font-size: 0.7rem;">⬅ Back to Sectors</button>
-              </div>
-
-              <!-- RANGE CHIPS FILTER BAR -->
-              <div class="range-chips-bar" id="rangeChipsBar" style="display: none;">
-                <span style="font-size: 0.7rem; font-weight: 700; color: var(--muted); margin-right: 4px;">FILTERS:</span>
-                <div class="range-chip r-minus3 active" onclick="toggleRangeFilter(-3, this)">-3% or lower</div>
-                <div class="range-chip r-minus2 active" onclick="toggleRangeFilter(-2, this)">-2%</div>
-                <div class="range-chip r-minus1 active" onclick="toggleRangeFilter(-1, this)">-1%</div>
-                <div class="range-chip r-zero active" onclick="toggleRangeFilter(0, this)">0%</div>
-                <div class="range-chip r-plus1 active" onclick="toggleRangeFilter(1, this)">+1%</div>
-                <div class="range-chip r-plus2 active" onclick="toggleRangeFilter(2, this)">+2%</div>
-                <div class="range-chip r-plus3 active" onclick="toggleRangeFilter(3, this)">+3% or higher</div>
-              </div>
-
-              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Heatmap...</div></div>
-          </div>
-          <div class="panel">
-            <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
-            <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
-          </div>
-        </div>
-
-        <!-- ABOUT & HOW TO USE HEATMAP GUIDANCE PANEL -->
-        <div class="panel" style="margin-top: 20px; border: var(--glass-border); padding: 20px;">
-          <div style="font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--primary); letter-spacing: 1px; margin-bottom: 4px;">GUIDE</div>
-          <h3 style="font-size: 1.1rem; color: var(--strong-text); font-weight: 800; margin-bottom: 10px;">About Heatmap</h3>
-          <p style="font-size: 0.8rem; color: var(--muted); line-height: 1.5; margin-bottom: 15px;">
-            Heatmap is a colour-coded view of NSE/BSE sector constituents and market breadth. Green tiles represent stocks that are up; red tiles represent stocks that are down. Stronger colour intensity indicates a larger price move, allowing you to scan market momentum at a glance.
-          </p>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 15px; border-top: var(--glass-border); padding-top: 15px;">
-            <!-- How to read it -->
-            <div>
-              <h4 style="font-size: 0.85rem; color: var(--strong-text); font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">How to read it</h4>
-              <ul style="font-size: 0.78rem; color: var(--muted); padding-left: 16px; display: flex; flex-direction: column; gap: 6px;">
-                <li>Each tile represents an individual stock within the selected sector.</li>
-                <li><strong style="color: var(--green);">Green</strong> indicates positive price change; <strong style="color: var(--red);">Red</strong> indicates negative change.</li>
-                <li>Deeper color shades signify stronger momentum and bigger percentage moves.</li>
-                <li>Range filter chips (-3% to +3%) let you hide or isolate specific performance buckets.</li>
-                <li>Clicking any tile or bar filters or opens the respective stock chart for analysis.</li>
-              </ul>
-            </div>
-
-            <!-- How to use it for Intraday -->
-            <div>
-              <h4 style="font-size: 0.85rem; color: var(--strong-text); font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">How to use it (Intraday Strategy)</h4>
-              <ul style="font-size: 0.78rem; color: var(--muted); padding-left: 16px; display: flex; flex-direction: column; gap: 6px;">
-                <li>Scan for color clusters. A block of green points to heavy sector buying; a block of red flags relative weakness.</li>
-                <li><strong>Top-Down Approach:</strong> Pick stocks from the strongest sector for Longs, and weakest sector for Shorts.</li>
-                <li>Always look for volume confirmation alongside sector momentum before entering intraday breakout trades.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        </div>
-      </div>
-
-      <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
-      <div id="view-zones" style="display: none;">
-        <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
-            <div>
-              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
-              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
-            </div>
-            <div class="filter-wrapper" id="tf-buttons-wrapper">
-              <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this, true)">Daily</button>
-              <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this, true)">Weekly</button>
-              <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this, true)">Monthly</button>
-            </div>
-          </div>
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>SYMBOL</th>
-                  <th>BIAS</th>
-                  <th>PATTERN</th>
-                  <th>CURRENT PRICE</th>
-                  <th>PROXIMAL LINE</th>
-                  <th>DISTAL LINE</th>
-                  <th>ZONE STATUS</th>
-                  <th>ACTION</th>
-                </tr>
-              </thead>
-              <tbody id="zones-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </main>
-
-    <!-- Mobile Bottom Navigation Bar -->
-    <nav class="bottom-nav">
-      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')"><span class="icon">📊</span><span>Screener</span></button>
-      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
-      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
-      <button class="bnav-btn" id="bnav-watchlist" onclick="switchTab('watchlist')"><span class="icon">⭐</span><span>Watchlist</span></button>
-    </nav>
-  </div>
-
-  <!-- Smart Position Sizing & R:R Calculator Modal -->
-  <div id="rr-calculator-modal" class="sidebar-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
-    <div class="panel" style="width: 440px; background: var(--sidebar-bg) !important; border: 1px solid var(--primary); position: relative;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: var(--glass-border); padding-bottom: 10px; margin-bottom: 15px;">
-        <h3 style="font-size: 0.95rem; color: var(--primary);">🎯 Smart Position Sizing & R:R Calculator</h3>
-        <button onclick="closeRRCalculator()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
-      </div>
-      
-      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.8rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Symbol & Bias:</span>
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <strong id="calc-symbol" class="mono" style="color: var(--strong-text);">--</strong>
-            <div style="display: flex; gap: 4px;" id="bias-toggle-group">
-              <button class="filter-btn active" id="bias-long-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('DEMAND')">LONG</button>
-              <button class="filter-btn" id="bias-short-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('SUPPLY')">SHORT</button>
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Entry Price ($P_{entry}$):</span>
-          <input type="number" id="calc-entry-input" class="search-box mono" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Stop-Loss Points ($P_{sl}$ pts):</span>
-          <input type="number" id="calc-sl-pts" class="search-box mono" value="15" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Total Risk Capital ($Risk_{total}$):</span>
-          <input type="number" id="calc-max-risk" class="search-box mono" value="2000" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="background: var(--input-bg); padding: 12px; border-radius: 8px; border: var(--glass-border); margin-top: 4px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Calculated Stop-Loss Price:</span>
-            <strong id="calc-sl-price" class="mono val-down">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Risk Per Share:</span>
-            <strong id="calc-risk-per-share" class="mono" style="color: var(--strong-text);">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
-            <span style="color: var(--strong-text); font-weight: 700;">Trade Quantity (Shares):</span>
-            <strong id="calc-qty" class="mono" style="color: var(--primary); font-size: 0.95rem;">0 Shares</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Total Investment Value:</span>
-            <strong id="calc-total-inv" class="mono" style="color: var(--strong-text);">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
-            <span style="color: var(--muted);">Target 1:2 (Reward):</span>
-            <strong id="calc-t2" class="mono val-up">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--muted);">Target 1:3 (Reward):</span>
-            <strong id="calc-t3" class="mono val-up">₹0.00</strong>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
-    let marketStocks = [], sectorsData = [], rawZonesData = [];
-    let watchlistSymbols = new Set();
-    let selectedHeatmapSector = null;
-    let activeRangeFilters = [-3, -2, -1, 0, 1, 2, 3];
-    let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
-    let sortColumn = 'pricePct', sortDirection = 'desc';
-    let activeTradeData = {};
-
-    function getStockLogoUrl(symbol) {
-      const cleanSym = symbol.trim().toLowerCase();
-      return `https://s3-symbol-logo.tradingview.com/nse/--${cleanSym}.svg`;
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
-      loadWatchlistFromStorage();
-      fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
-    });
-
-    function loadWatchlistFromStorage() {
-      try {
-        const saved = localStorage.getItem('stock_finder_watchlist');
-        watchlistSymbols = saved ? new Set(JSON.parse(saved)) : new Set();
-      } catch (e) { watchlistSymbols = new Set(); }
-    }
-
-    function toggleWatchlist(symbol) {
-      symbol = symbol.toUpperCase();
-      if (watchlistSymbols.has(symbol)) watchlistSymbols.delete(symbol);
-      else watchlistSymbols.add(symbol);
-      try { localStorage.setItem('stock_finder_watchlist', JSON.stringify(Array.from(watchlistSymbols))); } catch (e) {}
-      renderTable();
-      if (currentTab === 'watchlist') renderWatchlistTable();
-    }
-
-    async function fetchSmartORBSignals() {
-      const container = document.getElementById('smart-orb-container');
-      try {
-        const res = await fetch('/api/smart-orb', { cache: 'no-store' });
-        const json = await res.json();
-        if (json.status === 'success' && json.data && json.data.length > 0) {
-          container.innerHTML = json.data.map(s => `
-            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: var(--glass-border);">
-              <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
-                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
-            </div>
-              <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
-              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px;">${s.reason}</div>
-            </div>
-          `).join('');
-        } else {
-          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found.</div>`;
-        }
-      } catch (e) { container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to load ORB data.</div>`; }
-    }
-
-    function toggleThemeBtn() {
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      const btn = document.getElementById('theme-icon-btn');
-      if (isLight) { document.documentElement.removeAttribute('data-theme'); localStorage.setItem('theme', 'dark'); btn.innerHTML = '☀️'; }
-      else { document.documentElement.setAttribute('data-theme', 'light'); localStorage.setItem('theme', 'light'); btn.innerHTML = '🌙'; }
-    }
-
-    function toggleSidebar() {
-      const sb = document.getElementById('app-sidebar'), ov = document.getElementById('sidebar-overlay');
-      if (window.innerWidth <= 1024) { sb.classList.toggle('open'); ov.classList.toggle('show'); }
-      else { sb.classList.toggle('collapsed'); }
-    }
-
-    function switchTab(tab) {
-      currentTab = tab;
-      ['scr', 'sec', 'zones', 'watchlist'].forEach(t => {
-        const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
-        if(btn) btn.classList.toggle('active', t === tab);
-        if(bnav) bnav.classList.toggle('active', t === tab);
-        if(view) view.style.display = t === tab ? 'block' : 'none';
-      });
-      if (tab === 'sec') renderSectors();
-      if (tab === 'watchlist') renderWatchlistTable();
-      if (tab === 'zones' && rawZonesData.length === 0) fetchZones('day', document.getElementById('tf-btn-day'));
-    }
-
-    function toggleCompactMode(c) { document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', c)); }
-    function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
-    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
-    function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
-
-    async function switchUniverse(type) {
-      currentUniverse = type;
-      marketStocks = []; sectorsData = []; rawZonesData = [];
-      selectedHeatmapSector = null;
-      await fetchData(); fetchTickerBar();
-      if (currentTab === 'zones') fetchZones(currentZoneTF, null, true);
-    }
-
-    async function fetchTickerBar() {
-      try {
-        const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
-        const json = await res.json();
-        if(json.status === 'success' && json.data.length > 0) {
-          const track = document.getElementById('tickerTrack');
-          const html = json.data.map(item => `
-            <div class="ticker-item">
-              <span class="ticker-symbol">${item.symbol}</span>
-              <span class="ticker-price">${item.price ? '₹' + item.price : ''}</span>
-              <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
-            </div>
-          `).join('');
-          track.innerHTML = html + html;
-        }
-      } catch(e) {}
-    }
-
-    async function fetchData() {
-      const reqId = ++fetchRequestId, reqUniv = currentUniverse;
-      try {
-        const [res1, res2] = await Promise.all([
-          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' }),
-          fetch(`/api/sectors?universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' })
-        ]);
-        if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
-        const d1 = await res1.json(), d2 = await res2.json();
-        if (d1.status === 'success') {
-          marketStocks = d1.data || [];
-          document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
-          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
-          if (currentTab === 'watchlist') renderWatchlistTable();
-        }
-        if (d2.status === 'success') {
-          sectorsData = d2.data || [];
-          if (d2.marketBreadth) {
-            document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
-            document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
-            document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
-            updateMarketPulseMeter(d2.marketBreadth, marketStocks);
-          }
-        }
-        if (currentTab === 'sec') renderSectors();
-      } catch(e) {}
-    }
-
-    function updateMarketPulseMeter(breadth, stocks) {
-      if (!breadth || !stocks || stocks.length === 0) return;
-      const adv = breadth.advances || 0;
-      const dec = breadth.declines || 0;
-      const total = adv + dec || 1;
-      const breadthScore = (adv / total) * 50;
-      const positiveStocks = stocks.filter(s => (s.pricePct || 0) > 0).length;
-      const momentumScore = (positiveStocks / stocks.length) * 50;
-      const finalScore = Math.round(breadthScore + momentumScore);
-
-      let statusText = "NEUTRAL", statusColor = "var(--primary)", descText = "Balanced market conditions";
-      if (finalScore >= 75) {
-        statusText = `EXTREME GREED (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Aggressive bullish participation";
-      } else if (finalScore >= 55) {
-        statusText = `BULLISH (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Strong buying momentum across sectors";
-      } else if (finalScore <= 25) {
-        statusText = `EXTREME FEAR (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Heavy selling pressure / panic";
-      } else if (finalScore <= 45) {
-        statusText = `BEARISH (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Weak breadth and downward pressure";
-      }
-
-      const statusEl = document.getElementById('pulse-status-text');
-      const barEl = document.getElementById('pulse-meter-bar');
-      const descEl = document.getElementById('pulse-desc');
-      if (statusEl) { statusEl.innerText = statusText; statusEl.style.color = statusColor; }
-      if (barEl) { barEl.style.width = finalScore + '%'; }
-      if (descEl) { descEl.innerText = descText; }
-    }
-
-    function updateKPIs(stocks) {
-      let c = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
-      (stocks || []).forEach(s => { if(c[s.buildup] !== undefined) c[s.buildup]++; });
-      document.getElementById('k-lb').innerText = c['Long Buildup'];
-      document.getElementById('k-sb').innerText = c['Short Buildup'];
-      document.getElementById('k-sc').innerText = c['Short Covering'];
-      document.getElementById('k-lu').innerText = c['Long Unwinding'];
-    }
-
-    function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-    }
-
-    function toggleSort(col) {
-      if (sortColumn === col) sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
-      else { sortColumn = col; sortDirection = 'desc'; }
-      renderTable();
-    }
-
-    function renderTable() {
-      const search = document.getElementById('search').value.toLowerCase();
-      let filtered = [...marketStocks];
-      if (currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
-      else if (currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
-      else if (currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
-      else if (currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
-
-      if (search) filtered = filtered.filter(s => s.symbol.toLowerCase().includes(search) || s.name.toLowerCase().includes(search));
-
-      filtered.sort((a, b) => {
-        let vA = a[sortColumn], vB = b[sortColumn];
-        if (typeof vA === 'string') return sortDirection === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
-        return sortDirection === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
-      });
-
-      const tbody = document.getElementById('tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
-
-      tbody.innerHTML = filtered.map(s => {
-        let pulseClass = '';
-        if (s.buildup === 'Long Buildup' || (s.pricePct > 2 && s.volMultiplier >= 1.5)) pulseClass = 'pulse-demand-row';
-        else if (s.buildup === 'Short Buildup' || (s.pricePct < -2 && s.volMultiplier >= 1.5)) pulseClass = 'pulse-supply-row';
-
-        const isStarred = watchlistSymbols.has(s.symbol.toUpperCase());
-        const defaultBias = s.pricePct >= 0 ? 'DEMAND' : 'SUPPLY';
-        const defaultSLPts = Math.max(5, Number(s.ltp * 0.01).toFixed(1));
-        
-        return `
-          <tr class="${pulseClass}">
-            <td style="text-align: center;"><button class="watchlist-btn ${isStarred ? 'starred' : ''}" onclick="toggleWatchlist('${s.symbol}')">${isStarred ? '★' : '☆'}</button></td>
-            <td>
-              <span class="live-pulse-dot" style="background-color: ${s.pricePct >= 0 ? 'var(--green)' : 'var(--red)'};"></span>
-              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
-              ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
-              <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
-            </td>
-            <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
-            <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
-            <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
-            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
-            <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : 'badge-blue'}">${s.buildup || 'CASH'}</span></td>
-            <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
-            <td><canvas class="sparkline-canvas" width="90" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas></td>
-            <td>
-              <button class="filter-btn" style="padding: 4px 10px; font-size: 0.7rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${s.symbol}', ${s.ltp}, ${defaultSLPts}, '${defaultBias}')">🎯 R:R</button>
-            </td>
-          </tr>
-        `;
-      }).join('');
-      drawSparklines();
-    }
-
-    function renderWatchlistTable() {
-      const tbody = document.getElementById('watchlist-tbody');
-      const watchStocks = marketStocks.filter(s => watchlistSymbols.has(s.symbol.toUpperCase()));
-      if (!watchStocks.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = watchStocks.map(s => `
-        <tr>
-          <td style="text-align: center;"><button class="watchlist-btn starred" onclick="toggleWatchlist('${s.symbol}')">★</button></td>
-          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
-          <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
-          <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
-          <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
-          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : 'badge-red'}">${s.buildup || 'CASH'}</span></td>
-          <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
-          <td><span style="font-size:0.75rem; color:var(--muted);">${s.sector || '-'}</span></td>
-        </tr>
-      `).join('');
-    }
-
-    function drawSparklines() {
-      document.querySelectorAll('.sparkline-canvas').forEach(canvas => {
-        const ctx = canvas.getContext('2d'), prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
-        const isPositive = parseFloat(canvas.getAttribute('data-change') || '0') >= 0;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (prices.length < 2) return;
-        const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
-        ctx.beginPath();
-        prices.forEach((price, index) => {
-          const x = 3 + (index / (prices.length - 1)) * (canvas.width - 6);
-          const y = 3 + (canvas.height - 6) - ((price - min) / range) * (canvas.height - 6);
-          if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.strokeStyle = isPositive ? '#2ecc71' : '#e74c3c';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
-      });
-    }
-
-    function setFilter(flt, el) {
-      currentFilter = flt;
-      if (el) { document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
-      renderTable();
-    }
-
-    function filterHeatmapBySector(secName) {
-      selectedHeatmapSector = secName;
-      renderSectors();
-    }
-
-    function toggleRangeFilter(bucketVal, el) {
-      el.classList.toggle('active');
-      el.classList.toggle('inactive');
-      if (activeRangeFilters.includes(bucketVal)) {
-        activeRangeFilters = activeRangeFilters.filter(v => v !== bucketVal);
-      } else {
-        activeRangeFilters.push(bucketVal);
-      }
-      renderSectors();
-    }
-
-    function getBucketValue(pct) {
-      if (pct <= -3.0) return -3;
-      if (pct <= -1.5) return -2;
-      if (pct < 0) return -1;
-      if (pct === 0) return 0;
-      if (pct <= 1.5) return 1;
-      if (pct <= 3.0) return 2;
-      return 3;
-    }
-
-    function renderSectors() {
-      if (!sectorsData.length) return;
-      let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
-      const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
-
-      const heatmapContainer = document.getElementById('sec-heatmap-section');
-      const headerTitle = document.getElementById('heatmap-section-header');
-      const resetBtn = document.getElementById('reset-heatmap-btn');
-      let rangeChipsBar = document.getElementById('rangeChipsBar');
-
-      if (selectedHeatmapSector) {
-        headerTitle.innerText = `STOCKS: ${selectedHeatmapSector}`;
-        resetBtn.style.display = 'inline-block';
-        if (rangeChipsBar) rangeChipsBar.style.display = 'flex';
-
-        let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
-        sectorStocks = sectorStocks.filter(s => {
-          const bucket = getBucketValue(Number(s.pricePct || 0));
-          return activeRangeFilters.includes(bucket);
-        });
-        sectorStocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
-
-        heatmapContainer.innerHTML = sectorStocks.map(s => {
-          const pct = Number(s.pricePct || 0);
-          let bg = '#374151';
-          if (pct <= -3.0) bg = '#b71c1c';
-          else if (pct < -1.5) bg = '#e53935';
-          else if (pct < 0) bg = '#ef5350';
-          else if (pct > 0 && pct <= 1.0) bg = '#66bb6a';
-          else if (pct > 1.0 && pct <= 2.5) bg = '#43a047';
-          else if (pct > 2.5) bg = '#1b5e20';
-
-          const arrow = pct >= 0 ? '▲' : '▼';
-          const absMov = Math.min(Math.max(Math.abs(pct), 0.5), 5.0);
-          const flexW = Math.round(120 * (absMov / 1.5));
-          const logoUrl = getStockLogoUrl(s.symbol);
-
-          return `
-            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile" style="background-color: ${bg}; flex: ${absMov} 1 ${flexW}px;" title="LTP: ₹${s.ltp || 0} | Chg: ${pct}%">
-              <img src="${logoUrl}" class="tile-logo" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'tile-logo-badge', innerText: '${s.symbol.substring(0,3)}'}))">
-              <div class="tile-name">${s.symbol}</div>
-              <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
-            </a>
-          `;
-        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks match the selected range filters.</div>`;
-      } else {
-        headerTitle.innerText = `🟩 Sector Heatmap`;
-        resetBtn.style.display = 'none';
-        if (rangeChipsBar) rangeChipsBar.style.display = 'none';
-
-        heatmapContainer.innerHTML = sortedSectors.map(sec => {
-          const avg = sec.avgChange || 0;
-          let bg = avg < 0 ? '#e53935' : '#43a047';
-          return `<div class="treemap-tile" style="background-color: ${bg}; flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
-        }).join('');
-      }
-
-      document.getElementById('sec-bars-section').innerHTML = sortedSectors.map(sec => {
-        const isPos = sec.avgChange >= 0, widthPct = (Math.abs(sec.avgChange) / maxChange) * 48;
-        const isSelected = selectedHeatmapSector && selectedHeatmapSector.toUpperCase() === sec.sector.toUpperCase();
-        return `
-          <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="filterHeatmapBySector('${sec.sector}')">
-            <div class="barchart-label">${sec.sector}</div>
-            <div class="barchart-track">
-              <div class="barchart-bar-wrapper">
-                <div class="barchart-center"></div>
-                <div class="barchart-bar ${isPos ? 'pos' : 'neg'}" style="width: ${widthPct}%;"></div>
-              </div>
-            </div>
-            <div class="barchart-val">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</div>
-          </div>`;
-      }).join('');
-    }
-
-    async function fetchZones(tf, btnElement = null, forceRefresh = false) {
-      currentZoneTF = tf;
-      if (btnElement) {
-        document.querySelectorAll('#tf-buttons-wrapper .filter-btn').forEach(b => b.classList.remove('active'));
-        btnElement.classList.add('active');
-      }
-      const tbody = document.getElementById('zones-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--primary); font-weight:600;">Scanning Institutional Orderflow (${tf.toUpperCase()})...</td></tr>`;
-      try {
-        const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(currentUniverse)}${forceRefresh ? '&t=' + Date.now() : ''}`);
-        const data = await res.json();
-        if (data.status === 'success' && data.data && data.data.length > 0) {
-          rawZonesData = data.data;
-          tbody.innerHTML = rawZonesData.map(z => `
-            <tr>
-              <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
-              <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
-              <td style="font-weight:700;">${z.pattern}</td>
-              <td>₹${Number(z.ltp || 0).toFixed(2)}</td>
-              <td style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
-              <td style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
-              <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
-              <td><button class="filter-btn" style="padding: 3px 8px; font-size: 0.65rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${z.symbol}', ${z.proximal}, ${Math.abs(z.proximal - z.distal)}, '${z.bias}')">🎯 Calculate R:R</button></td>
-            </tr>
-          `).join('');
-        } else {
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No active institutional zones found.</td></tr>`;
-        }
-      } catch (e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--red);">⚠️ Network Error while scanning zones.</td></tr>`; }
-    }
-
-    function openRRCalculator(symbol, entryPrice, defaultSLPts, bias) {
-      activeTradeData = { symbol, bias };
-      
-      document.getElementById('calc-symbol').innerText = symbol;
-      setTradeBias(bias);
-
-      document.getElementById('calc-entry-input').value = Number(entryPrice).toFixed(2);
-      document.getElementById('calc-sl-pts').value = defaultSLPts;
-      
-      recalculateTradeMetrics();
-      document.getElementById('rr-calculator-modal').style.display = 'flex';
-    }
-
-    function setTradeBias(bias) {
-      activeTradeData.bias = bias;
-      const longBtn = document.getElementById('bias-long-btn');
-      const shortBtn = document.getElementById('bias-short-btn');
-      
-      if (bias === 'DEMAND') {
-        longBtn.classList.add('active');
-        shortBtn.classList.remove('active');
-      } else {
-        shortBtn.classList.add('active');
-        longBtn.classList.remove('active');
-      }
-      recalculateTradeMetrics();
-    }
-
-    function recalculateTradeMetrics() {
-      const entry = parseFloat(document.getElementById('calc-entry-input').value) || 0;
-      const slPts = parseFloat(document.getElementById('calc-sl-pts').value) || 0;
-      const maxRisk = parseFloat(document.getElementById('calc-max-risk').value) || 0;
-      const bias = activeTradeData.bias;
-
-      if (entry <= 0 || slPts <= 0) return;
-
-      const slPrice = bias === 'DEMAND' ? entry - slPts : entry + slPts;
-      const riskPerShare = Math.abs(entry - slPrice);
-
-      const quantity = riskPerShare > 0 ? Math.floor(maxRisk / riskPerShare) : 0;
-      const totalInvestment = quantity * entry;
-
-      const mult = bias === 'DEMAND' ? 1 : -1;
-      const target2R = entry + (mult * riskPerShare * 2);
-      const target3R = entry + (mult * riskPerShare * 3);
-
-      document.getElementById('calc-sl-price').innerText = '₹' + slPrice.toFixed(2);
-      document.getElementById('calc-risk-per-share').innerText = '₹' + riskPerShare.toFixed(2);
-      document.getElementById('calc-qty').innerText = quantity + ' Shares';
-      document.getElementById('calc-total-inv').innerText = '₹' + totalInvestment.toLocaleString('en-IN', {maximumFractionDigits: 2});
-      document.getElementById('calc-t2').innerText = '₹' + target2R.toFixed(2);
-      document.getElementById('calc-t3').innerText = '₹' + target3R.toFixed(2);
-    }
-
-    function closeRRCalculator() {
-      document.getElementById('rr-calculator-modal').style.display = 'none';
-    }
-  </script>
+  </section>
+
+  <section class="content" id="start"><div class="wrap"><div class="cta"><div class="kicker">Ready when you are</div><h2>Make your next scan count.</h2><p>Get a clearer starting point for your intraday analysis with Stock Finder Pro.</p><a class="btn btn-orange" href="/signup">Create Your Free Account 🚀</a></div></div></section>
+</main>
+<footer class="footer"><div class="wrap"><div class="footer-row"><strong style="color:var(--orange)">STOCK FINDER PRO</strong><span>© <span id="year"></span> Stock Finder Pro. All rights reserved.</span></div><p class="disclaimer">Stock Finder Pro is a market-scanning and educational analysis tool, not investment advice. Any ticker values shown in the here are illustrative design elements, not live market quotes. Scanner results do not guarantee price movement or trading outcomes. Always verify setups independently and use appropriate risk management.</p></div></footer>
+<script>
+document.getElementById('year').textContent=new Date().getFullYear();
+// Lightweight animated candlestick market backdrop — no external libraries or data feed.
+(()=>{const c=document.getElementById('market-bg'),ctx=c.getContext('2d');let w,h,dpr,candles=[],raf;
+function resize(){dpr=Math.min(window.devicePixelRatio||1,2);w=innerWidth;h=innerHeight;c.width=w*dpr;c.height=h*dpr;c.style.width=w+'px';c.style.height=h+'px';ctx.setTransform(dpr,0,0,dpr,0,0);const count=Math.ceil(w/25)+8;candles=Array.from({length:count},(_,i)=>({x:i*25,y:h*.42+(Math.random()-.5)*h*.35,body:8+Math.random()*19,wick:12+Math.random()*30,up:Math.random()>.48,speed:.12+Math.random()*.25,phase:Math.random()*6.28}));}
+function draw(t){ctx.clearRect(0,0,w,h);const grid=34;ctx.strokeStyle='rgba(130,150,175,.055)';ctx.lineWidth=1;for(let x=0;x<w;x+=grid){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}for(let y=0;y<h;y+=grid){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+ // faint flowing price trace
+ ctx.beginPath();for(let x=0;x<=w;x+=5){let y=h*.48+Math.sin(x*.008+t*.00035)*h*.055+Math.sin(x*.021-t*.00022)*h*.018;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.strokeStyle='rgba(255,157,10,.19)';ctx.lineWidth=1.4;ctx.stroke();
+ candles.forEach((k,i)=>{let drift=Math.sin(t*.00045+k.phase)*13+Math.sin(t*.00017+i*.7)*8;let y=k.y+drift;let color=k.up?'34,217,130':'255,83,100';ctx.strokeStyle=`rgba(${color},.38)`;ctx.fillStyle=`rgba(${color},.28)`;ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(k.x,y-k.wick/2);ctx.lineTo(k.x,y+k.wick/2);ctx.stroke();ctx.fillRect(k.x-3.5,y-(k.up?k.body:0),7,k.body);});
+ // subtle moving scan beam
+ let beam=(t*.035)%(w+300)-150;let g=ctx.createLinearGradient(beam-90,0,beam+90,0);g.addColorStop(0,'rgba(255,157,10,0)');g.addColorStop(.5,'rgba(255,157,10,.035)');g.addColorStop(1,'rgba(255,157,10,0)');ctx.fillStyle=g;ctx.fillRect(beam-90,0,180,h);
+ raf=requestAnimationFrame(draw)}
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;resize();if(!reduce)raf=requestAnimationFrame(draw);else draw(0);addEventListener('resize',resize);})();
+</script>
 </body>
 </html>

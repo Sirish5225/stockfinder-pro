@@ -90,8 +90,8 @@ class Subscription(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_TzOiKGfQnvAcaw').strip()
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'RE9fr3o5YeqTo16lulirt0z5').strip()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '').strip()
 
 def current_user():
     return User.query.filter_by(email=session.get('user', '')).first() if session.get('user') else None
@@ -554,7 +554,7 @@ def aggregate_candles(candles, timeframe):
     buckets = {}
     for c in candles:
         try:
-            stamp = pd.to_datetime(c[0], utc=True, errors='coerce')
+            stamp = pd.to_datetime(c[0], errors='coerce')
             if pd.isna(stamp):
                 continue
             month = int(stamp.month)
@@ -568,7 +568,7 @@ def aggregate_candles(candles, timeframe):
     for (year, start_month), entries in sorted(buckets.items()):
         entries.sort(key=lambda pair: pair[0])
         distinct_months = {int(stamp.month) for stamp, _ in entries}
-        if len(distinct_months) != period_months:
+        if len(distinct_months) != period_months or distinct_months != set(range(start_month, start_month + period_months)):
             continue
         # Do not build a higher-timeframe candle from the still-forming month.
         last_month = start_month + period_months - 1
@@ -592,225 +592,219 @@ def has_strong_exit_confirmation(candles, legout_idx, bias):
 
 
 def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct=None):
+    """Strict RBR/DBR/RBD/DBD: exactly 1-2 contiguous compact base candles."""
     zones = []
-    if len(candles) < 5: return zones
-
-    # Strictly limit base candles to 1 or 2 (NO 3 base candles allowed)
-    for num_bases in [1, 2]:
-        for i in range(num_bases, len(candles) - 3):
-            legin_idx = i - num_bases
-            base_start_idx = i
-            base_end_idx = i + num_bases - 1
-            legout_idx = base_end_idx + 1
-
-            if legin_idx < 0 or legout_idx >= len(candles): continue
-
-            legin = candles[legin_idx]
-            legout = candles[legout_idx]
-            base_candles = candles[base_start_idx : base_end_idx + 1]
-
-            if len(base_candles) > 2: continue
-
-            legin_o, legin_c, legin_h, legin_l = legin[1], legin[4], legin[2], legin[3]
-            legout_o, legout_c, legout_h, legout_l = legout[1], legout[4], legout[2], legout[3]
-
-            legin_body = abs(legin_c - legin_o)
-            legin_range = legin_h - legin_l
-            legout_body = abs(legout_c - legout_o)
-            legout_range = legout_h - legout_l
-
-            if legin_range <= 0 or legout_range <= 0: continue
-
-            # 1. Leg-in Rule: Body must be 70% to 98% of total range
-            legin_body_ratio = legin_body / legin_range
-            if not (0.70 <= legin_body_ratio <= 0.98):
+    if not candles or len(candles) < 2 or current_ltp <= 0:
+        return zones
+    # A forming monthly candle is not a confirmed leg-in, base, or leg-out.
+    # Derived quarterly/half-yearly candles are already restricted to completed periods.
+    if tf == 'month':
+        now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+        completed = []
+        for candle in candles:
+            stamp = pd.to_datetime(candle[0], errors='coerce')
+            if pd.isna(stamp):
                 continue
+            if (int(stamp.year), int(stamp.month)) < (now_ist.year, now_ist.month):
+                completed.append(candle)
+        candles = completed
+        if len(candles) < 3:
+            return zones
 
-            # 2. Leg-out Rule: Body must be strong (75% to 98%) and stronger than leg-in
-            legout_body_ratio = legout_body / legout_range
-            if not (0.75 <= legout_body_ratio <= 0.98) or legout_body < legin_body:
-                continue
+    # Upstox may return newest-first; all structure/retest logic needs oldest-first.
+    candles = sorted({str(c[0]): c for c in candles if len(c) >= 5}.values(), key=lambda c: str(c[0]))
 
-            # 3. Base Candle Rule: Must be Doji / compact base (< 30% of range)
-            all_bases_valid = True
-            for bc in base_candles:
-                bc_o, bc_c, bc_h, bc_l = bc[1], bc[4], bc[2], bc[3]
-                bc_range = bc_h - bc_l
-                bc_body = abs(bc_c - bc_o)
-                
-                if bc_range <= 0:
-                    all_bases_valid = False
-                    break
-                
-                bc_body_ratio = bc_body / bc_range
-                if bc_body_ratio > 0.30 or bc_body > (legin_body * 0.35):
-                    all_bases_valid = False
-                    break
+    def metrics(c):
+        o, h, l, close = map(float, (c[1], c[2], c[3], c[4]))
+        span = h - l
+        if span <= 0 or not (l <= min(o, close) <= max(o, close) <= h):
+            return None
+        return {'o': o, 'h': h, 'l': l, 'c': close,
+                'body': abs(close-o), 'ratio': abs(close-o)/span}
 
-            if not all_bases_valid: continue
+    m = [metrics(c) for c in candles]
 
-            # A base is strictly 1-2 candles: reject if the candle just before
-            # the leg-in also qualifies as a compact base adjoining this setup.
-            # The strong leg-in itself separates preceding bases from this zone.
-            # No other base candle can be between leg-in and leg-out because
-            # the complete intervening sequence is explicitly checked above.
+    def compact(j, leg_body):
+        v = m[j]
+        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.35*leg_body)
 
-
-            is_legin_rally = legin_c > legin_o
-            is_legout_rally = legout_c > legout_o
-
-            pattern, bias, proximal, distal = None, None, 0.0, 0.0
-
-            if is_legout_rally:
-                bias = "DEMAND"
-                pattern = "Rally-Base-Rally" if is_legin_rally else "Drop-Base-Rally"
-                proximal = max(max(bc[1], bc[4]) for bc in base_candles)
-                distal = min(bc[3] for bc in base_candles)
-            else:
-                bias = "SUPPLY"
-                pattern = "Rally-Base-Drop" if is_legin_rally else "Drop-Base-Drop"
-                proximal = min(min(bc[1], bc[4]) for bc in base_candles)
-                distal = max(bc[2] for bc in base_candles)
-
-            # 4. Calculate Distance from CMP (%)
-            distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
-            if max_dist_pct is not None and distance_pct > max_dist_pct:
-                continue
-
-            # 5. Violation & Test Count Check: Discard if violated or tested > 1 time
-            is_violated = False
-            test_count = 0
-            for sc in candles[legout_idx + 1:]:
-                sc_high, sc_low, sc_close = sc[2], sc[3], sc[4]
-                if bias == "DEMAND":
-                    if sc_low <= proximal and sc_high >= distal:
-                        test_count += 1
-                    if sc_close < distal:
-                        is_violated = True
-                        break
-                else:
-                    if sc_high >= proximal and sc_low <= distal:
-                        test_count += 1
-                    if sc_close > distal:
-                        is_violated = True
-                        break
-
-            if is_violated: continue
-            if test_count > 1: continue
-
-            risk = round(abs(proximal - distal), 2)
-            if risk <= 0: continue
-            risk_pct = round((risk / current_ltp) * 100, 2) if current_ltp > 0 else 0
-
-            status = "Untested (Fresh)" if test_count == 0 else f"Tested ({test_count}x)"
-            if bias == "DEMAND":
-                if distal <= current_ltp <= proximal: status = "🎯 In Zone (Actionable)"
-                elif current_ltp < distal: continue
-            else:
-                if proximal <= current_ltp <= distal: status = "🎯 In Zone (Actionable)"
-                elif current_ltp > distal: continue
-
-            zones.append({
-                "pattern": pattern, "bias": bias, "proximal": round(proximal, 2), "distal": round(distal, 2),
-                "entry": proximal, "stopLoss": distal, "risk": risk, "riskPct": risk_pct,
-                "target1R2": round(proximal + (risk * 2.0) if bias == 'DEMAND' else proximal - (risk * 2.0), 2),
-                "target1R3": round(proximal + (risk * 3.0) if bias == 'DEMAND' else proximal - (risk * 3.0), 2),
-                "status": status, "distancePct": distance_pct, "multiplier": round(legout_body / max(legin_body, 0.01), 2),
-                "strongZone": has_strong_exit_confirmation(candles, legout_idx, bias),
-                "tvUrl": f"https://www.tradingview.com/chart/?symbol=NSE:{symbol}",
-                "brokerUrl": f"https://groww.in/stocks/{symbol.lower()}",
-                "timeframe": tf.upper()
-            })
-    # Two-candle reversal zones: exactly one strong incoming candle and one
-    # stronger opposite-direction exit candle; no intervening base candles.
-    # A later continuation candle can reinforce the setup but is not required.
-    for i in range(len(candles) - 1):
-        incoming, outgoing = candles[i], candles[i + 1]
-        in_o, in_h, in_l, in_c = map(float, (incoming[1], incoming[2], incoming[3], incoming[4]))
-        out_o, out_h, out_l, out_c = map(float, (outgoing[1], outgoing[2], outgoing[3], outgoing[4]))
-        in_range, out_range = in_h - in_l, out_h - out_l
-        if in_range <= 0 or out_range <= 0 or current_ltp <= 0:
+    # Iterate each leg-in once, count the FULL contiguous base sequence.
+    for legin_idx in range(len(candles)-2):
+        legin = m[legin_idx]
+        if not legin or not (0.70 <= legin['ratio'] <= 0.98):
             continue
-        in_body, out_body = abs(in_c - in_o), abs(out_c - out_o)
-        if in_body / in_range < 0.70 or out_body / out_range < 0.75:
+        first_base = legin_idx+1
+        if not compact(first_base, legin['body']):
             continue
-        if out_body <= in_body:
+        legout_idx = first_base
+        while legout_idx < len(candles) and compact(legout_idx, legin['body']):
+            legout_idx += 1
+        num_bases = legout_idx-first_base
+        if num_bases not in (1, 2) or legout_idx >= len(candles):
             continue
-        if in_c < in_o and out_c > out_o:
-            bias, pattern = 'DEMAND', 'Drop-Rally'
-            # DR: proximal = lowest body price of the bearish leg-in;
-            # distal = lower wick extreme across leg-in and leg-out.
-            proximal = min(in_o, in_c)
-            distal = min(in_l, out_l)
-            if out_c <= in_o or proximal <= distal:
-                continue
-        elif in_c > in_o and out_c < out_o:
-            bias, pattern = 'SUPPLY', 'Rally-Drop'
-            # RD: proximal = highest body price of the bullish leg-in;
-            # distal = higher wick extreme across leg-in and leg-out.
-            proximal = max(in_o, in_c)
-            distal = max(in_h, out_h)
-            if out_c >= in_o or proximal >= distal:
+        legout = m[legout_idx]
+        if not legout or not (0.75 <= legout['ratio'] <= 0.98):
+            continue
+        if legout['body'] < legin['body']:
+            continue
+        base = m[first_base:legout_idx]
+        base_high = max(c['h'] for c in base)
+        base_low = min(c['l'] for c in base)
+        # Reject wide, scattered consolidation even if individual candles are dojis.
+        if base_high-base_low > max(legin['body'], legout['body']):
+            continue
+
+        legin_rally = legin['c'] > legin['o']
+        legout_rally = legout['c'] > legout['o']
+        if legout_rally:
+            bias = 'DEMAND'
+            pattern = 'Rally-Base-Rally' if legin_rally else 'Drop-Base-Rally'
+            proximal = max(max(c['o'], c['c']) for c in base)
+            distal = base_low
+            # A leg-out must CLOSE outside the full base range.
+            if legout['c'] <= base_high or legout['c'] <= legout['o']:
                 continue
         else:
+            bias = 'SUPPLY'
+            pattern = 'Rally-Base-Drop' if legin_rally else 'Drop-Base-Drop'
+            proximal = min(min(c['o'], c['c']) for c in base)
+            distal = base_high
+            if legout['c'] >= base_low or legout['c'] >= legout['o']:
+                continue
+
+        risk = abs(proximal-distal)
+        if risk <= 0:
             continue
-        distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
+        distance_pct = round(abs(current_ltp-proximal)/current_ltp*100, 2)
         if max_dist_pct is not None and distance_pct > max_dist_pct:
             continue
-        tested, violated = 0, False
-        # Do not count the exit candle as a retest.
-        for later in candles[i + 2:]:
-            hi, lo, close = float(later[2]), float(later[3]), float(later[4])
+
+        # Count separate retest EVENTS, not every candle that touches the zone.
+        test_count, violated, inside_previous = 0, False, False
+        for later in m[legout_idx+1:]:
+            if later is None:
+                continue
             if bias == 'DEMAND':
-                if close < distal:
-                    violated = True
-                    break
-                if lo <= proximal and hi >= distal:
-                    tested += 1
+                touched = later['l'] <= proximal and later['h'] >= distal
+                violated = later['c'] < distal
             else:
-                if close > distal:
-                    violated = True
-                    break
-                if hi >= proximal and lo <= distal:
-                    tested += 1
-            if tested > 1:
+                touched = later['h'] >= proximal and later['l'] <= distal
+                violated = later['c'] > distal
+            if violated:
                 break
-        if violated or tested > 1:
+            if touched and not inside_previous:
+                test_count += 1
+            inside_previous = touched
+            if test_count > 1:
+                break
+        if violated or test_count > 1:
             continue
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
-        risk = round(abs(proximal - distal), 2)
-        if risk <= 0:
-            continue
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
-        status = '🎯 In Zone (Actionable)' if in_zone else ('Untested (Fresh)' if tested == 0 else f'Tested ({tested}x)')
-        continuation = False
-        if i + 2 < len(candles):
-            next_c = candles[i + 2]
-            next_o, next_cprice = float(next_c[1]), float(next_c[4])
-            continuation = (next_cprice > next_o and next_cprice > out_c) if bias == 'DEMAND' else (next_cprice < next_o and next_cprice < out_c)
+        status = '🎯 In Zone (Actionable)' if in_zone else ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
-            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2), 'distal': round(distal, 2),
-            'entry': proximal, 'stopLoss': distal, 'risk': risk,
-            'riskPct': round(risk / current_ltp * 100, 2),
-            'target1R2': round(proximal + 2*risk if bias == 'DEMAND' else proximal - 2*risk, 2),
-            'target1R3': round(proximal + 3*risk if bias == 'DEMAND' else proximal - 3*risk, 2),
+            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
+            'distal': round(distal, 2), 'entry': round(proximal, 2),
+            'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+            'riskPct': round(risk/current_ltp*100, 2),
+            'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
+            'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
             'status': status, 'distancePct': distance_pct,
-            'multiplier': round(out_body / max(in_body, 0.01), 2),
-            'continuation': continuation,
-            'strongZone': has_strong_exit_confirmation(candles, i + 1, bias),
+            'multiplier': round(legout['body']/max(legin['body'], 0.01), 2),
+            'strongZone': has_strong_exit_confirmation(candles, legout_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
             'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
-            'timeframe': tf.upper()
+            'timeframe': tf.upper(), 'baseCandles': num_bases
         })
-    # Keep distinct zones; avoid duplicates from overlapping reversal/base setups.
-    unique = {}
-    for z in zones:
-        key = (z['pattern'], z['bias'], z['proximal'], z['distal'])
-        unique[key] = z
-    zones = list(unique.values())
+    # Base-free reversal patterns: DR / RD (two adjacent completed candles).
+    # These are separate from RBR/DBR/RBD/DBD; they have ZERO base candles.
+    for incoming_idx in range(len(m) - 1):
+        outgoing_idx = incoming_idx + 1
+        incoming, outgoing = m[incoming_idx], m[outgoing_idx]
+        if not incoming or not outgoing:
+            continue
+        if not (0.70 <= incoming['ratio'] <= 0.98 and
+                0.75 <= outgoing['ratio'] <= 0.98 and
+                outgoing['body'] > incoming['body']):
+            continue
+        if incoming['c'] < incoming['o'] and outgoing['c'] > outgoing['o']:
+            bias, pattern = 'DEMAND', 'Drop-Rally'
+            proximal = min(outgoing['o'], outgoing['c'])
+            distal = outgoing['l']  # Second (Rally) candle lower wick
+            # Exit must break above the incoming candle, not just turn green.
+            if outgoing['c'] <= incoming['o'] or proximal <= distal:
+                continue
+        elif incoming['c'] > incoming['o'] and outgoing['c'] < outgoing['o']:
+            bias, pattern = 'SUPPLY', 'Rally-Drop'
+            proximal = max(outgoing['o'], outgoing['c'])
+            distal = outgoing['h']  # Second (Drop) candle upper wick
+            if outgoing['c'] >= incoming['o'] or proximal >= distal:
+                continue
+        else:
+            continue
+
+        risk = abs(proximal - distal)
+        if risk <= 0:
+            continue
+        distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
+        if max_dist_pct is not None and distance_pct > max_dist_pct:
+            continue
+        test_count, violated, inside_previous = 0, False, False
+        for later in m[outgoing_idx + 1:]:
+            if later is None:
+                continue
+            if bias == 'DEMAND':
+                touched = later['l'] <= proximal and later['h'] >= distal
+                violated = later['c'] < distal
+            else:
+                touched = later['h'] >= proximal and later['l'] <= distal
+                violated = later['c'] > distal
+            if violated:
+                break
+            if touched and not inside_previous:
+                test_count += 1
+            inside_previous = touched
+            if test_count > 1:
+                break
+        if violated or test_count > 1:
+            continue
+        if bias == 'DEMAND' and current_ltp < distal:
+            continue
+        if bias == 'SUPPLY' and current_ltp > distal:
+            continue
+        in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+        status = ('🎯 In Zone (Actionable)' if in_zone else
+                  'Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+        zones.append({
+            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
+            'distal': round(distal, 2), 'entry': round(proximal, 2),
+            'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+            'riskPct': round(risk/current_ltp*100, 2),
+            'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
+            'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
+            'status': status, 'distancePct': distance_pct,
+            'multiplier': round(outgoing['body']/max(incoming['body'], 0.01), 2),
+            'strongZone': has_strong_exit_confirmation(candles, outgoing_idx, bias),
+            'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+            'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+            'timeframe': tf.upper(), 'baseCandles': 0,
+            # DR/RD have no base candle. Zone boundaries come from candle 2.
+            'zoneCandleDate': str(candles[outgoing_idx][0]),
+            'zoneCandleOpen': outgoing['o'],
+            'zoneCandleHigh': outgoing['h'],
+            'zoneCandleLow': outgoing['l'],
+            'zoneCandleClose': outgoing['c'],
+            'incomingCandleDate': str(candles[incoming_idx][0]),
+            'exitCandleDate': str(candles[outgoing_idx][0]),
+            'exitCandleOpen': outgoing['o'],
+            'exitCandleHigh': outgoing['h'],
+            'exitCandleLow': outgoing['l'],
+            'exitCandleClose': outgoing['c'],
+            'zoneBoundarySource': 'SECOND_CANDLE_ONLY'
+        })
     return zones
 
 # Four-year persistent candle store. PostgreSQL survives Render deploys/restarts;
@@ -925,7 +919,7 @@ def fetch_historical_candles(instrument_key, interval):
 
 # ================= GMAIL / RESEND SMTP EMAIL DISPATCH =================
 import resend
-resend.api_key = os.getenv("RESEND_API_KEY", "")
+resend.api_key = os.getenv("RESEND_API_KEY", "re_B1WFfX1Q_KnRJu6YitXAztBuLa6jFM1Ap")
 
 def send_otp_email(to_email, otp_code):
     try:
@@ -1413,8 +1407,8 @@ def verify_payment():
     user=current_user()
     if not user: return jsonify({'message':'Login required'}),401
     data=request.get_json(silent=True) or {}
-    order_id=data.get('razorpay_order_id','')
-    payment_id=data.get('razorpay_payment_id','')
+    order_id=data.get('razorpay_order_id','rzp_test_TzOiKGfQnvAcaw')
+    payment_id=data.get('razorpay_payment_id','RE9fr3o5YeqTo16lulirt0z5')
     signature=data.get('razorpay_signature','')
     payment=Payment.query.filter_by(order_id=order_id,user_id=user.id).first()
     if not payment or not all((order_id,payment_id,signature)):
@@ -1542,7 +1536,7 @@ PRECOMPUTE_THREAD = None
 def _stored_zone_snapshot(univ_key, tf):
     try:
         with app.app_context():
-            row = db.session.get(ZoneResultStore, f'{univ_key}:{tf}')
+            row = db.session.get(ZoneResultStore, f'v7_dr_rd_second_candle:{univ_key}:{tf}')
             if row is not None:
                 data = json.loads(row.zones_json)
                 if isinstance(data, list):
@@ -1598,8 +1592,8 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
     def worker(item):
         try:
             candles = fetch_historical_candles(item["isin"], tf)
-            if not candles or len(candles) < 5: return None
-            ltp = live_quotes.get(item["symbol"], candles[-1][4] if candles else 0)
+            if not candles or len(candles) < 2: return None
+            ltp = live_quotes.get(item["symbol"], max(candles, key=lambda c: str(c[0]))[4] if candles else 0)
             zones = scan_four_institutional_zones(candles, ltp, item["symbol"], tf)
             return [{
             "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp,
@@ -1608,7 +1602,14 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
             "target1R2": z["target1R2"], "target1R3": z["target1R3"],
             "strongZone": z.get("strongZone", False),
             "status": z["status"], "multiplier": z.get("multiplier", 1.0),
-            "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"]
+            "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"],
+            "baseCandles": z.get("baseCandles"),
+            "zoneCandleDate": z.get("zoneCandleDate"), "zoneCandleOpen": z.get("zoneCandleOpen"),
+            "zoneCandleHigh": z.get("zoneCandleHigh"), "zoneCandleLow": z.get("zoneCandleLow"),
+            "zoneCandleClose": z.get("zoneCandleClose"),
+            "exitCandleDate": z.get("exitCandleDate"),
+            "incomingCandleDate": z.get("incomingCandleDate"),
+            "zoneBoundarySource": z.get("zoneBoundarySource")
             } for z in zones]
         except Exception as exc:
             print(f"Zone worker {tf}/{item.get('symbol')}: {type(exc).__name__}: {str(exc)[:150]}")
@@ -1661,7 +1662,7 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
         results.sort(key=lambda x: (cmp_distance(x), x.get('symbol', '')))
         try:
             with app.app_context():
-                store_key = f'{univ_key}:{tf}'
+                store_key = f'v7_dr_rd_second_candle:{univ_key}:{tf}'
                 record = db.session.get(ZoneResultStore, store_key)
                 if record is None:
                     record = ZoneResultStore(cache_key=store_key, zones_json='[]')

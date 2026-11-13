@@ -1,4 +1,5 @@
 import os
+import json
 import hmac
 import hashlib
 import calendar
@@ -32,7 +33,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "CHANGE_THIS_SECRET_BEFORE_DEPLOYING")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "9f31b85adc90a103684b3c46ac83610a28f9a7b0a99d92bf2c0872e84e8591fe")
+if not app.secret_key:
+    raise RuntimeError("Set FLASK_SECRET_KEY in your environment before starting StockFinder Pro")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
@@ -40,7 +43,10 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 # Absolute Path Fix for SQLite Database to prevent 'no such table' errors
 basedir = os.path.abspath(os.path.dirname(__file__))
 db_path = os.getenv('DATABASE_PATH', os.path.join(basedir, 'users.db'))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
+database_url = os.getenv('DATABASE_URL', '').strip()
+if database_url.startswith('postgres://'):
+    database_url = 'postgresql://' + database_url[len('postgres://'):]
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or ('sqlite:///' + db_path)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -63,6 +69,18 @@ class Payment(db.Model):
     amount_paise = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(20), default='created', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class HistoricalCandleStore(db.Model):
+    __tablename__ = 'historical_candle_store'
+    cache_key = db.Column(db.String(180), primary_key=True)
+    candles_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+class ZoneResultStore(db.Model):
+    __tablename__ = 'zone_result_store'
+    cache_key = db.Column(db.String(100), primary_key=True)
+    zones_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 class Subscription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -263,7 +281,7 @@ def load_nifty500_universe():
             if symbol not in seen:
                 seen.add(symbol)
                 universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "General"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
-    NIFTY500_UNIVERSE_CACHE = universe[:400]
+    NIFTY500_UNIVERSE_CACHE = universe[:500]
     return NIFTY500_UNIVERSE_CACHE
 
 
@@ -301,7 +319,7 @@ def load_nifty500_universe():
             if symbol not in seen:
                 seen.add(symbol)
                 universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "General"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
-    NIFTY500_UNIVERSE_CACHE = universe[:400]
+    NIFTY500_UNIVERSE_CACHE = universe[:500]
     return NIFTY500_UNIVERSE_CACHE
 
 def load_midcap_universe():
@@ -353,7 +371,7 @@ def load_total_market_universe():
         if symbol not in seen:
             seen.add(symbol)
             universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "Total Market"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
-    TOTAL_MARKET_UNIVERSE_CACHE = universe[:500]
+    TOTAL_MARKET_UNIVERSE_CACHE = universe
     return TOTAL_MARKET_UNIVERSE_CACHE
 
 def get_active_universe_list(univ_type=None):
@@ -527,28 +545,55 @@ def start_smart_orb_background_thread():
 
 # ================= HIGHER TIMEFRAME AGGREGATION & ZONE SCANNER =================
 def aggregate_candles(candles, timeframe):
-    if not candles: return []
-    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df.set_index('date', inplace=True)
-    
-    rule = '3ME' if timeframe == 'quarter' else ('6ME' if timeframe == 'halfyear' else '1YE')
-    
-    agg_dict = {
-        'timestamp': 'first',
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
-        'volume': 'sum'
-    }
-    
-    resampled = df.resample(rule).agg(agg_dict).dropna()
-    return resampled[['timestamp', 'open', 'high', 'low', 'close', 'volume']].values.tolist()
+    """Build completed calendar quarter/half-year/year candles from Upstox monthly OHLC."""
+    if not candles:
+        return []
+    period_months = {'quarter': 3, 'halfyear': 6, 'year': 12}.get(timeframe)
+    if not period_months:
+        return candles
+    buckets = {}
+    for c in candles:
+        try:
+            stamp = pd.to_datetime(c[0], utc=True, errors='coerce')
+            if pd.isna(stamp):
+                continue
+            month = int(stamp.month)
+            start_month = ((month - 1) // period_months) * period_months + 1
+            key = (int(stamp.year), start_month)
+            buckets.setdefault(key, []).append((stamp, c))
+        except (ValueError, TypeError, IndexError):
+            continue
+    today = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+    rows = []
+    for (year, start_month), entries in sorted(buckets.items()):
+        entries.sort(key=lambda pair: pair[0])
+        distinct_months = {int(stamp.month) for stamp, _ in entries}
+        if len(distinct_months) != period_months:
+            continue
+        # Do not build a higher-timeframe candle from the still-forming month.
+        last_month = start_month + period_months - 1
+        if year == today.year and start_month <= today.month <= last_month:
+            continue
+        cs = [c for _, c in entries]
+        rows.append([cs[0][0], float(cs[0][1]), max(float(c[2]) for c in cs),
+                     min(float(c[3]) for c in cs), float(cs[-1][4]),
+                     sum(float(c[5]) for c in cs)])
+    return rows
+
+def has_strong_exit_confirmation(candles, legout_idx, bias):
+    """One immediate same-direction exit candle with >=70% body and breakout close."""
+    if legout_idx + 1 >= len(candles):
+        return False
+    legout, candle = candles[legout_idx], candles[legout_idx + 1]
+    o, h, l, c = map(float, (candle[1], candle[2], candle[3], candle[4]))
+    if h <= l or abs(c - o) / (h - l) < 0.70:
+        return False
+    return (c > o and c > float(legout[2])) if bias == 'DEMAND' else (c < o and c < float(legout[3]))
+
 
 def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct=None):
     zones = []
-    if len(candles) < 12: return zones
+    if len(candles) < 5: return zones
 
     # Strictly limit base candles to 1 or 2 (NO 3 base candles allowed)
     for num_bases in [1, 2]:
@@ -603,6 +648,13 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                     break
 
             if not all_bases_valid: continue
+
+            # A base is strictly 1-2 candles: reject if the candle just before
+            # the leg-in also qualifies as a compact base adjoining this setup.
+            # The strong leg-in itself separates preceding bases from this zone.
+            # No other base candle can be between leg-in and leg-out because
+            # the complete intervening sequence is explicitly checked above.
+
 
             is_legin_rally = legin_c > legin_o
             is_legout_rally = legout_c > legout_o
@@ -664,52 +716,216 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 "target1R2": round(proximal + (risk * 2.0) if bias == 'DEMAND' else proximal - (risk * 2.0), 2),
                 "target1R3": round(proximal + (risk * 3.0) if bias == 'DEMAND' else proximal - (risk * 3.0), 2),
                 "status": status, "distancePct": distance_pct, "multiplier": round(legout_body / max(legin_body, 0.01), 2),
+                "strongZone": has_strong_exit_confirmation(candles, legout_idx, bias),
                 "tvUrl": f"https://www.tradingview.com/chart/?symbol=NSE:{symbol}",
                 "brokerUrl": f"https://groww.in/stocks/{symbol.lower()}",
                 "timeframe": tf.upper()
             })
+    # Two-candle reversal zones: exactly one strong incoming candle and one
+    # stronger opposite-direction exit candle; no intervening base candles.
+    # A later continuation candle can reinforce the setup but is not required.
+    for i in range(len(candles) - 1):
+        incoming, outgoing = candles[i], candles[i + 1]
+        in_o, in_h, in_l, in_c = map(float, (incoming[1], incoming[2], incoming[3], incoming[4]))
+        out_o, out_h, out_l, out_c = map(float, (outgoing[1], outgoing[2], outgoing[3], outgoing[4]))
+        in_range, out_range = in_h - in_l, out_h - out_l
+        if in_range <= 0 or out_range <= 0 or current_ltp <= 0:
+            continue
+        in_body, out_body = abs(in_c - in_o), abs(out_c - out_o)
+        if in_body / in_range < 0.70 or out_body / out_range < 0.75:
+            continue
+        if out_body <= in_body:
+            continue
+        if in_c < in_o and out_c > out_o:
+            bias, pattern = 'DEMAND', 'Drop-Rally'
+            # DR: proximal = lowest body price of the bearish leg-in;
+            # distal = lower wick extreme across leg-in and leg-out.
+            proximal = min(in_o, in_c)
+            distal = min(in_l, out_l)
+            if out_c <= in_o or proximal <= distal:
+                continue
+        elif in_c > in_o and out_c < out_o:
+            bias, pattern = 'SUPPLY', 'Rally-Drop'
+            # RD: proximal = highest body price of the bullish leg-in;
+            # distal = higher wick extreme across leg-in and leg-out.
+            proximal = max(in_o, in_c)
+            distal = max(in_h, out_h)
+            if out_c >= in_o or proximal >= distal:
+                continue
+        else:
+            continue
+        distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
+        if max_dist_pct is not None and distance_pct > max_dist_pct:
+            continue
+        tested, violated = 0, False
+        # Do not count the exit candle as a retest.
+        for later in candles[i + 2:]:
+            hi, lo, close = float(later[2]), float(later[3]), float(later[4])
+            if bias == 'DEMAND':
+                if close < distal:
+                    violated = True
+                    break
+                if lo <= proximal and hi >= distal:
+                    tested += 1
+            else:
+                if close > distal:
+                    violated = True
+                    break
+                if hi >= proximal and lo <= distal:
+                    tested += 1
+            if tested > 1:
+                break
+        if violated or tested > 1:
+            continue
+        if bias == 'DEMAND' and current_ltp < distal:
+            continue
+        if bias == 'SUPPLY' and current_ltp > distal:
+            continue
+        risk = round(abs(proximal - distal), 2)
+        if risk <= 0:
+            continue
+        in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+        status = '🎯 In Zone (Actionable)' if in_zone else ('Untested (Fresh)' if tested == 0 else f'Tested ({tested}x)')
+        continuation = False
+        if i + 2 < len(candles):
+            next_c = candles[i + 2]
+            next_o, next_cprice = float(next_c[1]), float(next_c[4])
+            continuation = (next_cprice > next_o and next_cprice > out_c) if bias == 'DEMAND' else (next_cprice < next_o and next_cprice < out_c)
+        zones.append({
+            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2), 'distal': round(distal, 2),
+            'entry': proximal, 'stopLoss': distal, 'risk': risk,
+            'riskPct': round(risk / current_ltp * 100, 2),
+            'target1R2': round(proximal + 2*risk if bias == 'DEMAND' else proximal - 2*risk, 2),
+            'target1R3': round(proximal + 3*risk if bias == 'DEMAND' else proximal - 3*risk, 2),
+            'status': status, 'distancePct': distance_pct,
+            'multiplier': round(out_body / max(in_body, 0.01), 2),
+            'continuation': continuation,
+            'strongZone': has_strong_exit_confirmation(candles, i + 1, bias),
+            'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+            'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+            'timeframe': tf.upper()
+        })
+    # Keep distinct zones; avoid duplicates from overlapping reversal/base setups.
+    unique = {}
+    for z in zones:
+        key = (z['pattern'], z['bias'], z['proximal'], z['distal'])
+        unique[key] = z
+    zones = list(unique.values())
     return zones
 
+# Four-year persistent candle store. PostgreSQL survives Render deploys/restarts;
+# local SQLite is only durable when stored on a persistent disk.
+HISTORY_FETCH_LOCKS = {}
+HISTORY_FETCH_LOCKS_GUARD = threading.Lock()
+HISTORY_CACHE_SECONDS = int(os.getenv("SFP_HISTORY_CACHE_SECONDS", str(3 * 24 * 3600)))
+HISTORY_YEARS = 4
+
+def _read_stored_candles(key):
+    try:
+        with app.app_context():
+            row = db.session.get(HistoricalCandleStore, key)
+            if row:
+                return json.loads(row.candles_json), row.updated_at
+    except Exception as exc:
+        print('Historical DB read:', type(exc).__name__, str(exc)[:120])
+    return None, None
+
+def _save_stored_candles(key, candles):
+    try:
+        with app.app_context():
+            row = db.session.get(HistoricalCandleStore, key)
+            if row is None:
+                row = HistoricalCandleStore(cache_key=key, candles_json='[]')
+                db.session.add(row)
+            row.candles_json = json.dumps(candles, separators=(',', ':'))
+            row.updated_at = datetime.utcnow()
+            db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        print('Historical DB write:', type(exc).__name__, str(exc)[:120])
+
+HISTORY_API_SLOTS = threading.BoundedSemaphore(int(os.getenv('SFP_HISTORY_API_CONCURRENCY', '6')))
+
 def fetch_historical_candles(instrument_key, interval):
-    global CANDLE_CACHE
-    api_interval = interval
-    is_custom_tf = False
-
-    if interval in ["quarter", "halfyear", "year"]:
-        api_interval = "month"
-        is_custom_tf = True
-
-    cache_key = f"{instrument_key}_{interval}"
-    with CANDLE_CACHE_LOCK:
-        cached = CANDLE_CACHE.get(cache_key)
-    if cached and (time.time() - cached["ts"] < 3600): return cached["candles"]
-
-    to_date = date.today()
-    days_back = 3650 if is_custom_tf else (1825 if interval in ["week", "month"] else 300)
-    from_date = to_date - timedelta(days=days_back)
-    
-    url = f"https://api.upstox.com/v2/historical-candle/{urllib.parse.quote(instrument_key, safe='')}/{api_interval}/{to_date.strftime('%Y-%m-%d')}/{from_date.strftime('%Y-%m-%d')}"
-    headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
-
-    for attempt in range(3):
-        try:
-            res = HTTP_SESSION.get(url, headers=headers, timeout=4)
-            if res.status_code == 200:
-                candles = res.json().get("data", {}).get("candles", [])
-                candles.reverse()
-                if is_custom_tf:
-                    candles = aggregate_candles(candles, interval)
-                with CANDLE_CACHE_LOCK:
-                    CANDLE_CACHE[cache_key] = {"candles": candles, "ts": time.time()}
-                return candles
-            elif res.status_code == 429: time.sleep(0.3 * (attempt + 1))
-        except Exception:
-            time.sleep(0.2)
-    return []
+    """Shared monthly cache for higher timeframes; incremental refresh after first download."""
+    api_interval = 'month' if interval in ('quarter', 'halfyear', 'year') else interval
+    raw_key = f'{instrument_key}_{api_interval}_4y_v1'
+    derived_key = f'{instrument_key}_{interval}_4y_v1'
+    def memory_get(key):
+        with CANDLE_CACHE_LOCK:
+            entry = CANDLE_CACHE.get(key)
+            return entry['candles'] if entry and time.time()-entry['ts'] < HISTORY_CACHE_SECONDS else None
+    cached = memory_get(derived_key)
+    if cached is not None:
+        return cached
+    with HISTORY_FETCH_LOCKS_GUARD:
+        lock = HISTORY_FETCH_LOCKS.setdefault(raw_key, threading.Lock())
+    with lock:
+        raw = memory_get(raw_key)
+        if raw is None:
+            stored, updated_at = _read_stored_candles(raw_key)
+            fresh = stored is not None and updated_at is not None and (datetime.utcnow()-updated_at).total_seconds() < HISTORY_CACHE_SECONDS
+            if fresh:
+                raw = stored
+            else:
+                today = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+                oldest = today - timedelta(days=1461)
+                windows = []
+                if stored:
+                    try:
+                        last_date = max(pd.to_datetime(c[0], utc=True).date() for c in stored if len(c)>=6)
+                        begin = max(oldest, last_date-timedelta(days=45))
+                    except (ValueError, TypeError):
+                        begin = max(oldest, today-timedelta(days=65))
+                    windows = [(begin,today)]
+                else:
+                    end_date = today
+                    while end_date >= oldest:
+                        begin = max(oldest,end_date-timedelta(days=364))
+                        windows.append((begin,end_date))
+                        end_date = begin-timedelta(days=1)
+                headers = {'Accept':'application/json','Authorization':f'Bearer {UPSTOX_ACCESS_TOKEN}'}
+                downloaded=[]
+                errors=0
+                for begin,end_date in windows:
+                    url = (f'https://api.upstox.com/v2/historical-candle/'
+                           f'{urllib.parse.quote(instrument_key,safe="")}/{api_interval}/'
+                           f'{end_date:%Y-%m-%d}/{begin:%Y-%m-%d}')
+                    chunk=None
+                    for attempt in range(3):
+                        try:
+                            with HISTORY_API_SLOTS:
+                                response=HTTP_SESSION.get(url,headers=headers,timeout=(5,12))
+                            if response.status_code==200:
+                                chunk=response.json().get('data',{}).get('candles',[])
+                                break
+                            print(f'Historical {api_interval} HTTP {response.status_code} for {instrument_key}')
+                            if response.status_code not in (429,500,502,503,504):
+                                break
+                        except requests.RequestException as exc:
+                            if attempt==2: print('Historical request:',type(exc).__name__)
+                        if attempt<2: time.sleep(0.8*(2**attempt)+random.uniform(0,0.4))
+                    if chunk is None: errors+=1
+                    else: downloaded.extend(chunk)
+                if errors==0:
+                    by_stamp={str(c[0]):c for c in (stored or []) if len(c)>=6}
+                    by_stamp.update({str(c[0]):c for c in downloaded if len(c)>=6})
+                    raw=[by_stamp[k] for k in sorted(by_stamp)]
+                    if raw: _save_stored_candles(raw_key,raw)
+                else:
+                    raw=stored if stored is not None else []
+                    print(f'Historical refresh incomplete {instrument_key}/{api_interval}: {errors}/{len(windows)} windows failed')
+            with CANDLE_CACHE_LOCK:
+                CANDLE_CACHE[raw_key]={'candles':raw,'ts':time.time() if raw else time.time()-HISTORY_CACHE_SECONDS+60}
+        if interval==api_interval: return raw
+        derived=aggregate_candles(raw,interval)
+        with CANDLE_CACHE_LOCK:
+            CANDLE_CACHE[derived_key]={'candles':derived,'ts':time.time()}
+        return derived
 
 # ================= GMAIL / RESEND SMTP EMAIL DISPATCH =================
 import resend
-resend.api_key = os.getenv("RESEND_API_KEY", "re_PXnppuZw_3EHdCanGDBsMMyETMGQWB5wS")
+resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 def send_otp_email(to_email, otp_code):
     try:
@@ -734,7 +950,7 @@ def send_otp_email(to_email, otp_code):
         return False
 
 # ================= HTML TEMPLATES WITH STANDARD FORM POST =================
-LANDING_PAGE_HTML = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<meta name="theme-color" content="#07090d">\n<meta name="description" content="Stock Finder Pro — institutional-style intraday stock scanning and price action analysis.">\n<title>Stock Finder Pro | Trade with an Edge</title>\n<style>\n:root{--bg:#07090d;--panel:#10141b;--line:#252c36;--text:#f7f8fb;--muted:#929ba9;--orange:#ff9e0b;--green:#22d982;--red:#ff5364;--blue:#42a5ff}\n*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-x:hidden}a{color:inherit;text-decoration:none}\n#market-bg{position:fixed;inset:0;width:100%;height:100%;z-index:-3;opacity:.72;pointer-events:none}\n.bg-vignette{position:fixed;inset:0;z-index:-2;pointer-events:none;background:radial-gradient(ellipse at 50% 34%,transparent 0%,rgba(7,9,13,.28) 45%,#07090d 100%),linear-gradient(180deg,rgba(7,9,13,.15),#07090d 92%)}\n.scanline{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.12;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.025) 4px)}\n.wrap{width:min(1200px,calc(100% - 48px));margin:auto}\nheader{height:76px;border-bottom:1px solid #ffffff13;background:rgba(7,9,13,.72);display:flex;align-items:center;justify-content:space-between;padding:0 max(24px,calc((100vw - 1690px)/2));position:sticky;top:0;z-index:10;backdrop-filter:blur(18px)}\n.brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:900;letter-spacing:-.55px;color:var(--orange)}.brand-dot{height:9px;width:9px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green),0 0 20px #22d98288;animation:pulse 1.8s infinite}\n.nav-actions{display:flex;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 20px;border-radius:10px;font-size:13px;font-weight:800;border:1px solid transparent;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer}.btn:hover{transform:translateY(-3px)}.btn-dark{background:#11151c;border-color:#303743;box-shadow:0 5px 18px #0008}.btn-orange{background:linear-gradient(110deg,#ffb21a,#ff8b00);color:#111;box-shadow:0 0 25px #ff990033,0 8px 28px #0008}.btn-orange:hover{box-shadow:0 0 34px #ff990066}\n.hero{position:relative;text-align:center;padding:88px 20px 76px;min-height:730px;display:flex;flex-direction:column;align-items:center;isolation:isolate}\n.hero:before{content:"";position:absolute;width:min(850px,90vw);height:470px;top:40px;left:50%;transform:translateX(-50%);z-index:-1;background:radial-gradient(ellipse,#ff990b12 0%,#ff990b05 38%,transparent 70%);filter:blur(18px);animation:glow 6s ease-in-out infinite alternate}\n.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid #a5671c88;background:#21170b99;color:#ffb13b;border-radius:30px;font-size:10px;font-weight:900;letter-spacing:.65px;margin-bottom:25px;box-shadow:0 0 25px #ff9d0a12}.live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;box-shadow:0 0 9px var(--green)}\nh1{font-size:clamp(40px,5vw,62px);line-height:1.08;letter-spacing:-2.8px;margin:0 auto 22px;max-width:850px;font-weight:900;text-shadow:0 4px 45px #000} .accent{color:var(--orange);text-shadow:0 0 35px #ff9d0a30}\n.hero-copy{max-width:610px;color:#a3adbb;font-size:15px;line-height:1.8;margin:0 auto 32px}.hero-actions{display:flex;gap:13px;justify-content:center;flex-wrap:wrap}.hero-actions .btn{min-width:190px;min-height:48px}\n.market-tape{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:32px}.ticker{border:1px solid #ffffff18;background:#0c1118b8;border-radius:8px;padding:7px 12px;font:700 10px ui-monospace,monospace;color:#b5bfcd;backdrop-filter:blur(8px)}.up{color:var(--green)}.down{color:var(--red)}\n.terminal{width:min(900px,100%);margin-top:75px;background:linear-gradient(145deg,#151b24eF,#0c1017ed);border:1px solid #ffffff20;border-radius:16px;padding:13px;box-shadow:0 25px 75px #000b,0 0 45px #ff9d0a0b;text-align:left;position:relative;overflow:hidden;backdrop-filter:blur(12px)}\n.terminal:after{content:"";position:absolute;top:-120%;left:-40%;width:25%;height:340%;transform:rotate(28deg);background:linear-gradient(90deg,transparent,#ffffff0c,transparent);animation:shine 8s ease-in-out infinite}\n.terminal-top{height:23px;display:flex;align-items:flex-start;gap:5px;padding-left:7px}.light{width:9px;height:9px;border-radius:50%}.light.red{background:#ff514a}.light.yellow{background:#ffbd2e}.light.green{background:#28c840}\n.terminal-screen{min-height:78px;border:1px solid #ffffff12;background:#090d13c9;border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#9ba5b4;font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.1px}.terminal-screen b{color:var(--orange);margin-right:9px;font-size:15px}\n.status{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:14px;color:#7f8a99;font:10px ui-monospace,monospace}.status span:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin:0 7px 1px 0;box-shadow:0 0 8px var(--green)}\nsection.content{padding:78px 0;border-top:1px solid #ffffff12;background:linear-gradient(180deg,#090d13b5,#080b10eF)}\n.section-head{text-align:center;max-width:680px;margin:0 auto 38px}.kicker{color:var(--orange);font-size:10px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase}.section-head h2{font-size:clamp(28px,3.5vw,40px);line-height:1.18;letter-spacing:-1.3px;margin:10px 0}.section-head p{color:var(--muted);font-size:14px;margin:0}\n.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{padding:25px;border:1px solid #ffffff19;border-radius:14px;background:linear-gradient(145deg,#151c27df,#0c1119e8);backdrop-filter:blur(10px);transition:.25s;position:relative;overflow:hidden}.card:hover{transform:translateY(-5px);border-color:#ff9d0a66;box-shadow:0 18px 45px #0006}.icon{width:43px;height:43px;border-radius:12px;display:grid;place-items:center;background:#2a1d0b;color:var(--orange);font-size:21px;margin-bottom:16px;box-shadow:inset 0 0 18px #ff9d0a14}.card h3{font-size:17px;margin:0 0 8px}.card p{font-size:13px;color:var(--muted);margin:0}\n.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.step{padding:21px;border:1px solid #ffffff19;border-radius:12px;background:#101720d9;backdrop-filter:blur(8px)}.step small{color:var(--orange);font-weight:900;letter-spacing:1px}.step h3{font-size:15px;margin:8px 0 5px}.step p{font-size:12px;color:var(--muted);margin:0}\n.cta{padding:50px 24px;text-align:center;border:1px solid #a66b2355;border-radius:18px;background:radial-gradient(ellipse at 50% 0%,#ff9d0a20,transparent 65%),#111720eF;box-shadow:0 20px 65px #0007}.cta h2{font-size:clamp(27px,3.5vw,40px);margin:8px 0}.cta p{max-width:560px;color:var(--muted);margin:0 auto 23px;font-size:14px}\n.footer{padding:25px 0;border-top:1px solid #ffffff16;color:#777f8b;font-size:12px;background:#07090d}.footer-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.disclaimer{max-width:850px;margin-top:12px;color:#626b78;font-size:11px}\n@keyframes pulse{50%{box-shadow:0 0 3px var(--green),0 0 12px #22d98255;opacity:.7}}@keyframes glow{to{opacity:.55;transform:translateX(-50%) scale(1.12)}}@keyframes shine{0%,60%{left:-45%}100%{left:130%}}\n@media(max-width:760px){header{height:68px;padding:0 18px}.brand{font-size:15px}.btn{min-height:40px;padding:0 13px;font-size:12px}.hero{padding:72px 16px 60px;min-height:auto}.terminal{margin-top:60px}.cards{grid-template-columns:1fr 1fr}.steps{grid-template-columns:1fr 1fr}}\n@media(max-width:520px){.wrap{width:calc(100% - 30px)}header{padding:0 13px}.brand{font-size:13px}.nav-actions{gap:6px}.nav-actions .btn{padding:0 10px}.hero{padding-top:64px}h1{font-size:39px;letter-spacing:-1.8px}.hero-copy{font-size:14px}.hero-actions{width:100%;gap:10px}.hero-actions .btn{width:100%}.market-tape{gap:6px}.ticker{font-size:9px;padding:6px 8px}.terminal{margin-top:48px;padding:10px}.terminal-screen{font-size:10px;line-height:1.6}.cards,.steps{grid-template-columns:1fr}section.content{padding:58px 0}.footer-row{flex-direction:column}}\n@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}\n\n.pricing-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:stretch}\n.price-card{position:relative;padding:25px 20px 22px;border:1px solid #ffffff1c;border-radius:15px;background:linear-gradient(155deg,#171e29ed,#0d121aef);backdrop-filter:blur(12px);display:flex;flex-direction:column;min-height:330px;transition:.25s;overflow:hidden}\n.price-card:hover{transform:translateY(-6px);border-color:#ff9d0a88;box-shadow:0 20px 45px #0008,0 0 24px #ff9d0a12}\n.price-card.featured{border-color:#ff9d0a99;background:linear-gradient(155deg,#2a1d0fee,#111720f5);box-shadow:0 0 32px #ff9d0a12}\n.plan-tag{position:absolute;top:13px;right:13px;padding:4px 8px;border-radius:20px;background:#ff9d0a1c;color:#ffb43d;font-size:9px;font-weight:900;letter-spacing:.5px}\n.plan-name{font-size:16px;font-weight:850;margin:0 0 5px}.plan-duration{font-size:11px;color:#8f9aaa}\n.plan-price{font-size:34px;line-height:1.2;font-weight:900;letter-spacing:-1.5px;margin:22px 0 2px}.plan-price span{font-size:13px;color:#9ba5b4;font-weight:650;letter-spacing:0}\n.plan-monthly{font-size:11px;color:#9ba5b4;min-height:20px}.plan-save{font-size:10px;color:var(--green);font-weight:800;margin-top:9px;min-height:16px}\n.plan-rule{height:1px;background:#ffffff16;margin:18px 0 15px}.plan-points{list-style:none;padding:0;margin:0 0 20px;color:#aeb7c4;font-size:11px;display:grid;gap:9px}.plan-points li:before{content:"✓";color:var(--green);font-weight:900;margin-right:8px}\n.price-card .btn{width:100%;margin-top:auto;min-height:42px}.pricing-note{text-align:center;color:#778291;font-size:11px;margin:22px auto 0;max-width:700px}\n@media(max-width:900px){.pricing-grid{grid-template-columns:repeat(2,1fr)}}\n@media(max-width:520px){.pricing-grid{grid-template-columns:1fr}.price-card{min-height:0}.plan-price{margin-top:15px}}\n\n</style>\n</head>\n<body>\n<canvas id="market-bg" aria-hidden="true"></canvas><div class="bg-vignette"></div><div class="scanline"></div>\n<header>\n  <a class="brand" href="#home"><span class="brand-dot"></span> STOCK FINDER PRO</a>\n  <nav class="nav-actions" aria-label="Account navigation"><a class="btn btn-dark" href="#pricing">Plans</a><a class="btn btn-dark" href="/login">Login</a><a class="btn btn-orange" href="/signup">Sign Up 🚀</a></nav>\n</header>\n<main id="home">\n  <section class="hero">\n    <div class="eyebrow"><span class="live-dot"></span> STRICT INSTITUTIONAL ORDER FLOW SCREENER</div>\n    <h1>Dominate Intraday Setups<br>Like <span class="accent">Smart Money</span></h1>\n    <p class="hero-copy">Instantly detect strict unviolated institutional Demand &amp; Supply zones with high-precision price action.</p>\n    <div class="hero-actions"><a class="btn btn-orange" href="/signup">Get Started Free 🚀</a><a class="btn btn-dark" href="/login">Login to Terminal 🔐</a></div>\n    <div class="market-tape" aria-label="Illustrative market ticker"><span class="ticker">NIFTY <b class="up">▲ 0.82%</b></span><span class="ticker">BANKNIFTY <b class="up">▲ 0.46%</b></span><span class="ticker">RELIANCE <b class="down">▼ 0.21%</b></span><span class="ticker">HDFCBANK <b class="up">▲ 1.14%</b></span></div>\n    <div class="terminal"><div class="terminal-top"><i class="light red"></i><i class="light yellow"></i><i class="light green"></i></div><div class="terminal-screen"><span><b>ϟ</b> Real-Time Intraday Scanner · Advanced Institutional Price Action &amp; Trend Tracker Active</span></div><div class="status"><span>SCANNER ENGINE READY</span><span>PRICE ACTION MONITORING</span><span>MARKET DATA PREVIEW</span></div></div>\n  </section>\n  <section class="content" id="features"><div class="wrap"><div class="section-head"><div class="kicker">Built for focused traders</div><h2>Find high-quality setups. Skip the chart noise.</h2><p>Bring your stock scanning, zone analysis and trend checks into one focused workflow.</p></div><div class="cards">\n    <article class="card"><div class="icon">⌕</div><h3>Intraday Stock Scanner</h3><p>Scan your selected stock universe and quickly shortlist symbols that match your setup conditions.</p></article>\n    <article class="card"><div class="icon">↕</div><h3>Institutional Demand &amp; Supply</h3><p>Identify potential unviolated demand and supply areas to focus your price-action analysis.</p></article>\n    <article class="card"><div class="icon">⌁</div><h3>Trend &amp; Multi-Timeframe View</h3><p>Review trend direction and higher-timeframe context before planning a trade.</p></article>\n  </div></div></section>\n  <section class="content" id="workflow"><div class="wrap"><div class="section-head"><div class="kicker">Your trading workflow</div><h2>Scan smarter. Execute with a plan.</h2><p>Use the scanner to find candidates, then validate every setup with your own rules.</p></div><div class="steps">\n    <article class="step"><small>01 / SCAN</small><h3>Scan the market</h3><p>Find stocks matching your selected scanning conditions.</p></article>\n    <article class="step"><small>02 / IDENTIFY</small><h3>Mark key zones</h3><p>Review potential institutional demand and supply areas.</p></article>\n    <article class="step"><small>03 / CONFIRM</small><h3>Validate price action</h3><p>Check trend, structure and entry confirmation on your chart.</p></article>\n    <article class="step"><small>04 / EXECUTE</small><h3>Manage your risk</h3><p>Define stop-loss and position size before entering a trade.</p></article>\n  </div></div></section>\n\n  <section class="content" id="pricing">\n    <div class="wrap">\n      <div class="section-head">\n        <div class="kicker">Simple, transparent pricing</div>\n        <h2>Choose your trading edge.</h2>\n        <p>Choose a plan that fits your trading journey. Upgrade your access whenever you need.</p>\n      </div>\n      <div class="pricing-grid">\n        <article class="price-card">\n          <h3 class="plan-name">Monthly</h3><div class="plan-duration">1 month access</div>\n          <div class="plan-price">₹499<span> / plan</span></div>\n          <div class="plan-monthly">₹499 per month</div>\n          <div class="plan-save">&nbsp;</div>\n          <div class="plan-rule"></div>\n          <ul class="plan-points"><li>Scanner access for 1 month</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>\n          <a class="btn btn-dark" href="/checkout?plan=monthly">Choose Monthly</a>\n        </article>\n        <article class="price-card featured">\n          <span class="plan-tag">BEST VALUE</span>\n          <h3 class="plan-name">Quarterly</h3><div class="plan-duration">3 months access</div>\n          <div class="plan-price">₹1,199<span> / plan</span></div>\n          <div class="plan-monthly">About ₹400 per month</div>\n          <div class="plan-save">Save ₹298 · 20% vs monthly</div>\n          <div class="plan-rule"></div>\n          <ul class="plan-points"><li>Scanner access for 3 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>\n          <a class="btn btn-orange" href="/checkout?plan=quarterly">Choose Quarterly</a>\n        </article>\n        <article class="price-card">\n          <h3 class="plan-name">Half-Yearly</h3><div class="plan-duration">6 months access</div>\n          <div class="plan-price">₹2,499<span> / plan</span></div>\n          <div class="plan-monthly">About ₹417 per month</div>\n          <div class="plan-save">Save ₹495 · 17% vs monthly</div>\n          <div class="plan-rule"></div>\n          <ul class="plan-points"><li>Scanner access for 6 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>\n          <a class="btn btn-dark" href="/checkout?plan=halfyearly">Choose Half-Yearly</a>\n        </article>\n        <article class="price-card">\n          <span class="plan-tag">LONG-TERM</span>\n          <h3 class="plan-name">Yearly</h3><div class="plan-duration">12 months access</div>\n          <div class="plan-price">₹4,999<span> / plan</span></div>\n          <div class="plan-monthly">About ₹417 per month</div>\n          <div class="plan-save">Save ₹989 · 17% vs monthly</div>\n          <div class="plan-rule"></div>\n          <ul class="plan-points"><li>Scanner access for 12 months</li><li>Demand &amp; supply zone tools</li><li>Intraday market analysis</li></ul>\n          <a class="btn btn-dark" href="/checkout?plan=yearly">Choose Yearly</a>\n        </article>\n      </div>\n      <p class="pricing-note">Prices are in INR. Selecting a plan opens secure Razorpay checkout after account creation or login. Access activates only after payment verification.</p>\n    </div>\n  </section>\n\n  <section class="content" id="start"><div class="wrap"><div class="cta"><div class="kicker">Ready when you are</div><h2>Make your next scan count.</h2><p>Get a clearer starting point for your intraday analysis with Stock Finder Pro.</p><a class="btn btn-orange" href="/signup">Create Your Free Account 🚀</a></div></div></section>\n</main>\n<footer class="footer"><div class="wrap"><div class="footer-row"><strong style="color:var(--orange)">STOCK FINDER PRO</strong><span>© <span id="year"></span> Stock Finder Pro. All rights reserved.</span></div><p class="disclaimer">Stock Finder Pro is a market-scanning and educational analysis tool, not investment advice. Any ticker values shown in the here are illustrative design elements, not live market quotes. Scanner results do not guarantee price movement or trading outcomes. Always verify setups independently and use appropriate risk management.</p></div></footer>\n<script>\ndocument.getElementById(\'year\').textContent=new Date().getFullYear();\n// Lightweight animated candlestick market backdrop — no external libraries or data feed.\n(()=>{const c=document.getElementById(\'market-bg\'),ctx=c.getContext(\'2d\');let w,h,dpr,candles=[],raf;\nfunction resize(){dpr=Math.min(window.devicePixelRatio||1,2);w=innerWidth;h=innerHeight;c.width=w*dpr;c.height=h*dpr;c.style.width=w+\'px\';c.style.height=h+\'px\';ctx.setTransform(dpr,0,0,dpr,0,0);const count=Math.ceil(w/25)+8;candles=Array.from({length:count},(_,i)=>({x:i*25,y:h*.42+(Math.random()-.5)*h*.35,body:8+Math.random()*19,wick:12+Math.random()*30,up:Math.random()>.48,speed:.12+Math.random()*.25,phase:Math.random()*6.28}));}\nfunction draw(t){ctx.clearRect(0,0,w,h);const grid=34;ctx.strokeStyle=\'rgba(130,150,175,.055)\';ctx.lineWidth=1;for(let x=0;x<w;x+=grid){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}for(let y=0;y<h;y+=grid){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}\n // faint flowing price trace\n ctx.beginPath();for(let x=0;x<=w;x+=5){let y=h*.48+Math.sin(x*.008+t*.00035)*h*.055+Math.sin(x*.021-t*.00022)*h*.018;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.strokeStyle=\'rgba(255,157,10,.19)\';ctx.lineWidth=1.4;ctx.stroke();\n candles.forEach((k,i)=>{let drift=Math.sin(t*.00045+k.phase)*13+Math.sin(t*.00017+i*.7)*8;let y=k.y+drift;let color=k.up?\'34,217,130\':\'255,83,100\';ctx.strokeStyle=`rgba(${color},.38)`;ctx.fillStyle=`rgba(${color},.28)`;ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(k.x,y-k.wick/2);ctx.lineTo(k.x,y+k.wick/2);ctx.stroke();ctx.fillRect(k.x-3.5,y-(k.up?k.body:0),7,k.body);});\n // subtle moving scan beam\n let beam=(t*.035)%(w+300)-150;let g=ctx.createLinearGradient(beam-90,0,beam+90,0);g.addColorStop(0,\'rgba(255,157,10,0)\');g.addColorStop(.5,\'rgba(255,157,10,.035)\');g.addColorStop(1,\'rgba(255,157,10,0)\');ctx.fillStyle=g;ctx.fillRect(beam-90,0,180,h);\n raf=requestAnimationFrame(draw)}\nconst reduce=matchMedia(\'(prefers-reduced-motion: reduce)\').matches;resize();if(!reduce)raf=requestAnimationFrame(draw);else draw(0);addEventListener(\'resize\',resize);})();\n</script>\n</body>\n</html>'
+LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070d12"><title>StockFinder Pro | Market Intelligence</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#070d12;--panel:#101b23;--line:#26343e;--gold:#f6aa2a;--green:#20cf83;--red:#ff5a65;--text:#eef4f7;--muted:#93a5b1}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 75% 10%,#12332d66,transparent 40%),var(--bg);font-family:\'Plus Jakarta Sans\',sans-serif;color:var(--text)}a{text-decoration:none;color:inherit}.wrap{max-width:1200px;margin:auto;padding:0 24px}header{position:sticky;top:0;z-index:10;background:#081017eb;border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}header .wrap{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:800;letter-spacing:-.6px;font-size:19px;display:flex;align-items:center;gap:10px}.dot{height:11px;width:11px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px #20cf8318}.nav{display:flex;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;min-height:43px;border:1px solid #3a4a55;border-radius:10px;background:#14232c;font-size:13px;font-weight:800;transition:.2s}.btn:hover{transform:translateY(-2px);border-color:var(--gold)}.btn.gold{background:var(--gold);color:#171a1d;border-color:var(--gold)}.btn.ghost{background:transparent}.hero{padding:96px 0 65px;position:relative;overflow:hidden}.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:60px}.eyebrow{display:inline-flex;align-items:center;gap:9px;color:var(--green);background:#12352b;border:1px solid #285b49;border-radius:99px;padding:9px 14px;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase}h1{font-size:clamp(42px,5.2vw,72px);line-height:1.07;letter-spacing:-3px;margin:24px 0}h1 em{font-style:normal;color:var(--gold)}.hero p{font-size:16px;line-height:1.85;color:var(--muted);max-width:530px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.stats{display:flex;gap:26px;margin-top:42px;flex-wrap:wrap}.stats strong{display:block;color:var(--text);font-size:22px}.stats small{color:var(--muted);font-size:11px}.preview{border:1px solid #39515c;border-radius:18px;background:#0b151d;box-shadow:0 35px 90px #0008;overflow:hidden;transform:perspective(1000px) rotateY(-3deg)}.preview-head{background:#101b23;border-bottom:1px solid var(--line);padding:15px 18px;display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12px}.live{color:var(--green);font-size:10px}.preview-body{padding:18px}.mini-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mini-kpis div{padding:15px 9px;background:#14232c;border:1px solid var(--line);border-radius:9px;text-align:center}.mini-kpis small{display:block;color:var(--muted);font-size:9px;margin-bottom:9px}.mini-kpis b{font-size:20px}.green{color:var(--green)}.red{color:var(--red)}.heat{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.heat div{min-height:80px;border-radius:8px;padding:12px 8px;background:linear-gradient(140deg,#174638,#102820);border:1px solid #28684d;font-size:10px;font-weight:800;display:flex;flex-direction:column;justify-content:space-between}.heat div.down{background:linear-gradient(140deg,#502a35,#291b25);border-color:#713b49}.heat span{font-size:14px}.preview-foot{padding:14px 18px;color:var(--muted);font-size:10px;border-top:1px solid var(--line)}section{padding:74px 0;border-top:1px solid var(--line)}.kicker{font-size:11px;color:var(--gold);font-weight:800;letter-spacing:2px;text-transform:uppercase}.section-title{font-size:clamp(27px,3.5vw,41px);letter-spacing:-1.4px;margin:10px 0 14px}.section-desc{color:var(--muted);line-height:1.7;max-width:630px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:32px}.card,.price{background:linear-gradient(145deg,#14232c,#0c151c);border:1px solid var(--line);border-radius:14px;padding:25px}.card .symbol{font-size:25px;color:var(--gold)}.card h3{font-size:17px;margin:17px 0 9px}.card p{font-size:13px;line-height:1.8;color:var(--muted)}.prices{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:32px}.price{display:flex;flex-direction:column;gap:12px}.price.featured{border-color:var(--gold);box-shadow:0 0 0 1px #f6aa2a44}.price h3{margin:0;font-size:16px}.price .amount{font-size:29px;font-weight:800}.price small{color:var(--muted)}.price ul{padding-left:18px;color:#c3d0d8;font-size:12px;line-height:2}.price .btn{margin-top:auto}.cta{padding:50px;border:1px solid #456056;border-radius:16px;background:linear-gradient(110deg,#12352d,#111e26);text-align:center}.cta p{color:var(--muted)}footer{padding:28px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:40px}.preview{transform:none}.prices{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){header .wrap{padding:0 14px;min-height:64px}.brand{font-size:14px}.nav{gap:5px}.nav .btn{padding:9px;font-size:11px;min-height:36px}.nav .plans{display:none}.wrap{padding:0 16px}.hero{padding:55px 0 40px}h1{font-size:43px;letter-spacing:-2px}.hero p{font-size:14px}.stats{gap:18px}.cards,.prices{grid-template-columns:1fr}.mini-kpis b{font-size:16px}.heat{gap:5px}.heat div{padding:9px 5px;min-height:68px;font-size:8px}.heat span{font-size:11px}section{padding:48px 0}.cta{padding:30px 18px}}\n</style></head><body><header><div class="wrap"><a href="/" class="brand"><i class="dot"></i> STOCKFINDER PRO</a><nav class="nav"><a class="btn ghost plans" href="#pricing">Plans</a><a class="btn ghost" href="/login">Login</a><a class="btn gold" href="/signup">Sign up</a></nav></div></header><main><div class="hero"><div class="wrap hero-grid"><div><div class="eyebrow">● Institutional-style market intelligence</div><h1>Trade the setup.<br><em>Not the noise.</em></h1><p>One focused terminal for intraday screening, sector momentum and institutional demand &amp; supply zones. Scan faster, analyze clearly, and execute with discipline.</p><div class="actions"><a class="btn gold" href="/signup">Get started <span>↗</span></a><a class="btn" href="/login">Open trading terminal →</a></div><div class="stats"><div><strong>4</strong><small>Zone patterns</small></div><div><strong>5</strong><small>Market universes</small></div><div><strong>Multi-TF</strong><small>Zone analysis</small></div></div></div><div class="preview"><div class="preview-head"><span>◉ STOCKFINDER / MARKET OVERVIEW</span><span class="live">● TERMINAL PREVIEW</span></div><div class="preview-body"><div class="mini-kpis"><div><small>LONG BUILDUP</small><b class="green">↗</b></div><div><small>SHORT BUILDUP</small><b class="red">↘</b></div><div><small>SUPPLY / DEMAND</small><b style="color:var(--gold)">◈</b></div></div><div class="heat"><div>NIFTY BANK<span class="green">BULLISH</span></div><div class="down">NIFTY IT<span class="red">BEARISH</span></div><div>NIFTY AUTO<span class="green">BULLISH</span></div><div class="down">NIFTY METAL<span class="red">BEARISH</span></div><div>NIFTY FMCG<span class="green">BULLISH</span></div><div>NIFTY ENERGY<span class="green">BULLISH</span></div><div class="down">FIN SERVICES<span class="red">BEARISH</span></div><div>REALTY<span class="green">BULLISH</span></div></div></div><div class="preview-foot">Illustrative interface only · Not live market signals</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">ONE UNIFIED WORKSPACE</div><h2 class="section-title">Everything you need to find your edge.</h2><p class="section-desc">A clean, purpose-built interface that keeps your market workflow organized.</p><div class="cards"><article class="card"><div class="symbol">▥</div><h3>Live stock screener</h3><p>Filter by momentum, open-high/low patterns and price behavior across supported stock universes.</p></article><article class="card"><div class="symbol">◈</div><h3>Demand &amp; supply zones</h3><p>Explore fresh zones, structure and higher-timeframe context without switching between scattered tools.</p></article><article class="card"><div class="symbol">▦</div><h3>Sector heatmap</h3><p>Read sector strength, relative weakness and market breadth through intuitive green and red visuals.</p></article></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">MEMBERSHIP</div><h2 class="section-title">Choose your access.</h2><p class="section-desc">Secure Razorpay checkout. Subscription activates only after successful payment verification.</p><div class="prices"><article class="price"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=monthly">Choose monthly</a></article><article class="price featured"><h3>Quarterly ★</h3><div class="amount">₹1,199</div><small>3 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn gold" href="/checkout?plan=quarterly">Choose quarterly</a></article><article class="price"><h3>Half-yearly</h3><div class="amount">₹2,499</div><small>6 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose half-yearly</a></article><article class="price"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=yearly">Choose yearly</a></article></div></div></section><section><div class="wrap"><div class="cta"><div class="kicker">START SCANNING</div><h2 class="section-title">Your next setup starts here.</h2><p>Focus on structure, confirmation and risk.</p><a class="btn gold" href="/signup">Create account →</a></div></div></section></main><footer><div class="wrap">© <span id="year"></span> StockFinder Pro · Market analysis tools are educational and do not guarantee trading outcomes.</div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
 
 LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -765,7 +981,13 @@ LOGIN_PAGE_HTML = """<!DOCTYPE html>
     .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--strong-text); }
     .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
-  </style>
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
 </head>
 <body>
   <div class="login-card">
@@ -818,7 +1040,13 @@ SIGNUP_PAGE_HTML = """<!DOCTYPE html>
     .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--strong-text); }
     .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
-  </style>
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
 </head>
 <body>
   <div class="signup-card">
@@ -861,7 +1089,13 @@ FORGOT_PASSWORD_HTML = """<!DOCTYPE html>
     .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
     .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
     .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
-  </style>
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
 </head>
 <body>
   <div class="card">
@@ -897,7 +1131,13 @@ VERIFY_OTP_HTML = """<!DOCTYPE html>
     input:focus { border-color: var(--primary); }
     .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
     .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
-  </style>
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
 </head>
 <body>
   <div class="card">
@@ -931,7 +1171,13 @@ RESET_PASSWORD_HTML = """<!DOCTYPE html>
     input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
     input:focus { border-color: var(--primary); }
     .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
-  </style>
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
 </head>
 <body>
   <div class="card">
@@ -979,12 +1225,14 @@ def signup():
             print(f"❌ Signup DB Error: {e}")
             return render_template_string(SIGNUP_PAGE_HTML, error="Database error during signup. Try again.")
         
+        chosen_plan = request.form.get('plan') or session.get('selected_plan')
         session.clear()
         session.permanent = True
         session['user'] = email
-        return redirect(url_for('checkout', plan=request.form.get('plan') or session.get('selected_plan', 'monthly')))
-    selected = request.args.get('plan', 'monthly')
+        return redirect(url_for('checkout', plan=chosen_plan if chosen_plan in PLAN_DETAILS else 'monthly'))
+    selected = request.args.get('plan', '')
     if selected in PLAN_DETAILS: session['selected_plan'] = selected
+    else: session.pop('selected_plan', None)
     return render_template_string(SIGNUP_PAGE_HTML, plan=selected)
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1007,7 +1255,7 @@ def login_page():
                 session.clear()
                 session.permanent = True
                 session['user'] = email
-                return redirect(url_for('terminal_app') if active_subscription(user) else url_for('checkout', plan=chosen_plan))
+                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('checkout', plan=chosen_plan if chosen_plan in PLAN_DETAILS else 'monthly'))
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)
@@ -1085,7 +1333,7 @@ def terminal_app():
         return redirect(url_for('login_page'))
     if not active_subscription(current_user()):
         return redirect(url_for('landing_page') + '#pricing')
-    return send_from_directory('.', 'index.html')
+    return send_from_directory(basedir, 'index.html')
 
 @app.route("/logout")
 def logout():
@@ -1105,27 +1353,47 @@ def checkout():
     if not current_user():
         session['selected_plan'] = plan
         return redirect(url_for('signup', plan=plan))
+    user = current_user()
+    if active_subscription(user):
+        return redirect(url_for('terminal_app'))
     if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
-        return 'Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.', 503
+        app.logger.error('Razorpay credentials missing: configure both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')
+        return ('Payment setup is incomplete. Please contact support (Razorpay credentials missing).', 503)
     amount, _ = PLAN_DETAILS[plan]
     try:
         r = requests.post('https://api.razorpay.com/v1/orders',
             auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
-            json={'amount':amount,'currency':'INR','receipt':f'u{current_user().id}_{int(time.time())}',
-                  'notes':{'plan':plan,'user_id':str(current_user().id)}}, timeout=15)
-        r.raise_for_status()
+            json={'amount':amount,'currency':'INR','receipt':f'u{user.id}_{int(time.time())}',
+                  'notes':{'plan':plan,'user_id':str(user.id)}}, timeout=20)
+    except requests.RequestException:
+        app.logger.exception('Razorpay network error during order creation')
+        return ('Payment gateway is temporarily unreachable. Please retry in a moment.', 502)
+    if not r.ok:
+        try:
+            gateway_error = r.json().get('error', {})
+            reason = str(gateway_error.get('description') or gateway_error.get('code') or 'Unknown gateway error')[:250]
+        except (ValueError, AttributeError, TypeError):
+            reason = 'Unexpected gateway response'
+        app.logger.error('Razorpay order rejected: HTTP %s; reason=%s', r.status_code, reason)
+        if r.status_code in (401, 403):
+            return ('Razorpay authentication failed. Check that the configured Key ID and Secret belong to the same test/live mode.', 503)
+        return ('Payment order could not be created: ' + reason, 502)
+    try:
         order = r.json()
-        payment = Payment(user_id=current_user().id, order_id=order['id'],plan=plan,amount_paise=amount)
-        db.session.add(payment); db.session.commit()
+        order_id = order['id']
+        payment = Payment(user_id=user.id, order_id=order_id,plan=plan,amount_paise=amount)
+        db.session.add(payment)
+        db.session.commit()
     except Exception:
-        app.logger.exception('Razorpay order creation failed')
-        return 'Unable to create payment order. Please try again.', 502
+        db.session.rollback()
+        app.logger.exception('Payment order created but local database save failed')
+        return ('Payment order could not be saved. Please contact support.', 500)
     return render_template_string(CHECKOUT_HTML, key_id=RAZORPAY_KEY_ID,
         order_id=order['id'], amount=amount, plan=plan, email=current_user().email)
 
 CHECKOUT_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Secure Checkout - Stock Finder Pro</title><script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<style>body{background:#07090d;color:#eee;font-family:Arial;text-align:center;padding:70px 16px}button{background:#ff9e0b;border:0;border-radius:9px;padding:14px 24px;font-weight:bold;cursor:pointer}a{color:#ff9e0b}</style></head>
+<style>body{background:radial-gradient(ellipse at 75% 0%,#12352d,#070d12 60%);color:#eef4f7;font-family:Plus Jakarta Sans,Arial,sans-serif;text-align:center;padding:70px 16px;min-height:100vh}button{background:#f6aa2a;color:#101820;font-weight:800;border:0;border-radius:9px;padding:14px 24px;font-weight:bold;cursor:pointer}a{color:#ff9e0b}</style></head>
 <body><h2>Stock Finder Pro</h2><p>Selected plan: {{plan|title}} — ₹{{'%.2f'|format(amount/100)}}</p>
 <button id="pay">Open Razorpay Payment</button><p id="status"></p><p><a href="/#pricing">Change plan</a></p>
 <script>
@@ -1217,7 +1485,8 @@ def toggle_watchlist():
 @app.route("/api/smart-orb", methods=["GET"])
 def get_smart_orb():
     try:
-        if SMART_ORB_SIGNALS:
+        force_refresh = request.args.get("refresh", "0") == "1"
+        if SMART_ORB_SIGNALS and not force_refresh:
             return jsonify({"status": "success", "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S"), "data": SMART_ORB_SIGNALS})
         stocks = fetch_live_upstox_quotes("FO")
         if isinstance(stocks, dict) and "error" in stocks or not isinstance(stocks, list):
@@ -1248,66 +1517,225 @@ def get_smart_orb():
                     "reason": f"Score: {score} | Tag: {candle_tag or 'N/A'} | Buildup: {buildup or 'N/A'} | Vol: {vol_multiplier}x"
                 })
         scored_stocks.sort(key=lambda x: x['score'], reverse=True)
+        if force_refresh:
+            SMART_ORB_SIGNALS[:] = scored_stocks[:2]
         return jsonify({"status": "success", "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S"), "data": scored_stocks[:2]})
     except Exception:
         return jsonify({"status": "success", "data": []})
 
-@app.route("/api/zone-screener", methods=["GET"])
-def zone_screener():
-    start_total_time = time.time()
+ZONE_SCAN_LOCKS = {}
+ZONE_SCAN_LOCKS_GUARD = threading.Lock()
+
+# Progressive scan jobs: return immediately, stream completed batches via polling.
+# Jobs are shared by all subscribers selecting the same universe/timeframe.
+ZONE_JOBS = {}
+ZONE_JOBS_LOCK = threading.RLock()
+ZONE_JOB_TTL = 600
+# Scans run before the user clicks; requests serve stored results immediately.
+# Prewarm is opt-in on local Windows, so it does not spawn per Gunicorn worker.
+PRECOMPUTE_UNIVERSES = tuple(x.strip().upper() for x in os.getenv('SFP_PRECOMPUTE_UNIVERSES', 'FO').split(',') if x.strip())
+PRECOMPUTE_TIMEFRAMES = ('month', 'quarter', 'halfyear', 'day', 'week')
+PRECOMPUTE_REFRESH_SECONDS = int(os.getenv('SFP_PRECOMPUTE_REFRESH_SECONDS', '21600'))
+PRECOMPUTE_STOP = threading.Event()
+PRECOMPUTE_THREAD = None
+
+def _stored_zone_snapshot(univ_key, tf):
     try:
-        global ZONE_CACHE
-        tf = request.args.get("tf", "day").lower()
-        force_refresh = request.args.get("t") is not None
-        univ_key, target_universe = get_active_universe_list()
-        
-        # quarterly మరియు halfyear లను ఇక్కడ చేర్చాము
-        valid_tfs = ["5minute", "15minute", "30minute", "60minute", "day", "week", "month", "quarter", "halfyear", "year"]
-        if tf not in valid_tfs: tf = "day"
-            
-        with ZONE_CACHE_LOCK:
-            univ_zone_cache = ZONE_CACHE.setdefault(univ_key, {"last_updated": {}})
-            if not force_refresh and tf in univ_zone_cache and (time.time() - univ_zone_cache["last_updated"].get(tf, 0) < 600):
-                print(f"⚡ Zone cache hit: {univ_key}/{tf}")
-                return jsonify({"status": "success", "data": univ_zone_cache[tf]})
+        with app.app_context():
+            row = db.session.get(ZoneResultStore, f'{univ_key}:{tf}')
+            if row is not None:
+                data = json.loads(row.zones_json)
+                if isinstance(data, list):
+                    return data, row.updated_at
+    except Exception as exc:
+        print('Zone snapshot read:', type(exc).__name__, str(exc)[:120])
+    return None, None
 
-        quotes_res = fetch_live_upstox_quotes(univ_key)
-        live_quotes = {s["symbol"]: s["ltp"] for s in (quotes_res if isinstance(quotes_res, list) else [])}
-        results = []
+def _begin_zone_job(univ_key, tf, target_universe, force=False):
+    key = (univ_key, tf)
+    with ZONE_JOBS_LOCK:
+        job = ZONE_JOBS.get(key)
+        if job and not job.get('done'):
+            return False
+        if not force and job and time.time() - job['started'] < ZONE_JOB_TTL:
+            return False
+        quotes = QUOTE_CACHE.get(univ_key, {})
+        live_quotes = {x['symbol']: x['ltp'] for x in quotes.get('data', [])} if time.time()-quotes.get('last_updated',0)<90 else {}
+        ZONE_JOBS[key] = {'started': time.time(), 'completed': 0, 'total': len(target_universe), 'done': False, 'data': [], 'error': None}
+        threading.Thread(target=_zone_scan_background, args=(key,tf,list(target_universe),live_quotes), daemon=True).start()
+        return True
 
-        active_sample = target_universe 
-
-        def worker(item):
+def _precompute_loop():
+    # Complete all five TF scans once, then refresh in the background.
+    # A cached snapshot remains visible while refresh is underway.
+    while not PRECOMPUTE_STOP.is_set():
+        for universe in PRECOMPUTE_UNIVERSES:
             try:
-                candles = fetch_historical_candles(item["isin"], tf)
-                if not candles or len(candles) < 16: return []
-                ltp = live_quotes.get(item["symbol"], candles[-1][4] if candles else 0)
-                zones = scan_four_institutional_zones(candles, ltp, item["symbol"], tf)
-                return [{
-                    "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp,
-                    "pattern": z["pattern"], "bias": z["bias"], "proximal": z["proximal"], "distal": z["distal"],
-                    "entry": z["entry"], "stopLoss": z["stopLoss"], "risk": z["risk"], "riskPct": z["riskPct"],
-                    "target1R2": z["target1R2"], "target1R3": z["target1R3"],
-                    "status": z["status"], "multiplier": z.get("multiplier", 1.0),
-                    "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"]
-                } for z in zones]
-            except Exception:
-                return []
+                univ_key, items = get_active_universe_list(universe)
+            except Exception as exc:
+                print('Precompute universe:', str(exc)[:120]); continue
+            for tf in PRECOMPUTE_TIMEFRAMES:
+                if PRECOMPUTE_STOP.is_set(): return
+                _begin_zone_job(univ_key, tf, items, force=True)
+                key = (univ_key, tf)
+                while not PRECOMPUTE_STOP.wait(1.0):
+                    with ZONE_JOBS_LOCK:
+                        job = ZONE_JOBS.get(key)
+                        if not job or job.get('done'): break
+        PRECOMPUTE_STOP.wait(max(300, PRECOMPUTE_REFRESH_SECONDS))
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
-            for res in executor.map(worker, active_sample):
-                if res: results.extend(res)
+def start_zone_precompute():
+    global PRECOMPUTE_THREAD
+    if PRECOMPUTE_THREAD and PRECOMPUTE_THREAD.is_alive(): return
+    PRECOMPUTE_THREAD = threading.Thread(target=_precompute_loop, name='sfp-zone-precompute', daemon=True)
+    PRECOMPUTE_THREAD.start()
 
-        results.sort(key=lambda x: (0 if x["bias"] == "DEMAND" else 1, -x.get("multiplier", 1.0)))
-        
+def _zone_scan_background(key, tf, target_universe, live_quotes):
+    started = time.time()
+    results = []
+    missing_history = 0
+    univ_key = key[0]
+    def worker(item):
+        try:
+            candles = fetch_historical_candles(item["isin"], tf)
+            if not candles or len(candles) < 5: return None
+            ltp = live_quotes.get(item["symbol"], candles[-1][4] if candles else 0)
+            zones = scan_four_institutional_zones(candles, ltp, item["symbol"], tf)
+            return [{
+            "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp,
+            "pattern": z["pattern"], "bias": z["bias"], "proximal": z["proximal"], "distal": z["distal"],
+            "entry": z["entry"], "stopLoss": z["stopLoss"], "risk": z["risk"], "riskPct": z["riskPct"],
+            "target1R2": z["target1R2"], "target1R3": z["target1R3"],
+            "strongZone": z.get("strongZone", False),
+            "status": z["status"], "multiplier": z.get("multiplier", 1.0),
+            "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"]
+            } for z in zones]
+        except Exception as exc:
+            print(f"Zone worker {tf}/{item.get('symbol')}: {type(exc).__name__}: {str(exc)[:150]}")
+            return None
+
+
+    try:
+        # Controlled concurrency to reduce Upstox throttling. Publish partial results.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.getenv("SFP_ZONE_WORKERS", "6"))) as executor:
+            futures = {executor.submit(worker, item): item for item in target_universe}
+            for future in concurrent.futures.as_completed(futures):
+                found = []
+                try:
+                    found = future.result()
+                    if found is None:
+                        missing_history += 1
+                    elif found:
+                        results.extend(found)
+                except Exception as exc:
+                    print('Zone worker error:', str(exc)[:180])
+                with ZONE_JOBS_LOCK:
+                    job = ZONE_JOBS.get(key)
+                    if job:
+                        job['completed'] += 1
+                        if found:
+                            job['data'].extend(found)
+        # Do not replace a known-good snapshot with a severely incomplete scan.
+        if target_universe and missing_history > len(target_universe) * 0.05:
+            with ZONE_JOBS_LOCK:
+                if key in ZONE_JOBS:
+                    ZONE_JOBS[key].update(done=True, error=f"Historical data missing for {missing_history}/{len(target_universe)} stocks; previous snapshot preserved")
+            print(f"Incomplete zone scan {univ_key}/{tf}: missing history for {missing_history}/{len(target_universe)}")
+            return
+        # Sort once at completion, after all stock requests finish.
+        def cmp_distance(zone):
+            cmp = float(zone.get("ltp") or 0)
+            proximal = float(zone.get("proximal") or 0)
+            distal = float(zone.get("distal") or 0)
+            if cmp <= 0 or proximal <= 0 or distal <= 0:
+                return float("inf")
+            if min(proximal, distal) <= cmp <= max(proximal, distal):
+                return 0.0
+            if zone["bias"] == "DEMAND" and proximal <= cmp:
+                return (cmp - proximal) / cmp * 100
+            if zone["bias"] == "SUPPLY" and proximal >= cmp:
+                return (proximal - cmp) / cmp * 100
+            return float("inf")
+
+
+        results.sort(key=lambda x: (cmp_distance(x), x.get('symbol', '')))
+        try:
+            with app.app_context():
+                store_key = f'{univ_key}:{tf}'
+                record = db.session.get(ZoneResultStore, store_key)
+                if record is None:
+                    record = ZoneResultStore(cache_key=store_key, zones_json='[]')
+                    db.session.add(record)
+                record.zones_json = json.dumps(results, separators=(',', ':'))
+                record.updated_at = datetime.utcnow()
+                db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            print('Zone result persistence:', type(exc).__name__, str(exc)[:120])
         with ZONE_CACHE_LOCK:
-            univ_zone_cache[tf] = results
-            univ_zone_cache["last_updated"][tf] = time.time()
-        print(f"✅ Zone scan {univ_key}/{tf}: {len(results)} zones in {time.time() - start_total_time:.2f}s")
-        return jsonify({"status": "success", "data": results})
-    except Exception as e:
-        print(f"❌ Zone Screener Error: {e}")
-        return jsonify({"status": "success", "data": []})
+            entry = ZONE_CACHE.setdefault(univ_key, {'last_updated': {}})
+            entry[tf] = results
+            entry['last_updated'][tf] = time.time()
+        with ZONE_JOBS_LOCK:
+            if key in ZONE_JOBS:
+                ZONE_JOBS[key].update(data=results, done=True, completed=len(target_universe))
+        print(f'Zone scan completed {univ_key}/{tf}: {len(results)} zones in {time.time()-started:.1f}s')
+    except Exception as exc:
+        print('Zone background scan failed:', repr(exc))
+        with ZONE_JOBS_LOCK:
+            if key in ZONE_JOBS:
+                ZONE_JOBS[key].update(done=True, error='Scan failed; check Render logs')
+
+# Gunicorn imports this module rather than executing __main__. Enable only with
+# SFP_PRECOMPUTE=1 and ONE Gunicorn worker; otherwise each worker starts its own scans.
+if os.getenv('SFP_PRECOMPUTE', '0') == '1' and __name__ != '__main__':
+    start_zone_precompute()
+
+@app.route('/api/zone-screener', methods=['GET'])
+def zone_screener():
+    tf = request.args.get('tf', 'day').lower()
+    if tf not in ('day','week','month','quarter','halfyear','year','5minute','15minute','30minute','60minute'):
+        tf = 'day'
+    univ_key, target_universe = get_active_universe_list()
+    key = (univ_key, tf)
+    force_refresh = request.args.get('refresh') == '1'
+    with ZONE_CACHE_LOCK:
+        cache = ZONE_CACHE.setdefault(univ_key, {'last_updated': {}})
+        cached = cache.get(tf)
+        age = time.time() - cache['last_updated'].get(tf, 0)
+    if cached is not None and age < ZONE_JOB_TTL and not force_refresh:
+        return jsonify(status='success', data=cached, done=True, completed=len(target_universe), total=len(target_universe), source='memory')
+    persisted, updated_at = _stored_zone_snapshot(univ_key, tf)
+    if persisted is not None and not force_refresh:
+        stale = not updated_at or (datetime.utcnow()-updated_at).total_seconds() >= HISTORY_CACHE_SECONDS
+        if stale:
+            _begin_zone_job(univ_key, tf, target_universe)
+        with ZONE_JOBS_LOCK:
+            job = ZONE_JOBS.get(key)
+            refreshing = bool(job and not job.get('done'))
+        return jsonify(status='success', data=persisted, done=True, completed=len(target_universe), total=len(target_universe), source='database', stale=stale, refreshing=refreshing, updatedAt=updated_at.isoformat() if updated_at else None)
+    _begin_zone_job(univ_key, tf, target_universe, force=force_refresh)
+    with ZONE_JOBS_LOCK:
+        job = ZONE_JOBS.get(key)
+        if job:
+            return jsonify(status='success', data=list(job['data']), done=job['done'], completed=job['completed'], total=job['total'], message=job.get('error'), source='scan')
+    return jsonify(status='error', data=[], done=True, message='Scan could not start'), 503
+
+@app.route('/api/zone-cache-status', methods=['GET'])
+def zone_cache_status():
+    # Used by local testing to confirm each timeframe is precomputed.
+    universe = request.args.get('universe', 'FO').upper()
+    if universe not in ('FO','NIFTY500','MIDCAP','SMALLCAP','TOTALMARKET'):
+        return jsonify(status='error', message='Unknown universe'), 400
+    output = {}
+    for tf in PRECOMPUTE_TIMEFRAMES:
+        rows, updated = _stored_zone_snapshot(universe, tf)
+        with ZONE_JOBS_LOCK:
+            job = ZONE_JOBS.get((universe, tf))
+            progress = {'completed':job['completed'], 'total':job['total'], 'running':not job['done']} if job else None
+        output[tf] = {'ready':rows is not None, 'zones':len(rows) if rows is not None else 0,
+                      'updatedAt':updated.isoformat() if updated else None, 'scan':progress}
+    return jsonify(status='success', universe=universe, timeframes=output)
 
 @app.route("/api/screener", methods=["GET"])
 def screener():
@@ -1402,5 +1830,8 @@ def ticker_bar():
 
 if __name__ == "__main__":
     start_smart_orb_background_thread()
+    if os.getenv('SFP_PRECOMPUTE', '0') == '1':
+        start_zone_precompute()
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+

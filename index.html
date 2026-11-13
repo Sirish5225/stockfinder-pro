@@ -229,6 +229,11 @@
     .treemap-tile:hover { transform: scale(1.02); filter: brightness(1.15); z-index: 10; border-color: #fff; }
     .tile-logo { width: 26px; height: 26px; border-radius: 50%; background: #ffffff; padding: 2px; object-fit: contain; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
     .tile-logo-badge { width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
+    .tile-logo-shell {position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin-bottom:5px;flex-shrink:0}
+    .tile-logo-shell .tile-logo-badge {width:32px;height:32px;margin:0}
+    .tile-logo-shell .tile-logo {position:absolute;inset:0;width:36px;height:36px;border-radius:9px;background:#fff;padding:4px;margin:0;opacity:0;transition:opacity .18s ease}
+    .tile-logo-shell .tile-logo.tile-logo-ready {opacity:1}
+    @media(max-width:600px){.tile-logo-shell{width:30px;height:30px}.tile-logo-shell .tile-logo{width:30px;height:30px}}
     .tile-name { font-weight: 800; font-size: 0.78rem; color: #ffffff; letter-spacing: 0.3px; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
     .tile-change { font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
 
@@ -256,7 +261,236 @@
       .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
       .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
     }
-  </style>
+
+/* StockFinder Pro — Obsidian Gold balanced motion */
+:root { --panel:rgba(13,18,27,.88); --gold-glow:rgba(243,156,18,.18); }
+body { background:radial-gradient(ellipse at 85% 8%,rgba(171,105,16,.10),transparent 42%),radial-gradient(ellipse at 15% 85%,rgba(115,76,20,.055),transparent 48%),#05080d; }
+body::before { background-image:linear-gradient(to right,rgba(243,156,18,.025) 1px,transparent 1px),linear-gradient(to bottom,rgba(243,156,18,.025) 1px,transparent 1px);background-size:48px 48px;animation:sf-grid-drift 32s linear infinite; }
+@keyframes sf-grid-drift { to {background-position:48px 48px;} }
+body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(420px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(243,156,18,.075),transparent 75%);opacity:.8;transition:opacity .3s;}
+.sidebar,.main-wrapper {position:relative;z-index:1;}
+.panel,.toolbar,.kpi-card,.movers-panel,.table-container {transition:border-color .25s ease,box-shadow .25s ease,transform .25s ease;}
+.panel:hover,.toolbar:hover {border-color:rgba(243,156,18,.27);}
+.kpi-card:hover {box-shadow:0 10px 30px rgba(0,0,0,.32),0 0 18px rgba(243,156,18,.08);}
+.sf-view-enter {animation:sf-view-in .32s cubic-bezier(.2,.7,.2,1) both;}
+@keyframes sf-view-in {from {opacity:.25;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+.sf-skeleton {position:relative;overflow:hidden;background:linear-gradient(90deg,rgba(110,120,135,.10) 0%,rgba(243,156,18,.13) 48%,rgba(110,120,135,.10) 100%);background-size:220% 100%;animation:sf-shimmer 1.45s ease-in-out infinite;border-radius:5px;}
+@keyframes sf-shimmer {from{background-position:200% 0}to{background-position:-200% 0}}
+.sf-loading {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px 14px;min-height:220px;text-align:center;}
+.sf-loader-heading {font-size:.85rem;font-weight:700;color:var(--strong-text);letter-spacing:.02em;}
+.sf-loader-caption {font-size:.72rem;color:var(--muted);margin-top:5px;}
+.sf-line-track {width:min(260px,80%);height:2px;background:rgba(243,156,18,.13);border-radius:8px;position:relative;overflow:hidden;}
+.sf-line-track::after {content:"";position:absolute;inset:0 auto 0 0;width:35%;border-radius:8px;background:linear-gradient(90deg,transparent,#e6a13a,#ffe1a2,#e6a13a,transparent);box-shadow:0 0 8px rgba(243,156,18,.38);animation:sf-line-slide 1.6s ease-in-out infinite;}
+@keyframes sf-line-slide {from{transform:translateX(-110%)}to{transform:translateX(300%)}}
+.sf-zone-mark {display:flex;gap:5px;align-items:flex-end;height:34px;}
+.sf-zone-mark i {display:block;width:5px;height:var(--h);border-radius:2px;background:var(--c);opacity:.65;animation:sf-candle-wave 1.2s ease-in-out infinite;animation-delay:var(--d);}
+@keyframes sf-candle-wave {50%{opacity:1;transform:translateY(-4px)} }
+.sf-sector-loader {display:grid;grid-template-columns:repeat(5,22px);gap:5px;justify-content:center;}
+.sf-sector-loader i {height:18px;border-radius:3px;background:rgba(243,156,18,.15);animation:sf-tile 1.5s ease-in-out infinite;animation-delay:calc(var(--i)*.10s);}
+@keyframes sf-tile {50%{background:rgba(243,156,18,.55);transform:scale(.94)}}
+.sf-table-skeleton {padding:12px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+.sf-table-skeleton .sf-skeleton {height:12px;}
+@media(max-width:700px){body::after{display:none}.sf-table-skeleton{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.sf-loading{min-height:180px;padding:26px 8px}.sf-sector-loader{grid-template-columns:repeat(5,18px)}}
+@media(prefers-reduced-motion:reduce){body::before,.sf-view-enter,.sf-skeleton,.sf-line-track::after,.sf-zone-mark i,.sf-sector-loader i{animation:none!important} .panel,.toolbar,.kpi-card{transition:none!important}}
+[data-theme="light"] body {background:#f3f4f6;}
+[data-theme="light"] body::after {opacity:.35;}
+
+  .sf-tab-transition{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:var(--bg,#090d14);background:color-mix(in srgb,var(--bg,#090d14) 96%,transparent);animation:sf-tab-reveal .8s ease forwards;pointer-events:none;}
+#view-sec,#view-watchlist{position:relative;min-height:220px;}
+@keyframes sf-tab-reveal{0%,65%{opacity:1}100%{opacity:0}}
+
+/* === StockFinder Pro: unified Trading Terminal theme (landing/login palette) === */
+:root:not([data-theme="light"]){
+ --bg:#070d12;--panel:#101b23;--border:#26343e;--text:#c3d0d8;
+ --muted:#93a5b1;--green:#20cf83;--red:#ff5a65;--primary:#f6aa2a;
+ --sidebar-bg:#081017;--ticker-bg:#081017;--th-bg:#14232c;
+ --hover-bg:rgba(246,170,42,.065);--bar-bg:#101b23;--bar-track:#26343e;
+ --strong-text:#eef4f7;--input-bg:#0a141b;
+ --glass-shadow:0 12px 36px rgba(0,0,0,.25);
+ --glass-border:1px solid #26343e;
+}
+:root:not([data-theme="light"]) body{
+ background:radial-gradient(ellipse at 85% 5%,rgba(19,54,46,.52),transparent 43%),#070d12;
+}
+:root:not([data-theme="light"]) body::before{
+ background-image:linear-gradient(to right,rgba(71,110,115,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(71,110,115,.035) 1px,transparent 1px);
+ background-size:52px 52px;animation:none;
+}
+:root:not([data-theme="light"]) body::after{
+ background:radial-gradient(460px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(32,207,131,.043),transparent 75%);
+}
+:root:not([data-theme="light"]) .sidebar{background:#081017;border-right:1px solid #26343e;box-shadow:none;}
+:root:not([data-theme="light"]) .brand{color:#eef4f7;font-family:'Plus Jakarta Sans',sans-serif;letter-spacing:-.65px;text-shadow:none;}
+:root:not([data-theme="light"]) .brand .dot{background:#20cf83;box-shadow:0 0 0 4px rgba(32,207,131,.09);}
+:root:not([data-theme="light"]) .panel,
+:root:not([data-theme="light"]) .kpi-card,
+:root:not([data-theme="light"]) .movers-panel,
+:root:not([data-theme="light"]) .toolbar,
+:root:not([data-theme="light"]) .table-container{
+ background:linear-gradient(145deg,#14212a,#0c151c);border:1px solid #26343e;
+ box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+:root:not([data-theme="light"]) .panel:hover,
+:root:not([data-theme="light"]) .toolbar:hover{border-color:#40515c;}
+:root:not([data-theme="light"]) .kpi-card:hover{border-color:#a06b21!important;box-shadow:0 12px 28px #0005;}
+:root:not([data-theme="light"]) .nav-btn.active{
+ background:rgba(246,170,42,.11);color:#ffc45c;border:1px solid #8c642b;
+ box-shadow:inset 3px 0 0 #f6aa2a;
+}
+:root:not([data-theme="light"]) .filter-btn.active{
+ background:#463417;color:#ffbf53;border:1px solid #9a681b;box-shadow:none;
+}
+:root:not([data-theme="light"]) .filter-btn:hover,
+:root:not([data-theme="light"]) .search-box:focus{box-shadow:none;border-color:#b88131;}
+:root:not([data-theme="light"]) .ticker-item{border-right:1px solid #26343e;}
+:root:not([data-theme="light"]) .sf-line-track{background:#3d321f;}
+:root:not([data-theme="light"]) .sf-line-track::after{background:linear-gradient(90deg,transparent,#f6aa2a,#ffdc8a,transparent);box-shadow:none;}
+:root:not([data-theme="light"]) .sf-skeleton{background:linear-gradient(90deg,#182630,#30404b,#182630);background-size:220% 100%;}
+:root:not([data-theme="light"]) .sf-tab-transition{background:#070d12;}
+:root:not([data-theme="light"]) input,
+:root:not([data-theme="light"]) select{accent-color:#f6aa2a;}
+@media(max-width:700px){:root:not([data-theme="light"]) .sidebar{background:#081017;}}
+
+
+
+    /* Premium, low-saturation heatmap: keep market direction readable without solid neon fills. */
+    .sector-treemap-grid .treemap-tile {
+      position:relative; overflow:hidden; min-height:102px; gap:5px;
+      border:1px solid var(--border); border-radius:10px;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 4px 12px rgba(0,0,0,.12);
+      transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-positive {
+      background:linear-gradient(155deg,#16372f 0%,#10251f 60%,#0e1d1b 100%);
+      border-color:rgba(48,183,135,.30);
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-negative {
+      background:linear-gradient(155deg,#40252e 0%,#2b1c25 60%,#1e1920 100%);
+      border-color:rgba(219,107,121,.30);
+    }
+    .sector-treemap-grid .treemap-tile::before {
+      content:"";position:absolute;inset:0 auto 0 0;width:3px;
+      background:var(--heat-accent);opacity:.9;
+    }
+    .sector-treemap-grid .heatmap-positive {--heat-accent:#36c79a;}
+    .sector-treemap-grid .heatmap-negative {--heat-accent:#f17c8a;}
+    .sector-treemap-grid .treemap-tile .tile-name {color:#edf5f4;text-shadow:none;}
+    .sector-treemap-grid .treemap-tile .tile-change {color:var(--heat-accent);font-weight:800;}
+    .sector-treemap-grid .treemap-tile:hover {
+      transform:translateY(-3px);filter:none;border-color:var(--heat-accent);
+      box-shadow:0 9px 24px rgba(0,0,0,.30),0 0 0 1px var(--heat-accent);
+    }
+    [data-theme="light"] .sector-treemap-grid .heatmap-positive {background:linear-gradient(145deg,#e8f7ef,#d9f0e6);border-color:#a5d8c0;--heat-accent:#087e57;}
+    [data-theme="light"] .sector-treemap-grid .heatmap-negative {background:linear-gradient(145deg,#fff0f1,#f9e0e4);border-color:#e9b4bc;--heat-accent:#b7354b;}
+    [data-theme="light"] .sector-treemap-grid .treemap-tile .tile-name {color:#18262b;}
+    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile{transition:none}.sector-treemap-grid .treemap-tile:hover{transform:none}}
+
+
+    /* Dynamic strongest bullish/bearish movers: animated travelling neon border. */
+    .sector-treemap-grid .treemap-tile.heatmap-momentum {
+      isolation:isolate; overflow:hidden; border:2px solid var(--heat-accent);
+      box-shadow:0 0 13px var(--heat-glow),0 0 26px var(--heat-glow),inset 0 0 13px var(--heat-glow);
+    }
+    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--heat-accent:#3fffc0;--heat-glow:rgba(22,235,146,.24);}
+    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--heat-accent:#ff627b;--heat-glow:rgba(255,48,86,.25);}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum::before {
+      content:"";position:absolute;inset:-70%;width:auto;height:auto;
+      background:conic-gradient(from 0deg,transparent 0deg,transparent 230deg,var(--heat-accent) 286deg,#ffffff 307deg,var(--heat-accent) 327deg,transparent 355deg);
+      opacity:.85;animation:sfp-momentum-border-spin 3s linear infinite;z-index:0;
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-momentum::after {
+      content:"";position:absolute;inset:2px;border-radius:7px;
+      background:linear-gradient(155deg,var(--momentum-bg1),var(--momentum-bg2));z-index:0;pointer-events:none;
+    }
+    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--momentum-bg1:#075c42;--momentum-bg2:#10362d;}
+    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--momentum-bg1:#842436;--momentum-bg2:#451e2b;}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum > * {position:relative;z-index:1;}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum:hover {box-shadow:0 0 19px var(--heat-glow),0 0 35px var(--heat-glow);}
+    @keyframes sfp-momentum-border-spin {to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile.heatmap-momentum::before{animation:none}}
+
+/* About Sector Heatmap */
+.sfp-heatmap-info-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem}
+.sfp-heatmap-info-item{padding:1rem;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.018)}
+.sfp-heatmap-info-item strong{display:block;color:var(--strong-text);font-size:.8rem;margin-bottom:.4rem}
+.sfp-heatmap-info-item p{color:var(--muted);font-size:.76rem;line-height:1.65;margin:0}
+@media(max-width:780px){.sfp-heatmap-info-grid{grid-template-columns:1fr}}
+
+/* Light theme repair: full variable parity and high-contrast controls */
+:root[data-theme="light"] {
+  color-scheme:light;
+  --bg:#f4f7fb;--panel:#ffffff;--card:#ffffff;--border:#dbe3ec;
+  --text:#334155;--muted:#64748b;--green:#07835b;--red:#c52d43;
+  --primary:#a7640a;--sidebar-bg:#ffffff;--ticker-bg:#ffffff;
+  --th-bg:#eef3f8;--hover-bg:#edf4fb;--bar-bg:#f1f5f9;
+  --bar-track:#e2e8f0;--strong-text:#142235;--input-bg:#ffffff;
+  --glass-shadow:0 5px 20px rgba(29,50,78,.065);
+  --glass-border:1px solid #dbe3ec;
+}
+:root[data-theme="light"] body {background:#f4f7fb;color:var(--text)}
+:root[data-theme="light"] body::before {background-image:linear-gradient(to right,rgba(100,116,139,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(100,116,139,.035) 1px,transparent 1px)}
+:root[data-theme="light"] body::after {opacity:.08}
+:root[data-theme="light"] .sidebar {background:#fff;border-right:1px solid #dbe3ec;box-shadow:2px 0 16px rgba(25,45,70,.04)}
+:root[data-theme="light"] .brand {color:#142235;text-shadow:none}
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .kpi-card,
+:root[data-theme="light"] .movers-panel,
+:root[data-theme="light"] .toolbar,
+:root[data-theme="light"] .table-container {background:#fff;border:1px solid #dbe3ec;box-shadow:0 4px 16px rgba(25,45,70,.05)}
+:root[data-theme="light"] .market-ticker-container {background:#fff!important;border-bottom:1px solid #dbe3ec;box-shadow:none}
+:root[data-theme="light"] .ticker-item {border-right:1px solid #e2e8f0}
+:root[data-theme="light"] .hamburger-btn,
+:root[data-theme="light"] .theme-btn {color:#1e293b;border-color:#dbe3ec}
+:root[data-theme="light"] .nav-btn.active,
+:root[data-theme="light"] .filter-btn.active {background:#fff4e2;border-color:#e8c38d;color:#92590b;box-shadow:none}
+:root[data-theme="light"] .nav-btn:hover,
+:root[data-theme="light"] .filter-btn:hover {background:#f1f5f9}
+:root[data-theme="light"] .universe-dropdown,
+:root[data-theme="light"] .search-box,
+:root[data-theme="light"] .filter-btn,
+:root[data-theme="light"] input,
+:root[data-theme="light"] select {background-color:#fff;color:#142235;border-color:#cbd5e1}
+:root[data-theme="light"] .universe-dropdown option {background:#fff;color:#142235}
+:root[data-theme="light"] .bottom-nav {background:#fff;border-top:1px solid #dbe3ec}
+:root[data-theme="light"] .barchart-bar-wrapper {background:#edf2f7}
+:root[data-theme="light"] .badge-muted {background:#f1f5f9}
+:root[data-theme="light"] .sf-tab-transition {background:#f4f7fb}
+:root[data-theme="light"] .sf-skeleton {background:linear-gradient(90deg,#e5ebf2,#f8fafc,#e5ebf2);background-size:220% 100%}
+:root[data-theme="light"] .sf-line-track {background:#f3e4cc}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-positive {--momentum-bg1:#d8f3e7;--momentum-bg2:#ecfaf3;--heat-accent:#07835b;--heat-glow:rgba(7,131,91,.18)}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-negative {--momentum-bg1:#ffe1e5;--momentum-bg2:#fff1f3;--heat-accent:#c52d43;--heat-glow:rgba(197,45,67,.18)}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-name {color:#142235}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-change {color:var(--heat-accent)}
+
+
+    /* Compact view: applied to the whole terminal, not only table wrappers. */
+    body.sfp-compact main {padding:.85rem 1.1rem}
+    body.sfp-compact .toolbar {padding:.6rem .75rem;margin-bottom:.75rem;gap:.5rem}
+    body.sfp-compact .panel {padding:.9rem}
+    body.sfp-compact .kpi-grid {gap:.55rem;margin-bottom:.8rem}
+    body.sfp-compact .kpi-card {padding:.65rem .8rem}
+    body.sfp-compact .kpi-val {font-size:1.3rem}
+    body.sfp-compact .movers-grid {gap:.7rem;margin-bottom:.8rem}
+    body.sfp-compact .movers-panel {height:245px;padding:.7rem}
+    body.sfp-compact .movers-row {padding:.25rem .35rem;font-size:.73rem}
+    body.sfp-compact .table-container {min-height:260px;max-height:calc(100vh - 300px)}
+    body.sfp-compact table {font-size:.74rem}
+    body.sfp-compact th {padding:.52rem .65rem;font-size:.65rem}
+    body.sfp-compact td {padding:.42rem .65rem}
+    body.sfp-compact .filter-btn {padding:.35rem .6rem;font-size:.69rem}
+    body.sfp-compact .search-box {padding:.42rem .6rem}
+    body.sfp-compact .sector-side-by-side {gap:.8rem}
+    body.sfp-compact .sector-treemap-grid {gap:4px}
+    body.sfp-compact .treemap-tile {min-height:72px;padding:7px 5px;border-radius:6px}
+    body.sfp-compact .tile-logo-shell {width:25px;height:25px;margin-bottom:2px}
+    body.sfp-compact .tile-logo-shell .tile-logo {width:25px;height:25px}
+    body.sfp-compact .tile-logo-shell .tile-logo-badge {width:23px;height:23px;font-size:.48rem}
+    body.sfp-compact .tile-name {font-size:.67rem}
+    body.sfp-compact .tile-change {font-size:.7rem}
+    body.sfp-compact .sfp-heatmap-info-item {padding:.65rem}
+    @media(max-width:700px){body.sfp-compact main{padding:.65rem}body.sfp-compact .panel{padding:.7rem}}
+
+</style>
 </head>
 <body>
 
@@ -429,6 +663,19 @@
               <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
             </div>
           </div>
+          <section class="panel" aria-labelledby="about-sector-heatmap-title" style="margin-top:1.25rem;padding:1.5rem;background:linear-gradient(135deg,var(--panel),var(--input-bg));border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.7rem;">
+              <span style="color:var(--primary);font-size:1.15rem;">▦</span>
+              <h3 id="about-sector-heatmap-title" style="margin:0;color:var(--strong-text);font-size:1.05rem;">About Sector Heatmap</h3>
+            </div>
+            <p style="color:var(--muted);font-size:.83rem;line-height:1.8;margin:0 0 1rem;max-width:950px;">The Sector Heatmap gives you a quick visual overview of market strength and weakness across stock-market sectors. Each tile shows the sector's average percentage price change for the stocks currently included in your selected market universe.</p>
+            <div class="sfp-heatmap-info-grid">
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--green);">●</span> Green — Positive Momentum</strong><p>Sectors with a positive average price change. A stronger reading can help you identify areas showing relative buying interest.</p></div>
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--red);">●</span> Red — Negative Momentum</strong><p>Sectors with a negative average price change. Use these readings to spot weaker areas of the market.</p></div>
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--primary);">↗</span> Explore Individual Stocks</strong><p>Click any sector tile to see its constituent stocks, then use the performance rankings to compare sectors.</p></div>
+            </div>
+            <p style="color:var(--muted);font-size:.73rem;line-height:1.7;margin:1rem 0 0;border-top:1px solid var(--border);padding-top:.8rem;">Trading tip: Use sector strength as context alongside price action, volume, and demand/supply zones—not as a standalone buy or sell signal. Sector readings reflect the stocks available in the current data set.</p>
+          </section>
         </div>
       </div>
 
@@ -573,13 +820,61 @@
     let sortColumn = 'pricePct', sortDirection = 'desc';
     let activeTradeData = {};
 
+    // Official company website favicons. Unknown symbols retain the initials badge.
+    // Using explicit symbol-to-domain mappings prevents incorrect company logos.
+    const STOCK_LOGO_DOMAINS = Object.freeze({
+      RELIANCE:'ril.com', ONGC:'ongcindia.com', OIL:'oil-india.com', BPCL:'bharatpetroleum.in',
+      IOC:'iocl.com', HINDPETRO:'hindustanpetroleum.com', HPCL:'hindustanpetroleum.com',
+      POWERGRID:'powergrid.in', NTPC:'ntpc.co.in', TATAPOWER:'tatapower.com',
+      ADANIPOWER:'adanipower.com', ADANIGREEN:'adanigreenenergy.com', ADANIENSOL:'adanienergysolutions.com',
+      ADANIENT:'adanienterprises.com', COALINDIA:'coalindia.in', GAIL:'gailonline.com',
+      IREDA:'ireda.in', SUZLON:'suzlon.com', JSWENERGY:'jswenergy.in',
+      NHPC:'nhpcindia.com', SJVN:'sjvn.nic.in', NLCINDIA:'nlcindia.in',
+      CESC:'cesc.co.in', TORNTPOWER:'torrentpower.com', CGPOWER:'cgglobal.com',
+      BHEL:'bhel.com', IEX:'iexindia.com', POWERINDIA:'hitachienergy.com',
+      WAAREEENER:'waaree.com', INOXWIND:'inoxwind.com', PREMIERENE:'premierenergies.com',
+      PETRONET:'petronetlng.in', GUJGASLTD:'gujaratgas.com', MGL:'mahanagargas.com',
+      IGL:'iglonline.net', AEGISLOG:'aegisindia.com', CASTROLIND:'castrol.com',
+      HDFCBANK:'hdfcbank.com', ICICIBANK:'icicibank.com', SBIN:'sbi.co.in',
+      AXISBANK:'axisbank.com', KOTAKBANK:'kotak.com', INDUSINDBK:'indusind.com',
+      BANKBARODA:'bankofbaroda.in', PNB:'pnbindia.in', CANBK:'canarabank.com',
+      INFY:'infosys.com', TCS:'tcs.com', WIPRO:'wipro.com', HCLTECH:'hcltech.com',
+      TECHM:'techmahindra.com', LTIM:'ltimindtree.com', PERSISTENT:'persistent.com',
+      TATAMOTORS:'tatamotors.com', MARUTI:'marutisuzuki.com', M_M:'mahindra.com',
+      EICHERMOT:'eicher.in', BAJAJ_AUTO:'bajajauto.com', HEROMOTOCO:'heromotocorp.com',
+      BHARTIARTL:'airtel.in', ITC:'itcportal.com', HINDUNILVR:'hul.co.in',
+      TITAN:'titancompany.in', ASIANPAINT:'asianpaints.com', ULTRACEMCO:'ultratechcement.com',
+      SUNPHARMA:'sunpharma.com', DRREDDY:'drreddys.com', CIPLA:'cipla.com',
+      APOLLOHOSP:'apollohospitals.com', DIVISLAB:'divislabs.com',
+      TATASTEEL:'tatasteel.com', JSWSTEEL:'jsw.in', HINDALCO:'hindalco.com',
+      BAJFINANCE:'bajajfinserv.in', BAJAJFINSV:'bajajfinserv.in', HDFCLIFE:'hdfclife.com',
+      SBILIFE:'sbilife.co.in', DMART:'dmartindia.com', TRENT:'trentlimited.com',
+      ZOMATO:'eternal.com', ETERNAL:'eternal.com', INDIGO:'goindigo.in',
+      GODREJPROP:'godrejproperties.com', DLF:'dlf.in', LODHA:'lodhagroup.com',
+      LT:'larsentoubro.com', BEL:'bel-india.in', HAL:'hal-india.co.in',
+      GRASIM:'grasim.com', PIDILITIND:'pidilite.com', BRITANNIA:'britannia.co.in',
+      NESTLEIND:'nestle.in', DABUR:'dabur.com', TATACONSUM:'tataconsumer.com'
+    });
+
     function getStockLogoUrl(symbol) {
-      const cleanSym = symbol.trim().toLowerCase();
-      return `https://s3-symbol-logo.tradingview.com/nse/--${cleanSym}.svg`;
+      const key = String(symbol || '').trim().toUpperCase();
+      const domain = STOCK_LOGO_DOMAINS[key];
+      return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
+    }
+
+    function createStockLogoMarkup(symbol) {
+      const safeSymbol = String(symbol || '').replace(/[^A-Za-z0-9&._-]/g, '');
+      const initials = safeSymbol.slice(0, 3).toUpperCase();
+      const badge = `<span class="tile-logo-badge" aria-hidden="true">${initials}</span>`;
+      const url = getStockLogoUrl(symbol);
+      if (!url) return badge;
+      // Display the initials until a real image successfully loads.
+      return `<span class="tile-logo-shell">${badge}<img src="${url}" class="tile-logo" alt="${safeSymbol} logo" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('tile-logo-ready')" onerror="this.remove()"></span>`;
     }
 
     document.addEventListener("DOMContentLoaded", () => {
       if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
+      try { toggleCompactMode(localStorage.getItem('sfp_compact_view') === '1'); } catch(e) { toggleCompactMode(false); }
       loadWatchlistFromStorage();
       fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
     });
@@ -641,14 +936,20 @@
         const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
         if(btn) btn.classList.toggle('active', t === tab);
         if(bnav) bnav.classList.toggle('active', t === tab);
-        if(view) view.style.display = t === tab ? 'block' : 'none';
+        if(view) { view.style.display = t === tab ? 'block' : 'none'; if (t === tab) { view.classList.remove('sf-view-enter'); void view.offsetWidth; view.classList.add('sf-view-enter'); } }
       });
-      if (tab === 'sec') renderSectors();
-      if (tab === 'watchlist') renderWatchlistTable();
-      if (tab === 'zones' && rawZonesData.length === 0) fetchZones('day', document.getElementById('tf-btn-day'));
+      if (tab === 'sec') { sfShowTabTransition('sec'); setTimeout(() => { if (currentTab === 'sec') renderSectors(); }, 650); }
+      if (tab === 'watchlist') { sfShowTabTransition('watchlist'); setTimeout(() => { if (currentTab === 'watchlist') renderWatchlistTable(); }, 650); }
+      if (tab === 'zones') fetchZones(currentZoneTF, document.getElementById(`tf-btn-${currentZoneTF}`));
     }
 
-    function toggleCompactMode(c) { document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', c)); }
+    function toggleCompactMode(c) {
+      document.body.classList.toggle('sfp-compact', Boolean(c));
+      document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', Boolean(c)));
+      const toggle = document.getElementById('compact-toggle');
+      if (toggle) toggle.checked = Boolean(c);
+      try { localStorage.setItem('sfp_compact_view', c ? '1' : '0'); } catch(e) {}
+    }
     function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
     function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
     function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
@@ -689,6 +990,7 @@
         if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
         const d1 = await res1.json(), d2 = await res2.json();
         if (d1.status === 'success') {
+          sfDataEverLoaded = true;
           marketStocks = d1.data || [];
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
           updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
@@ -860,6 +1162,11 @@
       if (!sectorsData.length) return;
       let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
       const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
+      // Select the strongest positive and negative sectors from CURRENT market data.
+      // No fixed percentage threshold: ranks are recalculated on every render.
+      const validSectors = sortedSectors.filter(s => Number.isFinite(Number(s.avgChange)));
+      const topBullSector = validSectors.find(s => Number(s.avgChange) > 0)?.sector;
+      const topBearSector = [...validSectors].reverse().find(s => Number(s.avgChange) < 0)?.sector;
 
       const heatmapContainer = document.getElementById('sec-heatmap-section');
       const headerTitle = document.getElementById('heatmap-section-header');
@@ -870,16 +1177,18 @@
         resetBtn.style.display = 'inline-block';
         let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
         sectorStocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
+        const validStocks = sectorStocks.filter(s => Number.isFinite(Number(s.pricePct)));
+        const topBullStock = validStocks.find(s => Number(s.pricePct) > 0)?.symbol;
+        const topBearStock = [...validStocks].reverse().find(s => Number(s.pricePct) < 0)?.symbol;
 
         heatmapContainer.innerHTML = sectorStocks.map(s => {
           const pct = Number(s.pricePct || 0);
-          let bg = pct < 0 ? '#e53935' : '#43a047';
+          const tileTone = (pct < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((pct > 0 && s.symbol === topBullStock) || (pct < 0 && s.symbol === topBearStock) ? ' heatmap-momentum' : '');
           const arrow = pct >= 0 ? '▲' : '▼';
-          const logoUrl = getStockLogoUrl(s.symbol);
 
           return `
-            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile" style="background-color: ${bg}; flex: 1 1 110px;">
-              <img src="${logoUrl}" class="tile-logo" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'tile-logo-badge', innerText: '${s.symbol.substring(0,3)}'}))">
+            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile ${tileTone}" style="flex: 1 1 110px;">
+              ${createStockLogoMarkup(s.symbol)}
               <div class="tile-name">${s.symbol}</div>
               <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
             </a>
@@ -891,8 +1200,8 @@
 
         heatmapContainer.innerHTML = sortedSectors.map(sec => {
           const avg = sec.avgChange || 0;
-          let bg = avg < 0 ? '#e53935' : '#43a047';
-          return `<div class="treemap-tile" style="background-color: ${bg}; flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
+          const tileTone = (avg < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((avg > 0 && sec.sector === topBullSector) || (avg < 0 && sec.sector === topBearSector) ? ' heatmap-momentum' : '');
+          return `<div class="treemap-tile ${tileTone}" style="flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
         }).join('');
       }
 
@@ -921,6 +1230,7 @@
     const CONFLUENCE_NAMES = {day:'Daily', week:'Weekly', month:'Monthly', quarter:'Quarterly', halfyear:'Half-Yearly'};
     const confluenceCompleted = new Set();
     const confluenceUnavailable = new Set();
+    const confluencePending = new Set();
     const confluenceRunning = new Set();
     function zoneOverlap(a,b) {
       if (a.symbol !== b.symbol || a.bias !== b.bias) return false;
@@ -944,7 +1254,7 @@
       }
       if (names.length) tags.push(`<span class="badge badge-gold">Coinciding with ${names.join(', ')}</span>`);
       if (pending) tags.push('<span class="badge badge-muted">Checking other TFs...</span>');
-      else if (!names.length && CONFLUENCE_TFS.some(tf=>tf!==currentZoneTF && confluenceUnavailable.has(`${currentUniverse}:${tf}`))) tags.push('<span class="badge badge-muted">Other TF unavailable</span>');
+      else if (!names.length && CONFLUENCE_TFS.some(tf=>tf!==currentZoneTF && confluenceUnavailable.has(`${currentUniverse}:${tf}`))) tags.push('<span class="badge badge-muted">TF data temporarily unavailable</span>');
       else if (!names.length) tags.push('<span class="badge badge-muted">No Coincidence</span>');
       return tags.join(' ');
     }
@@ -952,37 +1262,85 @@
       if (confluenceRunning.has(universe)) return;
       confluenceRunning.add(universe);
       try {
+        // No automatic heavy scans of other timeframes on every click.
+        // Only request already-precomputed snapshots when the server says ready.
+        const statusRes = await fetch(`/api/zone-cache-status?universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
+        if (!statusRes.ok) { console.debug('Confluence status HTTP',statusRes.status); return; }
+        const status = await statusRes.json();
         for (const tf of CONFLUENCE_TFS) {
           if (tf === activeTF || currentUniverse !== universe) continue;
-          const key=`${universe}:${tf}`;
-          const cached=zoneResponseCache.get(key);
+          const key = `${universe}:${tf}`;
+          const entry = status.timeframes && status.timeframes[tf];
+          if (!entry || !entry.ready) { confluenceUnavailable.delete(key); confluencePending.add(key); continue; }
+          const cached = zoneResponseCache.get(key);
           if (cached && Date.now()-cached.savedAt<ZONE_RESPONSE_TTL_MS) continue;
-          const start=Date.now();
-          let confluenceDone = false;
           try {
-            while (Date.now()-start < 120000 && currentUniverse === universe) {
-              const controller=new AbortController();
-              const timer=setTimeout(()=>controller.abort(),12000);
-              let result;
-              try {
-                const res=await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(universe)}`,{signal:controller.signal,cache:'no-store'});
-                if (!res.ok) break;
-                result=await res.json();
-              } finally {clearTimeout(timer);}
-              if (result.status!=='success' || !Array.isArray(result.data)) break;
-              if (result.done) {
-                if (!result.message) {zoneResponseCache.set(key,{data:result.data,savedAt:Date.now()}); confluenceDone=true; confluenceUnavailable.delete(key);}
-                if (currentUniverse===universe) renderZonesTable();
-                break;
-              }
-              await new Promise(resolve=>setTimeout(resolve,2500));
-            }
-          } catch(err) {console.debug('Confluence scan unavailable',tf,err);}
-          if (!confluenceDone) { confluenceUnavailable.add(key); if (currentUniverse===universe) renderZonesTable(); }
+            const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
+            const result = await res.json();
+            if (res.ok && result.status==='success' && result.done && Array.isArray(result.data)) {
+              zoneResponseCache.set(key,{data:result.data,savedAt:Date.now()});
+              confluenceUnavailable.delete(key);
+              confluencePending.delete(key);
+            } else { confluenceUnavailable.add(key); }
+          } catch(err) { confluenceUnavailable.add(key); }
         }
-      } finally {confluenceRunning.delete(universe);}
+        if (currentUniverse===universe) renderZonesTable();
+      } catch(err) { console.debug('Confluence status unavailable',err); }
+      finally { confluenceRunning.delete(universe); }
     }
 
+
+    // Refresh the confluence status while the zone screen is open.
+    // This only reads completed server snapshots; it never triggers scans.
+    setInterval(() => {
+      if (document.hidden) return;
+      if (confluencePending.size || confluenceUnavailable.size) {
+        checkConfluenceInBackground(currentUniverse, currentZoneTF);
+      }
+    }, 20000);
+
+    function zoneLoaderHTML(tf) {
+      const label = ({day:'Daily',week:'Weekly',month:'Monthly',quarter:'Quarterly',halfyear:'Half-Yearly'})[tf] || tf;
+      const bars = [16,26,20,33,23,14,28,19].map((h,i)=>`<i style="--h:${h}px;--d:${i*.11}s;--c:${i%3===0?'#2ecc71':'#e6a13a'}"></i>`).join('');
+      return `<tr><td colspan="8"><div class="sf-loading" role="status" aria-live="polite"><div class="sf-zone-mark" aria-hidden="true">${bars}</div><div><div class="sf-loader-heading">Finding ${label} Institutional Zones</div><div class="sf-loader-caption" id="zone-scan-progress">Analyzing demand & supply levels...</div></div><div class="sf-line-track" aria-hidden="true"></div></div></td></tr>`;
+    }
+    function sfTableSkeletonRows(columns=10,rows=5) {
+      return Array.from({length:rows},()=>`<tr><td colspan="${columns}"><div class="sf-table-skeleton" aria-hidden="true">${Array.from({length:4},()=>'<div class="sf-skeleton"></div>').join('')}</div></td></tr>`).join('');
+    }
+    function sfSectorLoaderHTML() {
+      return `<div class="sf-loading" role="status"><div class="sf-sector-loader" aria-hidden="true">${Array.from({length:15},(_,i)=>`<i style="--i:${i}"></i>`).join('')}</div><div class="sf-loader-heading">Loading Sector Heatmap</div><div class="sf-loader-caption">Preparing sector performance...</div></div>`;
+    }
+    let sfDataEverLoaded = false;
+    function sfShowInitialLoaders() {
+      const body = document.getElementById('tbody');
+      if (body && !sfDataEverLoaded) body.innerHTML = sfTableSkeletonRows(10,6);
+      const heatmap = document.getElementById('sec-heatmap-section');
+      if (heatmap && !sectorsData.length) heatmap.innerHTML = sfSectorLoaderHTML();
+      const bars = document.getElementById('sec-bars-section');
+      if (bars && !sectorsData.length) bars.innerHTML = '<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-caption">Preparing rankings...</div></div>';
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      sfShowInitialLoaders();
+      let lastMove = 0;
+      document.addEventListener('pointermove', e => {
+        if (e.pointerType === 'touch' || Date.now()-lastMove < 45) return;
+        lastMove=Date.now();
+        document.body.style.setProperty('--sf-mouse-x',`${e.clientX}px`);
+        document.body.style.setProperty('--sf-mouse-y',`${e.clientY}px`);
+      },{passive:true});
+    });
+
+    function sfShowTabTransition(tab) {
+      const view = document.getElementById(`view-${tab}`);
+      if (!view) return;
+      const existing = view.querySelector('.sf-tab-transition');
+      if (existing) existing.remove();
+      const overlay = document.createElement('div');
+      overlay.className = 'sf-tab-transition';
+      overlay.innerHTML = tab === 'sec' ? sfSectorLoaderHTML() : `<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-heading">Preparing Watchlist</div></div>`;
+      view.appendChild(overlay);
+      setTimeout(() => overlay.remove(), 850);
+    }
     let zoneRequestSequence = 0;
 
     async function fetchZones(tf, btnElement = null, forceRefresh = false) {
@@ -996,30 +1354,21 @@
       const tbody = document.getElementById('zones-tbody');
 
       rawZonesData = [];
+      const loaderStartedAt = Date.now();
+      const holdLoader = async () => { const remaining = 1250 - (Date.now() - loaderStartedAt); if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining)); };
       const cached = zoneResponseCache.get(cacheKey);
       if (!forceRefresh && cached && Date.now() - cached.savedAt < ZONE_RESPONSE_TTL_MS) {
+        tbody.innerHTML = zoneLoaderHTML(tf);
+        await holdLoader();
+        if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
         rawZonesData = cached.data;
         renderZonesTable();
         checkConfluenceInBackground(requestUniverse, tf);
         return;
       }
 
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8">
-            <div class="scanner-loading-wrapper">
-              <div class="radar-container">
-                <div class="radar-beam"></div>
-                <div class="radar-core"></div>
-              </div>
-              <div>
-                <div class="scanner-loading-title">SCANNING ${tf.toUpperCase()} INSTITUTIONAL ZONES...</div>
-                <div class="scanner-loading-sub">Analyzing Leg-in/Leg-out momentum & unviolated levels</div>
-              </div>
-            </div>
-          </td>
-        </tr>
-      `;
+      tbody.innerHTML = zoneLoaderHTML(tf);
+
 
       try {
         const startedAt = Date.now();
@@ -1038,12 +1387,18 @@
           if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
           if (data.status !== 'success' || !Array.isArray(data.data)) throw new Error(data.message || 'Invalid response');
           rawZonesData = data.data;
-          if (data.data.length) renderZonesTable();
+          if (data.data.length) {
+            await holdLoader();
+            if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+            renderZonesTable();
+          }
           if (data.done) {
             if (data.message) throw new Error(data.message);
             zoneResponseCache.set(cacheKey, {data: data.data, savedAt: Date.now()});
             confluenceUnavailable.delete(cacheKey);
+            confluencePending.delete(cacheKey);
             checkConfluenceInBackground(requestUniverse, tf);
+            if (!data.data.length) { await holdLoader(); if (requestSequence !== zoneRequestSequence) return; }
             if (!data.data.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;">Scan completed. No matching zones found for ${tf.toUpperCase()}.</td></tr>`;
             return;
           }
@@ -1054,7 +1409,7 @@
           if (data.completed !== previousCompleted || !data.data.length) {
             previousCompleted = data.completed;
             const msg = `Scanning ${tf.toUpperCase()}: ${data.completed || 0}/${data.total || '?'} stocks checked, ${data.data.length} zones found`;
-            if (!data.data.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;">${msg}</td></tr>`;
+            if (!data.data.length) { const statusText = document.getElementById('zone-scan-progress'); if (statusText) statusText.textContent = msg; }
             const status = document.getElementById('zone-scan-progress');
             if (status) status.textContent = msg;
           }

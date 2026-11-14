@@ -10,7 +10,7 @@
   
   <script>
     const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (['light','ocean','amoled'].includes(savedTheme)) document.documentElement.setAttribute('data-theme', savedTheme);
   </script>
 
   <style>
@@ -32,6 +32,12 @@
       --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
       --glass-border: 1px solid rgba(0, 0, 0, 0.08);
     }
+    [data-theme="ocean"] { --bg:#061e32;--panel:#0d2d47;--sidebar-bg:#061a2b;--ticker-bg:#061a2b;--th-bg:#0c2c45;--primary:#44c9ff;--border:#216389;--hover-bg:#123c5b;--strong-text:#edfaff;--text:#b5d5e8;--input-bg:#0a2a43;--glass-border:1px solid #216389; }
+    [data-theme="amoled"] { --bg:#000;--panel:#090909;--sidebar-bg:#000;--ticker-bg:#000;--th-bg:#080808;--primary:#ffb342;--border:#303030;--hover-bg:#171717;--strong-text:#fff;--text:#c4c4c4;--input-bg:#0b0b0b;--glass-border:1px solid #303030; }
+    [data-theme="ocean"] body {background:#061e32!important;}
+    [data-theme="amoled"] body {background:#000!important;}
+    [data-theme="ocean"] .sidebar,[data-theme="ocean"] .panel,[data-theme="ocean"] .toolbar,[data-theme="ocean"] .table-container {background:#0d2d47!important;border-color:#216389!important;}
+    [data-theme="amoled"] .sidebar,[data-theme="amoled"] .panel,[data-theme="amoled"] .toolbar,[data-theme="amoled"] .table-container {background:#090909!important;border-color:#303030!important;}
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
     
     body {
@@ -542,6 +548,18 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 :root:not([data-theme="light"]) .sidebar{border-right:1px solid #30414c}.brand{letter-spacing:-.6px}.nav-btn{border-radius:9px}.kpi-card{position:relative;overflow:hidden}.kpi-card:before{content:'';position:absolute;inset:0 0 auto;height:2px;background:linear-gradient(90deg,transparent,#f6aa2a55,transparent)}.panel h3{letter-spacing:-.25px}button,input,select{font-family:inherit}.filter-btn{min-height:34px}.filter-btn:focus-visible,.nav-btn:focus-visible,.hamburger-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 @media(max-width:1024px){.sidebar.collapsed{margin-left:0;opacity:1;pointer-events:auto}.sidebar.open{transform:translateX(0)}.bottom-nav{padding-bottom:max(8px,env(safe-area-inset-bottom));min-height:58px}.main-wrapper{padding-bottom:calc(60px + env(safe-area-inset-bottom))}}
 @media(max-width:600px){main{padding:10px!important}.panel{padding:13px!important}.toolbar{padding:10px!important}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kpi-val{font-size:1.25rem}.sector-side-by-side{grid-template-columns:minmax(0,1fr)}.sector-treemap-grid{gap:5px}.sector-treemap-grid .treemap-tile{min-width:0;min-height:84px;padding:8px 5px}.tile-name{font-size:.64rem}.barchart-label{min-width:88px;width:88px;font-size:.66rem}.barchart-val{width:47px;min-width:47px}.table-container{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.table-container table{min-width:740px}.movers-panel{height:280px}.filter-wrapper{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:3px}.filter-btn{flex-shrink:0}.search-wrapper{width:100%}.search-box{width:100%}#smart-orb-container{grid-template-columns:1fr!important}}
+
+/* Ensure theme-specific overrides beat legacy dark terminal rules. */
+:root[data-theme="ocean"] .market-ticker-container{background:#071b2b!important;border-color:#245571!important}
+:root[data-theme="amoled"] .market-ticker-container{background:#000!important;border-color:#2d2d2d!important}
+/* Account actions stay together at bottom of left sidebar, immediately above clock. */
+.sfp-account-nav{display:flex;flex-direction:column;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
+.sfp-account-nav .nav-btn{display:flex;align-items:center;text-decoration:none;width:100%;box-sizing:border-box;padding:12px 14px;color:var(--strong-text)}
+.sfp-account-nav .sfp-logout{border:1px dashed rgba(246,170,42,.5);color:var(--primary)}
+:root[data-theme="ocean"]{--bg:#071c2b;--panel:#0c2b41;--border:#245571;--primary:#40caff;--green:#25e0b1;--strong-text:#effaff;--muted:#a2bfd1;--sidebar-bg:#071b2b}
+:root[data-theme="amoled"]{--bg:#000;--panel:#080808;--border:#2d2d2d;--primary:#ffb342;--green:#20cf83;--strong-text:#f5f5f5;--muted:#a5a5a5;--sidebar-bg:#000}
+:root[data-theme="amoled"] .panel,:root[data-theme="amoled"] .toolbar,:root[data-theme="amoled"] .kpi-card,:root[data-theme="amoled"] .movers-panel,:root[data-theme="amoled"] .table-container{background:#080808!important}
+:root[data-theme="ocean"] .panel,:root[data-theme="ocean"] .toolbar,:root[data-theme="ocean"] .kpi-card,:root[data-theme="ocean"] .movers-panel,:root[data-theme="ocean"] .table-container{background:#0c2b41!important}
 </style>
 </head>
 <body>
@@ -557,8 +575,6 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       <button class="nav-btn" id="btn-watchlist" onclick="switchTab('watchlist')"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
     </div>
     <div style="margin-top: auto;">
-      <div style="margin-top: 1.5rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: var(--glass-border);">
-        <a href="/logout" class="nav-btn" style="margin-bottom: 6px; border: 1px dashed rgba(243, 156, 18, 0.4);"><span style="font-size:1.1rem;">🏠</span> Logout </a>
         <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
         <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
           <option value="FO">📊 F&O Universe (Default)</option>
@@ -575,6 +591,11 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
         <span class="toggle-label">🔄 Auto-Refresh</span>
         <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)"><span class="slider"></span></label>
+      </div>
+      <div class="sfp-account-nav" aria-label="Account menu">
+        <a href="/account/profile" class="nav-btn">👤 &nbsp; Profile</a>
+        <a href="/settings" class="nav-btn">⚙️ &nbsp; Settings</a>
+        <a href="/logout" class="nav-btn sfp-logout">🚪 &nbsp; Logout</a>
       </div>
       <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span></div>
     </div>
@@ -746,6 +767,11 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
                 <option value="DEMAND">Demand Only</option>
                 <option value="SUPPLY">Supply Only</option>
               </select>
+              <select id="zones-status-filter" aria-label="Fresh or Tested zones" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
+                <option value="all">All Statuses</option>
+                <option value="fresh">Fresh Zones</option>
+                <option value="tested">Tested Zones</option>
+              </select>
               <select id="zones-cmp-distance" aria-label="Maximum distance from current market price" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
                 <option value="nearest">Nearest Zone / First from CMP</option>
                 <option value="1">Within 1% of CMP</option>
@@ -753,7 +779,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
                 <option value="5">Within 5% of CMP</option>
                 <option value="10">Within 10% of CMP</option>
                 <option value="20">Within 20% of CMP</option>
-                <option value="all">All Zones</option>
+                <option value="all" selected>All Zones</option>
               </select>
               <input type="text" id="zones-search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" style="width: 160px; padding: 0.4rem 0.8rem; font-size: 0.75rem;" />
               <div class="filter-wrapper" id="tf-buttons-wrapper">
@@ -925,7 +951,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     }
 
     document.addEventListener("DOMContentLoaded", () => {
-      if (localStorage.getItem('theme') === 'light') document.getElementById('theme-icon-btn').innerHTML = '🌙';
+      applySfpTheme(localStorage.getItem('theme') || 'dark');
       try { toggleCompactMode(localStorage.getItem('sfp_compact_view') === '1'); } catch(e) { toggleCompactMode(false); }
       loadWatchlistFromStorage();
       fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
@@ -975,11 +1001,16 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       finally { if (btn && forceRefresh) { btn.disabled = false; btn.textContent = '🔄 Refresh'; } }
     }
 
-    function toggleThemeBtn() {
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    function applySfpTheme(theme) {
+      const valid = ['dark','light','ocean','amoled'];
+      theme = valid.includes(theme) ? theme : 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
       const btn = document.getElementById('theme-icon-btn');
-      if (isLight) { document.documentElement.removeAttribute('data-theme'); localStorage.setItem('theme', 'dark'); btn.innerHTML = '☀️'; }
-      else { document.documentElement.setAttribute('data-theme', 'light'); localStorage.setItem('theme', 'light'); btn.innerHTML = '🌙'; }
+      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+    function toggleThemeBtn() {
+      applySfpTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     }
 
     function toggleSidebar() {
@@ -1491,6 +1522,18 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       const biasFilter = document.getElementById('zones-bias-filter').value;
       if (biasFilter !== 'ALL') filteredZones = filteredZones.filter(z => z.bias === biasFilter);
 
+      const statusFilter = document.getElementById('zones-status-filter').value;
+      if (statusFilter !== 'all') {
+        filteredZones = filteredZones.filter(z => {
+          const count = Number(z.testCount);
+          if (Number.isFinite(count) && z.testCount !== undefined && z.testCount !== null) {
+            return statusFilter === 'fresh' ? count === 0 : count > 0;
+          }
+          const status = String(z.status || '').toLowerCase();
+          return statusFilter === 'fresh' ? status.includes('fresh') : status.includes('tested') && !status.includes('untested');
+        });
+      }
+
       // CMP-based price-side proximity. The zone boundary nearest the CMP is used.
       const distanceSetting = document.getElementById('zones-cmp-distance').value;
       function cmpDistance(z) {
@@ -1501,7 +1544,8 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
         if (z.bias === 'SUPPLY') return proximal >= cmp ? (proximal - cmp) / cmp * 100 : Infinity;
         return Infinity;
       }
-      filteredZones = filteredZones.filter(z => Number.isFinite(cmpDistance(z)));
+      // All Zones must not discard historical zones based on CMP direction.
+      if (distanceSetting !== 'all') filteredZones = filteredZones.filter(z => Number.isFinite(cmpDistance(z)));
       filteredZones.sort((a, b) => cmpDistance(a) - cmpDistance(b) || a.symbol.localeCompare(b.symbol));
       if (distanceSetting === 'nearest') {
         // Only the closest demand and closest supply for each stock.

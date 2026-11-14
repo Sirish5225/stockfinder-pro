@@ -1,4 +1,5 @@
 import os
+import secrets
 import json
 import hmac
 import hashlib
@@ -49,6 +50,8 @@ if database_url.startswith('postgres://'):
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or ('sqlite:///' + db_path)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+if not database_url and os.getenv('RENDER'):
+    app.logger.warning('SQLite on Render ephemeral storage can lose accounts on restart. Configure persistent DATABASE_URL (PostgreSQL).')
 
 # User Database Model with Robust Constraints
 class User(db.Model):
@@ -88,16 +91,35 @@ class Subscription(db.Model):
     plan = db.Column(db.String(20), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
 
+class UserPreference(db.Model):
+    __tablename__ = 'user_preference'
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+    universe = db.Column(db.String(20), nullable=False, default='FO')
+    timeframe = db.Column(db.String(20), nullable=False, default='day')
+    zone_filter = db.Column(db.String(20), nullable=False, default='all')
+    expiry_reminders = db.Column(db.Boolean, nullable=False, default=True)
+
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_Tzu7vWHKhEXtaP').strip()
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'INlldbISSNZfWjhEiVVThgbC').strip()
+RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_TzOiKGfQnvAcaw').strip()
+RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'RE9fr3o5YeqTo16lulirt0z5').strip()
 
 def current_user():
     return User.query.filter_by(email=session.get('user', '')).first() if session.get('user') else None
 
 def active_subscription(user):
-    sub = Subscription.query.filter_by(user_id=user.id).first() if user else None
+    if not user:
+        return False
+
+    # Opt-in development bypass: only for requests originating from and addressed
+    # to the local machine. Never enable LOCAL_DEV_SUBSCRIPTION on a hosted service.
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    if (os.getenv("LOCAL_DEV_SUBSCRIPTION", "0") == "1"
+            and request.remote_addr in {"127.0.0.1", "::1"}
+            and request.host.split(":")[0].strip("[]").lower() in local_hosts):
+        return True
+
+    sub = Subscription.query.filter_by(user_id=user.id).first()
     return bool(sub and sub.expires_at > datetime.utcnow())
 
 def add_months(start, months):
@@ -695,16 +717,15 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             if touched and not inside_previous:
                 test_count += 1
             inside_previous = touched
-            if test_count > 1:
-                break
-        if violated or test_count > 1:
+            # Keep counting retests; tested zones remain eligible.
+        if violated:
             continue
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
-        status = '🎯 In Zone (Actionable)' if in_zone else ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+        status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
             'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
             'distal': round(distal, 2), 'entry': round(proximal, 2),
@@ -712,7 +733,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'riskPct': round(risk/current_ltp*100, 2),
             'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
             'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
-            'status': status, 'distancePct': distance_pct,
+            'status': status, 'testCount': test_count, 'distancePct': distance_pct,
             'multiplier': round(legout['body']/max(legin['body'], 0.01), 2),
             'strongZone': has_strong_exit_confirmation(candles, legout_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
@@ -767,17 +788,15 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             if touched and not inside_previous:
                 test_count += 1
             inside_previous = touched
-            if test_count > 1:
-                break
-        if violated or test_count > 1:
+            # Keep counting retests; tested zones remain eligible.
+        if violated:
             continue
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
-        status = ('🎯 In Zone (Actionable)' if in_zone else
-                  'Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+        status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
             'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
             'distal': round(distal, 2), 'entry': round(proximal, 2),
@@ -785,7 +804,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'riskPct': round(risk/current_ltp*100, 2),
             'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
             'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
-            'status': status, 'distancePct': distance_pct,
+            'status': status, 'testCount': test_count, 'distancePct': distance_pct,
             'multiplier': round(outgoing['body']/max(incoming['body'], 0.01), 2),
             'strongZone': has_strong_exit_confirmation(candles, outgoing_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
@@ -944,7 +963,7 @@ def send_otp_email(to_email, otp_code):
         return False
 
 # ================= HTML TEMPLATES WITH STANDARD FORM POST =================
-LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070d12"><title>StockFinder Pro | Market Intelligence</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#070d12;--panel:#101b23;--line:#26343e;--gold:#f6aa2a;--green:#20cf83;--red:#ff5a65;--text:#eef4f7;--muted:#93a5b1}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 75% 10%,#12332d66,transparent 40%),var(--bg);font-family:\'Plus Jakarta Sans\',sans-serif;color:var(--text)}a{text-decoration:none;color:inherit}.wrap{max-width:1200px;margin:auto;padding:0 24px}header{position:sticky;top:0;z-index:10;background:#081017eb;border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}header .wrap{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:800;letter-spacing:-.6px;font-size:19px;display:flex;align-items:center;gap:10px}.dot{height:11px;width:11px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px #20cf8318}.nav{display:flex;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;min-height:43px;border:1px solid #3a4a55;border-radius:10px;background:#14232c;font-size:13px;font-weight:800;transition:.2s}.btn:hover{transform:translateY(-2px);border-color:var(--gold)}.btn.gold{background:var(--gold);color:#171a1d;border-color:var(--gold)}.btn.ghost{background:transparent}.hero{padding:96px 0 65px;position:relative;overflow:hidden}.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:60px}.eyebrow{display:inline-flex;align-items:center;gap:9px;color:var(--green);background:#12352b;border:1px solid #285b49;border-radius:99px;padding:9px 14px;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase}h1{font-size:clamp(42px,5.2vw,72px);line-height:1.07;letter-spacing:-3px;margin:24px 0}h1 em{font-style:normal;color:var(--gold)}.hero p{font-size:16px;line-height:1.85;color:var(--muted);max-width:530px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.stats{display:flex;gap:26px;margin-top:42px;flex-wrap:wrap}.stats strong{display:block;color:var(--text);font-size:22px}.stats small{color:var(--muted);font-size:11px}.preview{border:1px solid #39515c;border-radius:18px;background:#0b151d;box-shadow:0 35px 90px #0008;overflow:hidden;transform:perspective(1000px) rotateY(-3deg)}.preview-head{background:#101b23;border-bottom:1px solid var(--line);padding:15px 18px;display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12px}.live{color:var(--green);font-size:10px}.preview-body{padding:18px}.mini-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mini-kpis div{padding:15px 9px;background:#14232c;border:1px solid var(--line);border-radius:9px;text-align:center}.mini-kpis small{display:block;color:var(--muted);font-size:9px;margin-bottom:9px}.mini-kpis b{font-size:20px}.green{color:var(--green)}.red{color:var(--red)}.heat{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.heat div{min-height:80px;border-radius:8px;padding:12px 8px;background:linear-gradient(140deg,#174638,#102820);border:1px solid #28684d;font-size:10px;font-weight:800;display:flex;flex-direction:column;justify-content:space-between}.heat div.down{background:linear-gradient(140deg,#502a35,#291b25);border-color:#713b49}.heat span{font-size:14px}.preview-foot{padding:14px 18px;color:var(--muted);font-size:10px;border-top:1px solid var(--line)}section{padding:74px 0;border-top:1px solid var(--line)}.kicker{font-size:11px;color:var(--gold);font-weight:800;letter-spacing:2px;text-transform:uppercase}.section-title{font-size:clamp(27px,3.5vw,41px);letter-spacing:-1.4px;margin:10px 0 14px}.section-desc{color:var(--muted);line-height:1.7;max-width:630px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:32px}.card,.price{background:linear-gradient(145deg,#14232c,#0c151c);border:1px solid var(--line);border-radius:14px;padding:25px}.card .symbol{font-size:25px;color:var(--gold)}.card h3{font-size:17px;margin:17px 0 9px}.card p{font-size:13px;line-height:1.8;color:var(--muted)}.prices{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:32px}.price{display:flex;flex-direction:column;gap:12px}.price.featured{border-color:var(--gold);box-shadow:0 0 0 1px #f6aa2a44}.price h3{margin:0;font-size:16px}.price .amount{font-size:29px;font-weight:800}.price small{color:var(--muted)}.price ul{padding-left:18px;color:#c3d0d8;font-size:12px;line-height:2}.price .btn{margin-top:auto}.cta{padding:50px;border:1px solid #456056;border-radius:16px;background:linear-gradient(110deg,#12352d,#111e26);text-align:center}.cta p{color:var(--muted)}footer{padding:28px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:40px}.preview{transform:none}.prices{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){header .wrap{padding:0 14px;min-height:64px}.brand{font-size:14px}.nav{gap:5px}.nav .btn{padding:9px;font-size:11px;min-height:36px}.nav .plans{display:none}.wrap{padding:0 16px}.hero{padding:55px 0 40px}h1{font-size:43px;letter-spacing:-2px}.hero p{font-size:14px}.stats{gap:18px}.cards,.prices{grid-template-columns:1fr}.mini-kpis b{font-size:16px}.heat{gap:5px}.heat div{padding:9px 5px;min-height:68px;font-size:8px}.heat span{font-size:11px}section{padding:48px 0}.cta{padding:30px 18px}}\n</style></head><body><header><div class="wrap"><a href="/" class="brand"><i class="dot"></i> STOCKFINDER PRO</a><nav class="nav"><a class="btn ghost plans" href="#pricing">Plans</a><a class="btn ghost" href="/login">Login</a><a class="btn gold" href="/signup">Sign up</a></nav></div></header><main><div class="hero"><div class="wrap hero-grid"><div><div class="eyebrow">● Institutional-style market intelligence</div><h1>Trade the setup.<br><em>Not the noise.</em></h1><p>One focused terminal for intraday screening, sector momentum and institutional demand &amp; supply zones. Scan faster, analyze clearly, and execute with discipline.</p><div class="actions"><a class="btn gold" href="/signup">Get started <span>↗</span></a><a class="btn" href="/login">Open trading terminal →</a></div><div class="stats"><div><strong>4</strong><small>Zone patterns</small></div><div><strong>5</strong><small>Market universes</small></div><div><strong>Multi-TF</strong><small>Zone analysis</small></div></div></div><div class="preview"><div class="preview-head"><span>◉ STOCKFINDER / MARKET OVERVIEW</span><span class="live">● TERMINAL PREVIEW</span></div><div class="preview-body"><div class="mini-kpis"><div><small>LONG BUILDUP</small><b class="green">↗</b></div><div><small>SHORT BUILDUP</small><b class="red">↘</b></div><div><small>SUPPLY / DEMAND</small><b style="color:var(--gold)">◈</b></div></div><div class="heat"><div>NIFTY BANK<span class="green">BULLISH</span></div><div class="down">NIFTY IT<span class="red">BEARISH</span></div><div>NIFTY AUTO<span class="green">BULLISH</span></div><div class="down">NIFTY METAL<span class="red">BEARISH</span></div><div>NIFTY FMCG<span class="green">BULLISH</span></div><div>NIFTY ENERGY<span class="green">BULLISH</span></div><div class="down">FIN SERVICES<span class="red">BEARISH</span></div><div>REALTY<span class="green">BULLISH</span></div></div></div><div class="preview-foot">Illustrative interface only · Not live market signals</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">ONE UNIFIED WORKSPACE</div><h2 class="section-title">Everything you need to find your edge.</h2><p class="section-desc">A clean, purpose-built interface that keeps your market workflow organized.</p><div class="cards"><article class="card"><div class="symbol">▥</div><h3>Live stock screener</h3><p>Filter by momentum, open-high/low patterns and price behavior across supported stock universes.</p></article><article class="card"><div class="symbol">◈</div><h3>Demand &amp; supply zones</h3><p>Explore fresh zones, structure and higher-timeframe context without switching between scattered tools.</p></article><article class="card"><div class="symbol">▦</div><h3>Sector heatmap</h3><p>Read sector strength, relative weakness and market breadth through intuitive green and red visuals.</p></article></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">MEMBERSHIP</div><h2 class="section-title">Choose your access.</h2><p class="section-desc">Secure Razorpay checkout. Subscription activates only after successful payment verification.</p><div class="prices"><article class="price"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=monthly">Choose monthly</a></article><article class="price featured"><h3>Quarterly ★</h3><div class="amount">₹1,199</div><small>3 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn gold" href="/checkout?plan=quarterly">Choose quarterly</a></article><article class="price"><h3>Half-yearly</h3><div class="amount">₹2,499</div><small>6 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose half-yearly</a></article><article class="price"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months</small><ul><li>Trading terminal</li><li>Zone screener</li><li>Sector analysis</li></ul><a class="btn" href="/checkout?plan=yearly">Choose yearly</a></article></div></div></section><section><div class="wrap"><div class="cta"><div class="kicker">START SCANNING</div><h2 class="section-title">Your next setup starts here.</h2><p>Focus on structure, confirmation and risk.</p><a class="btn gold" href="/signup">Create account →</a></div></div></section></main><footer><div class="wrap">© <span id="year"></span> StockFinder Pro · Market analysis tools are educational and do not guarantee trading outcomes.</div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
+LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="StockFinder Pro: intraday stock screening, demand and supply zones, and sector analysis for Indian equity traders."><title>StockFinder Pro | Find the Setup. Trade with Clarity.</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#080e14;--surface:#101c26;--border:#293a46;--txt:#edf5fa;--muted:#9fb0bd;--accent:#ffb342;--green:#32d596}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 75% 0,#17443755,transparent 40%),var(--bg);color:var(--txt);font-family:\'Plus Jakarta Sans\',sans-serif}a{color:inherit;text-decoration:none}.wrap{width:min(1160px,calc(100% - 40px));margin:auto}header{position:sticky;top:0;z-index:10;background:#081018ed;border-bottom:1px solid var(--border);backdrop-filter:blur(12px)}.top{display:flex;align-items:center;justify-content:space-between;min-height:72px;gap:14px}.brand{font-weight:800;font-size:19px;letter-spacing:-.7px}.brand b{color:var(--green)}nav{display:flex;align-items:center;gap:18px;font-size:13px;font-weight:700}nav a:hover,.footlinks a:hover{color:var(--accent)}.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #425565;background:#162733;border-radius:10px;padding:13px 19px;font-weight:800;font-size:13px;min-height:44px}.btn:hover{border-color:var(--accent)}.primary{background:var(--accent);color:#101820;border-color:var(--accent)}.hero{padding:92px 0 78px}.hero-grid{display:grid;grid-template-columns:1.12fr .88fr;align-items:center;gap:45px}.eyebrow,.kicker{color:var(--green);font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(39px,5vw,68px);line-height:1.1;letter-spacing:-2.5px;margin:20px 0}.hero h1 span{color:var(--accent)}.lead{font-size:16px;line-height:1.9;color:var(--muted);max-width:600px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}.hero-notes{display:flex;gap:20px;flex-wrap:wrap;margin-top:28px;color:#bbcad3;font-size:12px}.hero-notes span:before{content:\'✓ \';color:var(--green)}.screen{background:#0d1921;border:1px solid #355160;border-radius:20px;overflow:hidden;box-shadow:0 35px 80px #0009}.screen-head{display:flex;justify-content:space-between;padding:16px 18px;background:#14242e;border-bottom:1px solid var(--border);font-weight:800;font-size:12px}.screen-head span{color:var(--green)}.screen-body{padding:18px}.ticker{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.ticker div{border:1px solid var(--border);background:#14242e;padding:17px;border-radius:10px}.ticker small{display:block;color:var(--muted);font-size:11px;margin-bottom:10px}.ticker strong{font-size:19px}.up{color:var(--green)}.down{color:#ff6976}.screen-foot{padding:14px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}section{padding:76px 0;border-top:1px solid var(--border)}h2{font-size:clamp(27px,3.5vw,40px);letter-spacing:-1px;margin:10px 0 13px}.desc{color:var(--muted);line-height:1.8;max-width:720px;font-size:14px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px}.card,.plan,.faq-item{background:linear-gradient(145deg,#142632,#0d1821);border:1px solid var(--border);border-radius:16px;padding:24px}.card .ico{font-size:27px;color:var(--accent)}.card h3{font-size:16px;margin:16px 0 9px}.card p{color:var(--muted);font-size:13px;line-height:1.8}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}.step{padding:22px;border-left:2px solid var(--green);background:#101c26;border-radius:0 12px 12px 0}.step b{display:block;color:var(--accent);margin-bottom:10px}.step p{color:var(--muted);font-size:13px;line-height:1.7}.plans{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:30px}.plan{display:flex;flex-direction:column;gap:12px}.plan.popular{border-color:var(--accent)}.plan h3{font-size:16px;margin:0}.amount{font-size:30px;font-weight:800}.plan small{color:var(--muted)}.plan ul{padding-left:18px;color:#cad6dd;font-size:12px;line-height:2}.plan .btn{margin-top:auto}.tag{color:var(--accent);font-size:11px;font-weight:800}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:28px}.faq-item h3{font-size:14px;margin:0 0 9px}.faq-item p{font-size:13px;color:var(--muted);line-height:1.8;margin:0}.contact{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}.contact-panel{background:#11262a;border:1px solid #31594c;padding:30px;border-radius:16px}.contact-panel p{color:var(--muted);line-height:1.8}.contact-panel a{color:var(--accent);font-weight:800}.disclaimer{font-size:12px;color:var(--muted);line-height:1.8}footer{padding:28px 0;border-top:1px solid var(--border);color:var(--muted);font-size:12px}.foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.footlinks{display:flex;gap:16px;flex-wrap:wrap}@media(max-width:960px){.hero-grid,.contact{grid-template-columns:1fr}.plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:650px){.wrap{width:min(100% - 28px,1160px)}.top{min-height:65px;flex-wrap:wrap;padding:12px 0}.brand{font-size:16px}nav{gap:10px;flex-wrap:wrap;font-size:12px}nav .hide-mobile{display:none}.hero{padding:56px 0}.hero h1{letter-spacing:-1.5px}.cards,.steps,.plans,.faq{grid-template-columns:1fr}section{padding:54px 0}.contact-panel{padding:22px}}\n</style></head><body><header><div class="wrap top"><a class="brand" href="/">◉ STOCKFINDER <b>PRO</b></a><nav><a class="hide-mobile" href="#features">Features</a><a href="#pricing">Plans</a><a href="#contact">Contact</a><a href="/login">Login</a><a class="btn primary" href="/signup">Get Started</a></nav></div></header><main><div class="hero"><div class="wrap hero-grid"><div><div class="eyebrow">Built for focused Indian equity market analysis</div><h1>Find the setup.<br><span>Trade with clarity.</span></h1><p class="lead">StockFinder Pro brings intraday stock screening, demand and supply zone discovery, and sector-level analysis into one streamlined trading workspace. Spend less time searching and more time evaluating your setups.</p><div class="actions"><a class="btn primary" href="/signup">Create an Account →</a><a class="btn" href="#features">Explore Features</a></div><div class="hero-notes"><span>Multi-timeframe analysis</span><span>Structured zone screening</span><span>Secure account access</span></div></div><div class="screen"><div class="screen-head">◈ MARKET SCANNER <span>PRODUCT PREVIEW</span></div><div class="screen-body"><div class="ticker"><div><small>DEMAND ZONES</small><strong class="up">↗ Buy-side structure</strong></div><div><small>SUPPLY ZONES</small><strong class="down">↘ Sell-side structure</strong></div><div><small>INTRADAY</small><strong>Open = High / Low</strong></div><div><small>TREND</small><strong>EMA 9 / 20</strong></div></div></div><div class="screen-foot">Illustrative product preview, not a live signal or recommendation.</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">Platform features</div><h2>One workspace. Multiple ways to scan.</h2><p class="desc">Designed to help you review market structure and narrow down stocks for further analysis.</p><div class="cards"><article class="card"><div class="ico">▦</div><h3>Intraday Stock Screener</h3><p>Explore supported Indian equity and F&amp;O stocks using intraday price-action filters, including Open = High and Open = Low setups.</p></article><article class="card"><div class="ico">◈</div><h3>Demand &amp; Supply Zones</h3><p>Screen Drop-Rally, Rally-Drop, Rally-Base-Rally, Drop-Base-Rally, Rally-Base-Drop and Drop-Base-Drop patterns with zone boundaries and test status.</p></article><article class="card"><div class="ico">▥</div><h3>Multi-Timeframe Zones</h3><p>Review zone candidates across daily, weekly, monthly, quarterly and half-yearly timeframes where data is available.</p></article><article class="card"><div class="ico">↗</div><h3>EMA Trend Screening</h3><p>Use 9/20 EMA alignment to shortlist potential momentum and trend candidates for your own chart review.</p></article><article class="card"><div class="ico">◉</div><h3>Sector Analysis</h3><p>Compare sector strength and weakness using a simple, readable market overview.</p></article><article class="card"><div class="ico">⌁</div><h3>Zone Status &amp; Risk Levels</h3><p>View proximal, distal, stop-loss and illustrative risk-to-reward levels alongside detected zone status.</p></article></div></div></section><section id="how-it-works"><div class="wrap"><div class="kicker">How it works</div><h2>A simple workflow for every trading session.</h2><div class="steps"><div class="step"><b>01 · Create your account</b><p>Register, sign in and choose a membership plan that fits your usage.</p></div><div class="step"><b>02 · Run your screens</b><p>Choose a market universe, screener and timeframe to review potential setups.</p></div><div class="step"><b>03 · Verify on the chart</b><p>Confirm price action, liquidity and risk independently before making a trading decision.</p></div></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">Membership plans</div><h2>Clear pricing. One focused platform.</h2><p class="desc">All plans include access to the supported StockFinder Pro terminal and screening tools for the selected duration. Payment is handled through Razorpay.</p><div class="plans"><article class="plan"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=monthly">Choose Monthly</a></article><article class="plan popular"><div class="tag">POPULAR CHOICE</div><h3>Quarterly</h3><div class="amount">₹1,199</div><small>3 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn primary" href="/checkout?plan=quarterly">Choose Quarterly</a></article><article class="plan"><h3>Half-Yearly</h3><div class="amount">₹2,499</div><small>6 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose Half-Yearly</a></article><article class="plan"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=yearly">Choose Yearly</a></article></div><p class="disclaimer">Access begins after successful payment verification. A valid membership is required to use subscription-protected tools. Prices shown are the current amounts configured in this application.</p></div></section><section id="faq"><div class="wrap"><div class="kicker">Common questions</div><h2>Before you get started.</h2><div class="faq"><div class="faq-item"><h3>Is StockFinder Pro a broker?</h3><p>No. It is a market screening and analysis tool. Orders and trade execution are handled separately through your broker.</p></div><div class="faq-item"><h3>Does the screener guarantee profits?</h3><p>No. Screening results are informational and may be delayed or incomplete. Verify every setup and manage your own risk.</p></div><div class="faq-item"><h3>Do I have to pay every time I log in?</h3><p>No. You can sign in again while your verified subscription remains active. Renewal is required when the membership expires.</p></div><div class="faq-item"><h3>How do I reset my password?</h3><p>Use the Forgot Password link on the login page and follow the account recovery steps.</p></div></div></div></section><section id="contact"><div class="wrap contact"><div><div class="kicker">Contact &amp; support</div><h2>Questions about access or billing?</h2><p class="desc">For login, subscription, payment verification or platform issues, contact the StockFinder Pro support team. Include the registered email and a short description of the problem. Never share your password or OTP.</p></div><div class="contact-panel"><h3>StockFinder Pro Support</h3><p>Need help with your account or subscription? Use the support email configured by the platform owner.</p>{% if support_email %}<a href="mailto:{{ support_email }}?subject=StockFinder%20Pro%20Support">{{ support_email }}</a>{% else %}<p><strong>Support email:</strong> To be announced. Configure the <code>SUPPORT_EMAIL</code> environment variable to publish your address.</p>{% endif %}<p class="disclaimer">Support requests are handled separately from trading or investment advice.</p></div></div></section></main><footer><div class="wrap foot"><span>© <span id="year"></span> StockFinder Pro. All rights reserved.</span><div class="footlinks"><a href="#features">Features</a><a href="#pricing">Plans</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a href="/login">Login</a></div><div class="disclaimer">Educational and analytical tools only. Not investment advice. Trading involves financial risk.</div></div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
 
 LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -985,7 +1004,9 @@ body{min-height:100dvh!important;height:auto!important;background:radial-gradien
 </head>
 <body>
   <div class="login-card">
-    <div class="brand">⚡ TERMINAL LOGIN</div>
+    <div style="text-align:center;margin-bottom:16px"><a href="/" style="color:#edf5fa;text-decoration:none;font-weight:800;font-size:14px">◉ STOCKFINDER <span style="color:#32d596">PRO</span></a></div>
+    <div class="brand">Welcome Back</div>
+    <p style="text-align:center;color:#9fb0bd;font-size:12px;line-height:1.7;margin:-12px 0 24px">Sign in to access your stock screener, demand &amp; supply zones and market analysis tools.</p>
     {% if error %}
       <div class="error-msg">{{ error }}</div>
     {% endif %}
@@ -1001,7 +1022,8 @@ body{min-height:100dvh!important;height:auto!important;background:radial-gradien
       </div>
       <button type="submit" class="btn-login">Login to Terminal 🚀</button>
     </form>
-    <a href="/signup" class="back-link">Don't have an account? Sign Up</a>
+    <a href="/signup" class="back-link">New to StockFinder Pro? Create an account</a>
+    <div style="display:flex;justify-content:center;gap:17px;flex-wrap:wrap;margin-top:22px;font-size:12px"><a href="/#features" style="color:#9fb0bd">Features</a><a href="/#pricing" style="color:#9fb0bd">Plans</a><a href="/#contact" style="color:#9fb0bd">Contact Support</a><a href="/" style="color:#9fb0bd">Home</a></div>
   </div>
 </body>
 </html>
@@ -1191,10 +1213,14 @@ body{min-height:100dvh!important;height:auto!important;background:radial-gradien
 # ================= FLASK ROUTING & AUTHENTICATION =================
 @app.route("/")
 def landing_page():
-    return render_template_string(LANDING_PAGE_HTML)
+    if current_user():
+        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
+    return render_template_string(LANDING_PAGE_HTML, support_email=os.getenv("SUPPORT_EMAIL", "").strip())
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
+    if request.method == 'GET' and current_user():
+        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1231,6 +1257,8 @@ def signup():
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
+    if request.method == 'GET' and current_user():
+        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1249,7 +1277,7 @@ def login_page():
                 session.clear()
                 session.permanent = True
                 session['user'] = email
-                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('checkout', plan=chosen_plan if chosen_plan in PLAN_DETAILS else 'monthly'))
+                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account'))
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)
@@ -1321,6 +1349,176 @@ def reset_password():
             
     return render_template_string(RESET_PASSWORD_HTML)
 
+# Account & Settings pages use existing User, Subscription and Payment tables.
+ACCOUNT_CSS = """<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% 0,#173b32,#081018 48%);color:#edf5fa;font:14px 'Plus Jakarta Sans',Arial,sans-serif}a{color:inherit;text-decoration:none}.wrap{max-width:1080px;margin:auto;padding:25px 20px 70px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:34px}.logo{font-weight:800;font-size:20px}.logo b{color:#32d596}.links{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.links a{color:#bbcad3}.links a:hover{color:#ffb342}h1{font-size:34px;margin:0 0 8px}h2{font-size:18px;margin:0 0 18px}p{color:#a9bac6;line-height:1.7}.muted{color:#a9bac6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:22px 0}.card{background:#10212b;border:1px solid #2c4652;border-radius:16px;padding:23px;margin-bottom:16px}.label{color:#9db0bc;font-size:12px}.value{font-size:25px;font-weight:800;margin:10px 0}.tag{display:inline-block;padding:6px 10px;border-radius:20px;background:#174438;color:#53e0aa;font-weight:700;font-size:12px}.tag.off{background:#493025;color:#ffc18e}.btn{display:inline-block;background:#f6aa2a;color:#111b21;border:0;border-radius:9px;padding:12px 17px;font-weight:800;cursor:pointer}.btn.secondary{background:#1a323f;color:#eaf2f5;border:1px solid #41606d}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}table{width:100%;border-collapse:collapse;text-align:left}td,th{padding:13px 8px;border-bottom:1px solid #2c4652}th{color:#9db0bc;font-size:12px}.table-wrap{overflow-x:auto}input{display:block;width:100%;padding:12px;background:#0b1820;color:white;border:1px solid #42606e;border-radius:9px;margin:7px 0 17px;max-width:450px}.msg{padding:13px;border-radius:9px;background:#153b30;color:#83f1c3;margin:15px 0}.msg.err{background:#46252b;color:#ffb3bd}.plan-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.plan{background:#0c1921;border:1px solid #2c4652;border-radius:12px;padding:16px}.plan strong{display:block;margin-bottom:9px}.plan .price{font-size:22px;font-weight:800;color:#ffbf60}.plan .btn{margin-top:12px;font-size:12px;text-align:center;width:100%}@media(max-width:760px){.grid{grid-template-columns:1fr}.plan-grid{grid-template-columns:repeat(2,1fr)}h1{font-size:28px}}@media(max-width:430px){.plan-grid{grid-template-columns:1fr}}</style>"""
+
+ACCOUNT_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>My Account | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">My Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>My Account</h1><p>Manage your StockFinder Pro membership, billing history and account access.</p><div class="grid"><section class="card"><div class="label">Membership status</div><div class="value">{{ 'Active' if is_active else 'Expired / Inactive' }}</div><span class="tag {{ '' if is_active else 'off' }}">{{ 'Access enabled' if is_active else 'Renew to access screener' }}</span></section><section class="card"><div class="label">Current plan</div><div class="value">{{ plan_name }}</div><div class="muted">{{ plan_price }}</div></section><section class="card"><div class="label">Time remaining</div><div class="value">{{ days_left }} days</div><div class="muted">Expires: {{ expiry }}</div></section></div><section class="card"><h2>Profile & Membership</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">{% for label,href,subtitle in navigation %}<a class="plan" href="{{ href }}" style="display:block"><strong>{{ label }} →</strong><span class="muted">{{ subtitle }}</span></a>{% endfor %}</div></section><section class="card"><h2>Account details</h2><p><b>Registered email:</b> {{ email }}</p><p><b>Member since:</b> {{ joined }}</p><div class="actions"><a class="btn secondary" href="/settings">Account Settings</a><a class="btn secondary" href="/terminal">Open Screener</a></div></section><section class="card"><h2>Subscription plans</h2><p>Renew or extend your membership. A verified payment extends the current expiry date when your plan is still active.</p><div class="plan-grid">{% for key, item in plans.items() %}<div class="plan"><strong>{{ item.name }}</strong><div class="price">₹{{ item.price }}</div><div class="muted">{{ item.duration }}</div><a class="btn" href="/checkout?plan={{ key }}&renew=1">{{ 'Extend plan' if is_active else 'Choose plan' }}</a></div>{% endfor %}</div></section><section class="card"><h2>Payment history</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Status</th><th>Payment ID</th></tr></thead><tbody>{% for p in payments %}<tr><td>{{ p.created_at.strftime('%d %b %Y') if p.created_at else '—' }}</td><td>{{ p.plan|title }}</td><td>₹{{ '%.2f'|format(p.amount_paise/100) }}</td><td>{{ p.status|title }}</td><td>{{ p.payment_id or '—' }}</td></tr>{% else %}<tr><td colspan="5">No payment records yet.</td></tr>{% endfor %}</tbody></table></div></section><p>Need help? {% if support_email %}<a href="mailto:{{ support_email }}">{{ support_email }}</a>{% else %}Contact platform support.{% endif %} Never share your password or OTP.</p></main></body></html>"""
+
+SETTINGS_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Settings | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">My Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>Account Settings</h1><p>Update your password and review account preferences.</p>{% if message %}<div class="msg {{ 'err' if error else '' }}">{{ message }}</div>{% endif %}<section class="card"><h2>Settings Options</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">{% for label,href,subtitle in navigation %}<a class="plan" href="{{ href }}" style="display:block"><strong>{{ label }} →</strong><span class="muted">{{ subtitle }}</span></a>{% endfor %}</div></section><section class="card"><h2>Security · Change password</h2><form method="post" action="/settings"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password (minimum 8 characters)<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><label>Confirm new password<input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required></label><button class="btn" type="submit">Update Password</button></form></section></main></body></html>"""
+
+# All account navigation is server-side and restricted to the authenticated user.
+PROFILE_NAV = [
+    ('My Profile','/account/profile','Registered email and account details'),
+    ('My Subscription','/account/subscription','Plan and expiry'),
+    ('Billing History','/account/billing','Payment records'),
+]
+SETTINGS_NAV = [
+    ('Appearance','/settings/appearance','Dark, Light, Ocean and AMOLED'),
+    ('Screener Settings','/settings/screener','Default filters and timeframe'),
+    ('Security','/settings/security','Change your password'),
+    ('Notifications','/settings/notifications','Reminder preferences'),
+]
+ACCOUNT_NAV = PROFILE_NAV + SETTINGS_NAV
+ACCOUNT_DETAIL_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }} | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>{{ title }}</h1><p>{{ description }}</p><div style="display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);gap:20px;align-items:start" class="account-layout"><aside class="card" style="padding:12px">{% for label,href,subtitle in navigation %}<a href="{{ href }}" style="display:block;padding:13px;border-radius:9px;margin-bottom:4px;background:{{ '#234337' if href==current_path else 'transparent' }}"><b>{{ label }}</b><div class="muted" style="font-size:11px;margin-top:4px">{{ subtitle }}</div></a>{% endfor %}</aside><section class="card" style="min-width:0">{% if message %}<div class="msg {{ 'err' if error else '' }}">{{ message }}</div>{% endif %}{{ content|safe }}</section></div><p class="muted">Your account data is private. Never share your password or OTP.</p></main><style>@media(max-width:700px){.account-layout{grid-template-columns:1fr!important}}</style></body></html>"""
+
+def _detail_page(title, description, content, **kwargs):
+    return render_template_string(ACCOUNT_DETAIL_HTML, title=title, description=description,
+        css=ACCOUNT_CSS, navigation=(SETTINGS_NAV if request.path.startswith("/settings") else PROFILE_NAV), current_path=request.path,
+        content=render_template_string(content, **kwargs), message=kwargs.get('message',''),
+        error=kwargs.get('error',False))
+
+@app.route('/account/profile')
+def profile_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    return _detail_page('My Profile','Your registered StockFinder Pro account.',
+        '<h2>Profile details</h2><p><b>Registered email:</b> {{ email }}</p><p><b>Member since:</b> {{ joined }}</p><p><b>Account ID:</b> {{ account_id }}</p><p><b>Subscription:</b> {{ plan }}</p>',
+        email=user.email, joined=user.created_at.strftime('%d %b %Y') if user.created_at else '—',
+        account_id=user.id, plan=sub.plan.title() if sub else 'Not subscribed')
+
+@app.route('/account/subscription')
+def subscription_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    now = datetime.utcnow()
+    days = max(0,__import__('math').ceil((sub.expires_at-now).total_seconds()/86400)) if sub else 0
+    return _detail_page('My Subscription','Plan validity and renewal options.',
+        '<h2>Membership</h2><p><b>Current plan:</b> {{ plan }}</p><p><b>Status:</b> {{ status }}</p><p><b>Days remaining:</b> {{ days }}</p><p><b>Expiry (UTC):</b> {{ expiry }}</p><h2>Renew or extend</h2><div class="plan-grid">{% for key,plan in plans.items() %}<div class="plan"><strong>{{ key|title }}</strong><div class="price">₹{{ plan }}</div><a class="btn" href="/checkout?plan={{ key }}&renew=1">Choose plan</a></div>{% endfor %}</div>',
+        plan=sub.plan.title() if sub else 'None', status='Active' if sub and sub.expires_at>now else 'Inactive / Expired',
+        days=days, expiry=sub.expires_at.strftime('%d %b %Y %H:%M') if sub else '—',
+        plans={'monthly':'499','quarterly':'1,199','halfyearly':'2,499','yearly':'4,999'})
+
+@app.route('/account/billing')
+def billing_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    payments = Payment.query.filter_by(user_id=user.id).order_by(Payment.created_at.desc()).limit(100).all()
+    return _detail_page('Billing History','Your recorded payment attempts and transactions.',
+        '<div class="table-wrap"><table><thead><tr><th>Date (UTC)</th><th>Plan</th><th>Amount</th><th>Status</th><th>Payment ID</th></tr></thead><tbody>{% for p in payments %}<tr><td>{{ p.created_at.strftime("%d %b %Y") if p.created_at else "—" }}</td><td>{{ p.plan|title }}</td><td>₹{{ "%.2f"|format(p.amount_paise/100) }}</td><td>{{ p.status|title }}</td><td>{{ p.payment_id or "—" }}</td></tr>{% else %}<tr><td colspan="5">No transactions recorded yet.</td></tr>{% endfor %}</tbody></table></div><p>Invoices are not available in this version. Contact support with your payment ID for billing assistance.</p>',payments=payments)
+
+
+@app.route('/settings/appearance')
+def appearance_settings():
+    if 'user' not in session:
+        return redirect(url_for('login_page'))
+    return _detail_page('Appearance', 'Choose the StockFinder Pro terminal theme.',
+        '''<h2>Terminal theme</h2><p>Select a theme. It will apply when you return to the terminal on this browser.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px">
+        <button type="button" class="theme-choice" data-value="dark" style="background:#101b23;color:#fff">🌙 Dark</button>
+        <button type="button" class="theme-choice" data-value="light" style="background:#f4f7fb;color:#152537">☀️ Light</button>
+        <button type="button" class="theme-choice" data-value="ocean" style="background:#0c2b41;color:#40caff">🌊 Ocean Blue</button>
+        <button type="button" class="theme-choice" data-value="amoled" style="background:#000;color:#fff">◼ AMOLED</button></div>
+        <p id="theme-current" class="muted" aria-live="polite"></p><a class="btn" href="/terminal">Return to terminal</a>
+        <style>.theme-choice{padding:22px 12px;border-radius:12px;border:2px solid #526879;cursor:pointer;font-size:16px}.theme-choice[aria-pressed="true"]{outline:3px solid #f6aa2a;outline-offset:2px}</style>
+        <script>(function(){const buttons=document.querySelectorAll('.theme-choice');const current=document.getElementById('theme-current');function render(){let t=localStorage.getItem('theme')||'dark';buttons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.value===t)));current.textContent='Selected theme: '+t;}buttons.forEach(b=>b.addEventListener('click',()=>{localStorage.setItem('theme',b.dataset.value);render();}));render();})();</script>''')
+
+@app.route('/settings/screener', methods=['GET','POST'])
+def screener_preferences():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    pref=db.session.get(UserPreference,user.id)
+    if pref is None:
+        pref=UserPreference(user_id=user.id)
+        db.session.add(pref)
+        db.session.commit()
+    if 'settings_csrf' not in session: session['settings_csrf']=secrets.token_urlsafe(32)
+    message,error='',False
+    if request.method=='POST':
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']):
+            message,error='Invalid session token. Reload and retry.',True
+        elif request.form.get('universe') not in ('FO','NIFTY500') or request.form.get('timeframe') not in ('day','week','month','quarter','halfyear') or request.form.get('zone_filter') not in ('all','fresh','tested'):
+            message,error='Invalid preference selection.',True
+        else:
+            pref.universe=request.form['universe'];pref.timeframe=request.form['timeframe'];pref.zone_filter=request.form['zone_filter']
+            db.session.commit();message='Screener preferences saved.'
+    return _detail_page('Screener Settings','Set your preferred screener defaults.',
+        '<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Stock universe<select name="universe"><option value="FO" {{ "selected" if pref.universe=="FO" else "" }}>F&O</option><option value="NIFTY500" {{ "selected" if pref.universe=="NIFTY500" else "" }}>NIFTY 500</option></select></label><label>Default timeframe<select name="timeframe">{% for tf in ["day","week","month","quarter","halfyear"] %}<option value="{{ tf }}" {{ "selected" if pref.timeframe==tf else "" }}>{{ tf|title }}</option>{% endfor %}</select></label><label>Zone preference<select name="zone_filter">{% for f in ["all","fresh","tested"] %}<option value="{{ f }}" {{ "selected" if pref.zone_filter==f else "" }}>{{ f|title }}</option>{% endfor %}</select></label><p class="muted">These preferences are saved to your account. Apply them when choosing filters in the terminal; they do not alter scanner calculations.</p><button class="btn" type="submit">Save preferences</button></form><style>select{display:block;width:100%;max-width:450px;background:#0b1820;color:white;border:1px solid #42606e;border-radius:9px;padding:12px;margin:7px 0 17px}</style>',pref=pref,csrf=session['settings_csrf'],message=message,error=error)
+
+@app.route('/settings/security', methods=['GET','POST'])
+def security_details():
+    return settings_page()
+
+@app.route('/settings/notifications', methods=['GET','POST'])
+def notification_details():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    pref=db.session.get(UserPreference,user.id)
+    if pref is None:
+        pref=UserPreference(user_id=user.id);db.session.add(pref);db.session.commit()
+    if 'settings_csrf' not in session: session['settings_csrf']=secrets.token_urlsafe(32)
+    message,error='',False
+    if request.method=='POST':
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']): message,error='Invalid session token.',True
+        else:
+            pref.expiry_reminders=request.form.get('expiry_reminders')=='on';db.session.commit();message='Notification preference saved.'
+    return _detail_page('Notifications','Manage communication preferences.',
+        '<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label style="display:flex;gap:12px;align-items:center"><input style="width:auto;margin:0" type="checkbox" name="expiry_reminders" {{ "checked" if enabled else "" }}>Subscription expiry reminders</label><p>Reminder delivery requires an email scheduler, which is not configured in this version. This option only stores your preference.</p><button class="btn" type="submit">Save preference</button></form>',csrf=session['settings_csrf'],enabled=pref.expiry_reminders,message=message,error=error)
+
+@app.route('/support')
+def support_details():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    return _detail_page('Help & Support','Get assistance with your account, payment or screener.',
+        '<h2>Contact support</h2>{% if email %}<p>Email: <a href="mailto:{{ email }}?subject=StockFinder%20Pro%20Support">{{ email }}</a></p>{% else %}<p>Support email has not been configured by the platform owner.</p>{% endif %}<h2>Before contacting us</h2><p>Include your registered email, issue description and any relevant payment ID. Do not share passwords, OTPs or card details.</p><div class="actions"><a class="btn secondary" href="/account/billing">Check billing</a><a class="btn secondary" href="/account/subscription">Check subscription</a></div>',email=os.getenv('SUPPORT_EMAIL','').strip())
+
+@app.route('/account')
+def account_page():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    active = bool(sub and sub.expires_at > datetime.utcnow())
+    remaining = max(0, (sub.expires_at - datetime.utcnow()).total_seconds()) if sub else 0
+    days_left = int(__import__('math').ceil(remaining / 86400))
+    plan_info = {'monthly':('Monthly','499'), 'quarterly':('Quarterly','1,199'), 'halfyearly':('Half-Yearly','2,499'), 'yearly':('Yearly','4,999')}
+    plan_name, price = plan_info.get(sub.plan, (sub.plan.title(), '—')) if sub else ('No plan', '—')
+    plans = {k: {'name':v[0], 'price':v[1], 'duration':str(PLAN_DETAILS[k][1])+' month(s)'} for k,v in plan_info.items()}
+    payments = Payment.query.filter_by(user_id=user.id).order_by(Payment.created_at.desc()).limit(50).all()
+    return render_template_string(ACCOUNT_HTML, css=ACCOUNT_CSS, is_active=active, plan_name=plan_name,
+        plan_price=('₹'+price if sub else 'No active membership'), days_left=days_left,
+        expiry=sub.expires_at.strftime('%d %b %Y, %I:%M %p UTC') if sub else 'Not subscribed',
+        email=user.email, joined=user.created_at.strftime('%d %b %Y') if user.created_at else '—',
+        plans=plans, payments=payments, navigation=PROFILE_NAV, support_email=os.getenv('SUPPORT_EMAIL','').strip())
+
+@app.route('/settings', methods=['GET','POST'])
+def settings_page():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    if 'settings_csrf' not in session: session['settings_csrf'] = secrets.token_urlsafe(32)
+    message, error = '', False
+    if request.method == 'POST':
+        current = request.form.get('current_password','')
+        new = request.form.get('new_password','')
+        confirm = request.form.get('confirm_password','')
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']):
+            message, error = 'Invalid form session. Reload and retry.', True
+        elif not check_password_hash(user.password, current):
+            message, error = 'Current password is incorrect.', True
+        elif len(new) < 8 or len(new) > 128:
+            message, error = 'New password must contain 8–128 characters.', True
+        elif new != confirm:
+            message, error = 'New passwords do not match.', True
+        elif new == current:
+            message, error = 'Choose a different password.', True
+        else:
+            user.password = generate_password_hash(new, method='pbkdf2:sha256')
+            db.session.commit()
+            session['settings_csrf'] = secrets.token_urlsafe(32)
+            message = 'Password updated successfully.'
+    return render_template_string(SETTINGS_HTML,css=ACCOUNT_CSS,message=message,error=error,csrf_token=session['settings_csrf'],navigation=SETTINGS_NAV)
+
 @app.route("/terminal")
 def terminal_app():
     if 'user' not in session:
@@ -1348,7 +1546,7 @@ def checkout():
         session['selected_plan'] = plan
         return redirect(url_for('signup', plan=plan))
     user = current_user()
-    if active_subscription(user):
+    if active_subscription(user) and request.args.get('renew') != '1':
         return redirect(url_for('terminal_app'))
     if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
         app.logger.error('Razorpay credentials missing: configure both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')
@@ -1396,7 +1594,7 @@ const opts={key:{{key_id|tojson}},amount:{{amount|tojson}},currency:'INR',name:'
  handler:async function(response){document.getElementById('status').textContent='Verifying payment...';
  try{const r=await fetch('/api/payment/verify',{method:'POST',headers:{'Content-Type':'application/json'},
  body:JSON.stringify(response)});const data=await r.json();if(!r.ok)throw Error(data.message||'Verification failed');
- location.href='/terminal';}catch(e){document.getElementById('status').textContent=e.message+' Please contact support if charged.';}},
+ location.href='/account';}catch(e){document.getElementById('status').textContent=e.message+' Please contact support if charged.';}},
  theme:{color:'#ff9e0b'}};
 document.getElementById('pay').onclick=()=>new Razorpay(opts).open();
 window.addEventListener('load',()=>{if(typeof Razorpay==='function')new Razorpay(opts).open();});
@@ -1536,7 +1734,7 @@ PRECOMPUTE_THREAD = None
 def _stored_zone_snapshot(univ_key, tf):
     try:
         with app.app_context():
-            row = db.session.get(ZoneResultStore, f'v7_dr_rd_second_candle:{univ_key}:{tf}')
+            row = db.session.get(ZoneResultStore, f'v8_zone_visibility_testcount:{univ_key}:{tf}')
             if row is not None:
                 data = json.loads(row.zones_json)
                 if isinstance(data, list):
@@ -1601,7 +1799,7 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
             "entry": z["entry"], "stopLoss": z["stopLoss"], "risk": z["risk"], "riskPct": z["riskPct"],
             "target1R2": z["target1R2"], "target1R3": z["target1R3"],
             "strongZone": z.get("strongZone", False),
-            "status": z["status"], "multiplier": z.get("multiplier", 1.0),
+            "status": z["status"], "testCount": z.get("testCount", 0), "distancePct": z.get("distancePct"), "multiplier": z.get("multiplier", 1.0),
             "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"],
             "baseCandles": z.get("baseCandles"),
             "zoneCandleDate": z.get("zoneCandleDate"), "zoneCandleOpen": z.get("zoneCandleOpen"),
@@ -1662,7 +1860,7 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
         results.sort(key=lambda x: (cmp_distance(x), x.get('symbol', '')))
         try:
             with app.app_context():
-                store_key = f'v7_dr_rd_second_candle:{univ_key}:{tf}'
+                store_key = f'v8_zone_visibility_testcount:{univ_key}:{tf}'
                 record = db.session.get(ZoneResultStore, store_key)
                 if record is None:
                     record = ZoneResultStore(cache_key=store_key, zones_json='[]')

@@ -90,8 +90,8 @@ class Subscription(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '').strip()
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '').strip()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_Tzu7vWHKhEXtaP').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'INlldbISSNZfWjhEiVVThgbC').strip()
 
 def current_user():
     return User.query.filter_by(email=session.get('user', '')).first() if session.get('user') else None
@@ -1407,8 +1407,8 @@ def verify_payment():
     user=current_user()
     if not user: return jsonify({'message':'Login required'}),401
     data=request.get_json(silent=True) or {}
-    order_id=data.get('razorpay_order_id','rzp_test_Tzu7vWHKhEXtaP')
-    payment_id=data.get('razorpay_payment_id','INlldbISSNZfWjhEiVVThgbC')
+    order_id=data.get('razorpay_order_id','')
+    payment_id=data.get('razorpay_payment_id','')
     signature=data.get('razorpay_signature','')
     payment=Payment.query.filter_by(order_id=order_id,user_id=user.id).first()
     if not payment or not all((order_id,payment_id,signature)):

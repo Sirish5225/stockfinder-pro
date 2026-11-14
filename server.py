@@ -1407,8 +1407,8 @@ def verify_payment():
     user=current_user()
     if not user: return jsonify({'message':'Login required'}),401
     data=request.get_json(silent=True) or {}
-    order_id=data.get('razorpay_order_id','rzp_test_TzOiKGfQnvAcaw')
-    payment_id=data.get('razorpay_payment_id','RE9fr3o5YeqTo16lulirt0z5')
+    order_id=data.get('razorpay_order_id','rzp_test_Tzu7vWHKhEXtaP')
+    payment_id=data.get('razorpay_payment_id','INlldbISSNZfWjhEiVVThgbC')
     signature=data.get('razorpay_signature','')
     payment=Payment.query.filter_by(order_id=order_id,user_id=user.id).first()
     if not payment or not all((order_id,payment_id,signature)):

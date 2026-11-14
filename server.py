@@ -101,8 +101,8 @@ class UserPreference(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_TzOiKGfQnvAcaw').strip()
-RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'RE9fr3o5YeqTo16lulirt0z5').strip()
+RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_Tzw6f8DK80fuBg').strip()
+RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'j158BTxyNYtNNDYuHd5j7nZy').strip()
 
 def current_user():
     return User.query.filter_by(email=session.get('user', '')).first() if session.get('user') else None

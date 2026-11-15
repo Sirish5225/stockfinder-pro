@@ -560,6 +560,57 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 :root[data-theme="amoled"]{--bg:#000;--panel:#080808;--border:#2d2d2d;--primary:#ffb342;--green:#20cf83;--strong-text:#f5f5f5;--muted:#a5a5a5;--sidebar-bg:#000}
 :root[data-theme="amoled"] .panel,:root[data-theme="amoled"] .toolbar,:root[data-theme="amoled"] .kpi-card,:root[data-theme="amoled"] .movers-panel,:root[data-theme="amoled"] .table-container{background:#080808!important}
 :root[data-theme="ocean"] .panel,:root[data-theme="ocean"] .toolbar,:root[data-theme="ocean"] .kpi-card,:root[data-theme="ocean"] .movers-panel,:root[data-theme="ocean"] .table-container{background:#0c2b41!important}
+
+/* v15: landing-consistent sidebar identity + readable responsive terminal */
+.sfp-sidebar-brand{display:flex!important;align-items:center!important;gap:10px!important;margin-bottom:24px!important;padding:9px 7px!important;text-decoration:none!important;white-space:nowrap;min-width:0;text-shadow:none!important;letter-spacing:-.5px!important}
+.sfp-brand-mark{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #c98b2d;border-radius:12px;background:linear-gradient(145deg,#1c2b2c,#0b151c);color:#ffac28;font-size:33px;line-height:1;box-shadow:0 0 17px #ffac2820}
+.sfp-brand-name{display:block;min-width:0;color:var(--strong-text);font-family:'Plus Jakarta Sans',sans-serif;font-size:17px;font-weight:800;letter-spacing:-.65px;line-height:1.1}
+.sfp-brand-name>span{color:#ffac28}.sfp-brand-name small{display:block;margin-top:5px;font-size:7.5px;font-weight:700;letter-spacing:.6px;color:var(--muted)}
+.sfp-sidebar-brand .dot{margin-left:auto!important;flex:0 0 7px!important;width:7px!important;height:7px!important}
+@media(max-width:1024px){
+  .sidebar{width:min(310px,88vw)!important;min-width:0!important;padding:20px 16px!important}
+  .sidebar .nav-btn{min-height:47px;font-size:14px!important;display:flex;align-items:center}
+  .sidebar .universe-dropdown{min-height:46px;font-size:14px!important;width:100%}
+  .sidebar .toggle-row{min-height:48px}
+  .bottom-nav{min-height:66px!important}
+  .bottom-nav .bnav-btn{min-height:54px;font-size:11px!important;line-height:1.25;gap:4px}
+  .bottom-nav .bnav-btn .icon{font-size:21px!important}
+}
+@media(max-width:600px){
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{font-size:14px!important}
+  .main-wrapper main{padding:13px!important;padding-bottom:22px!important}
+  .panel{padding:15px!important;border-radius:13px!important;margin-bottom:14px!important}
+  .panel h3{font-size:15px!important;line-height:1.4}
+  .panel p,.toolbar label,.toolbar span{font-size:12px;line-height:1.45}
+  .toolbar{padding:12px!important;gap:10px!important;flex-wrap:wrap!important}
+  .toolbar select,.toolbar input,.toolbar button,.filter-btn,.search-box,.universe-dropdown{font-size:14px!important;min-height:42px!important}
+  .search-wrapper{min-width:0;width:100%!important}
+  .search-box{width:100%!important}
+  .filter-wrapper{max-width:100%;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch;gap:7px!important}
+  .filter-btn{flex:0 0 auto;padding:9px 12px!important;white-space:nowrap}
+  .kpi-grid{gap:10px!important}
+  .kpi-card{padding:13px!important;min-height:95px}
+  .kpi-val{font-size:21px!important;line-height:1.3}
+  .kpi-label{font-size:11px!important;line-height:1.4}
+  .table-container{overflow-x:auto!important;max-width:100%!important;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+  .table-container table{min-width:750px!important;font-size:12px!important}
+  .table-container th,.table-container td{padding:12px 10px!important;white-space:nowrap}
+  .sector-treemap-grid .treemap-tile{min-height:118px!important;padding:12px 7px!important}
+  .sector-treemap-grid .treemap-tile .tile-name{font-size:12px!important;line-height:1.3}
+  .sector-treemap-grid .treemap-tile .tile-change{font-size:14px!important}
+  .market-ticker-container{height:50px!important;min-height:50px!important}
+  .hamburger-btn,.theme-btn{min-width:48px!important}
+  .ticker-item{font-size:12px!important}
+  input,select,textarea{font-size:16px!important}
+}
+@media(max-width:380px){
+  .main-wrapper main{padding:10px!important}
+  .panel{padding:12px!important}
+  .bottom-nav .bnav-btn{font-size:10px!important}
+  .sfp-brand-name{font-size:16px}
+}
+
 </style>
 </head>
 <body>
@@ -567,7 +618,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="dot" id="api-status"></div> STOCK FINDER PRO</div>
+    <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<span>Pro</span><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
     <div class="sidebar-nav">
       <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
       <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>

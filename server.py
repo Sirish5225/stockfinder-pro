@@ -53,6 +53,10 @@ if os.getenv('RENDER') and not database_url and not os.getenv('DATABASE_PATH'):
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or ('sqlite:///' + db_path)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+app.logger.warning(
+    "ACTIVE DATABASE TYPE: %s",
+    app.config["SQLALCHEMY_DATABASE_URI"].split(":", 1)[0]
+)
 if not database_url and os.getenv('RENDER'):
     app.logger.warning('SQLite on Render ephemeral storage can lose accounts on restart. Configure persistent DATABASE_URL (PostgreSQL).')
 

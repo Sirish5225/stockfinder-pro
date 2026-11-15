@@ -140,8 +140,8 @@ class UserPreference(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_TzOiKGfQnvAcaw').strip()
-RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'RE9fr3o5YeqTo16lulirt0z5').strip()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_TzOiKGfQnvAcaw').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'RE9fr3o5YeqTo16lulirt0z5').strip()
 
 def current_user():
     email = session.get('user')
@@ -1125,7 +1125,7 @@ def fetch_historical_candles(instrument_key, interval):
 
 # ================= GMAIL / RESEND SMTP EMAIL DISPATCH =================
 import resend
-resend.api_key = os.getenv("RESEND_API_KEY", "re_B1WFfX1Q_KnRJu6YitXAztBuLa6jFM1Ap")
+resend.api_key = os.getenv("RESEND_API_KEY", "re_941CAtqZ_ChB72k3MAvZdx3QBVVgBfzgQ")
 
 def send_otp_email(to_email, otp_code):
     try:
@@ -2227,6 +2227,189 @@ def zone_cache_status():
         output[tf] = {'ready':rows is not None, 'zones':len(rows) if rows is not None else 0,
                       'updatedAt':updated.isoformat() if updated else None, 'scan':progress}
     return jsonify(status='success', universe=universe, timeframes=output)
+
+
+# ---- Intraday Pullback Scanner: sector-confirmed, no future candles ----
+PULLBACK_LOCK = threading.RLock()
+PULLBACK_JOBS = {}
+PULLBACK_TTL = 180
+PULLBACK_IST = pytz.timezone('Asia/Kolkata')
+# Use only actual exchange indices. Unmapped/custom sectors are intentionally excluded.
+PULLBACK_SECTOR_INDICES = {
+    'Nifty Bank':'Nifty Bank', 'Nifty IT':'Nifty IT', 'Nifty Auto':'Nifty Auto',
+    'Nifty Pharma':'Nifty Pharma', 'Nifty Metal':'Nifty Metal',
+    'Nifty Energy':'Nifty Energy', 'Nifty FMCG':'Nifty FMCG',
+    'Fin Service':'Nifty Financial Services',
+}
+
+def _pb_candles(key, unit, days=1):
+    if not UPSTOX_ACCESS_TOKEN: return []
+    url = ('https://api.upstox.com/v3/historical-candle/intraday/'
+           + urllib.parse.quote(key, safe='') + '/minutes/' + str(unit))
+    try:
+        with HISTORY_API_SLOTS:
+            response = HTTP_SESSION.get(url, headers={'Accept':'application/json',
+                'Authorization':'Bearer '+UPSTOX_ACCESS_TOKEN}, timeout=(5,13))
+        if response.status_code != 200: return []
+        candles = response.json().get('data',{}).get('candles',[])
+        return sorted([c for c in candles if len(c)>=6],key=lambda c:str(c[0]))
+    except (ValueError, KeyError, requests.RequestException): return []
+
+def _pb_frame(candles,unit):
+    if not candles: return pd.DataFrame()
+    try:
+        f=pd.DataFrame(candles,columns=['ts','open','high','low','close','volume']+['oi']*(len(candles[0])-6))
+        f=f.iloc[:,:6].copy()
+        f['ts']=pd.to_datetime(f['ts'],utc=True).dt.tz_convert(PULLBACK_IST)
+        for col in ['open','high','low','close','volume']: f[col]=pd.to_numeric(f[col],errors='coerce')
+        f=f.dropna().sort_values('ts').drop_duplicates('ts')
+        now=datetime.now(PULLBACK_IST)
+        f=f[(f.ts.dt.date==now.date()) & (f.ts.dt.time>=datetime.strptime('09:15','%H:%M').time())]
+        f=f[f.ts+pd.to_timedelta(unit,unit='m')<=pd.Timestamp(now)]
+        return f.reset_index(drop=True)
+    except (ValueError,TypeError,KeyError): return pd.DataFrame()
+
+def _pb_trend(frame):
+    if len(frame)<8: return 0
+    c=frame.close
+    fast=c.ewm(span=9,adjust=False).mean()
+    slow=c.ewm(span=20,adjust=False).mean()
+    vwap=( ((frame.high+frame.low+frame.close)/3)*frame.volume ).cumsum()/frame.volume.cumsum().replace(0,np.nan)
+    last=float(c.iloc[-1]); prev=float(c.iloc[-4])
+    if last>float(vwap.iloc[-1]) and fast.iloc[-1]>slow.iloc[-1] and last>prev: return 1
+    if last<float(vwap.iloc[-1]) and fast.iloc[-1]<slow.iloc[-1] and last<prev: return -1
+    return 0
+
+def _pb_daily_levels(key):
+    # Prior completed daily candle and completed-day EMA (never use today's unfinished candle).
+    now=datetime.now(PULLBACK_IST).date()
+    start=now-timedelta(days=100)
+    url=('https://api.upstox.com/v3/historical-candle/'
+         +urllib.parse.quote(key,safe='')+'/days/1/'+str(now)+'/'+str(start))
+    try:
+        with HISTORY_API_SLOTS:
+            response=HTTP_SESSION.get(url,headers={'Accept':'application/json',
+                 'Authorization':'Bearer '+UPSTOX_ACCESS_TOKEN},timeout=(5,13))
+        candles=response.json().get('data',{}).get('candles',[]) if response.status_code==200 else []
+    except (requests.RequestException,ValueError,KeyError):candles=[]
+    data=[]
+    for c in candles:
+        try:
+            dt=pd.to_datetime(c[0],utc=True).tz_convert(PULLBACK_IST).date()
+            if dt<now: data.append((dt,float(c[2]),float(c[3]),float(c[4])))
+        except (ValueError,TypeError,IndexError): pass
+    data=sorted(data,key=lambda a:a[0])
+    if len(data)<21:return None
+    closes=pd.Series([r[3] for r in data])
+    return {'pdh':data[-1][1],'pdl':data[-1][2],
+            'ema20':float(closes.ewm(span=20,adjust=False).mean().iloc[-1])}
+
+def _pb_reaction(frame,level,name):
+    if level is None or len(frame)<2:return 'Unavailable'
+    a=frame.iloc[-2]; b=frame.iloc[-1]
+    tolerance=max(level*.002,1e-6)
+    touched=min(abs(float(a.low)-level),abs(float(a.high)-level),abs(float(b.low)-level),abs(float(b.high)-level))<=tolerance or (float(b.low)<=level<=float(b.high))
+    if b.close>level and a.close<=level and b.close>b.open:return name+' Breakout'
+    if b.close<level and a.close>=level and b.close<b.open:return name+' Breakdown'
+    if touched and b.close>level and b.close>b.open:return name+' Support Holding'
+    if touched and b.close<level and b.close<b.open:return name+' Resistance Rejection'
+    if abs(float(b.close)-level)/level<=.005:return 'Near '+name
+    return 'Above '+name if b.close>level else 'Below '+name
+
+def _pb_scan_stock(item,tf,market,sector):
+    sector_name=item.get('sector')
+    if sector_name not in sector:return None
+    sf=sector[sector_name]
+    if sf['trend']==0 or sf['trend']!=market:return None
+    f=_pb_frame(_pb_candles(item['isin'],tf),tf)
+    if len(f)<21:return None
+    c=f.close
+    e9=c.ewm(span=9,adjust=False).mean(); e20=c.ewm(span=20,adjust=False).mean()
+    vw=(((f.high+f.low+f.close)/3)*f.volume).cumsum()/f.volume.cumsum().replace(0,np.nan)
+    if not np.isfinite(vw.iloc[-1]):return None
+    trend=_pb_trend(f)
+    if trend!=market:return None
+    # Require actual VWAP test and rejection in recent completed candles, not just proximity.
+    found=None
+    for i in range(max(20,len(f)-5),len(f)):
+        b=f.iloc[i]; v=float(vw.iloc[i]); close=float(b.close)
+        near=(float(b.low)<=v*1.002 and float(b.high)>=v*.998)
+        if not near:continue
+        if trend==1 and close>v and close>b.open and e9.iloc[i]>=e20.iloc[i]:found=i
+        if trend==-1 and close<v and close<b.open and e9.iloc[i]<=e20.iloc[i]:found=i
+    if found is None:return None
+    pb=f.iloc[found]
+    # Signal WATCH immediately after a completed VWAP rejection candle; trigger only on a later candle.
+    later=f.iloc[found+1:]
+    triggered=bool(len(later) and (float(later.high.max())>float(pb.high) if trend==1 else float(later.low.min())<float(pb.low)))
+    levels=_pb_daily_levels(item['isin'])
+    if not levels:return None
+    p=float(f.close.iloc[-1]); pdh=levels['pdh'];pdl=levels['pdl'];ema=levels['ema20']
+    change=(p/float(f.open.iloc[0])-1)*100
+    if (trend==1 and change<=0) or (trend==-1 and change>=0):return None
+    # Relative sector strength: sector must be directional AND outperform market in that direction.
+    if (trend==1 and sf['change']<=sf['market_change']) or (trend==-1 and sf['change']>=sf['market_change']):return None
+    vratio=float(f.volume.iloc[-1]/max(1,f.volume.iloc[-min(len(f),12):-1].mean()))
+    momentum='Strong' if abs(change)>=.7 and vratio>=1.2 else 'Moderate'
+    return {'symbol':item['symbol'],'sector':sector_name,'direction':'Bullish' if trend==1 else 'Bearish',
+      'state':'TRIGGERED' if triggered else 'WATCH','time':pb.ts.strftime('%I:%M %p'),
+      'momentum':momentum,'vwap':'Support' if trend==1 else 'Resistance',
+      'sectorChange':round(sf['change'],2),'marketChange':round(sf['market_change'],2),
+      'dailyEma20':round(ema,2),'emaReaction':_pb_reaction(f,ema,'EMA20'),
+      'pdh':round(pdh,2),'pdl':round(pdl,2),'pdhStatus':_pb_reaction(f,pdh,'PDH'),
+      'pdlStatus':_pb_reaction(f,pdl,'PDL'),'ltp':round(p,2),'volumeRatio':round(vratio,2)}
+
+def _pb_worker(tf):
+    key=str(tf)
+    try:
+        # A true sector index is mandatory; never substitute a custom bucket's average.
+        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf),tf)
+        market=_pb_trend(market_f)
+        if not market:raise ValueError('Market sideways or market candles unavailable')
+        market_change=(float(market_f.close.iloc[-1])/float(market_f.open.iloc[0])-1)*100
+        sectors={}
+        for label,index in PULLBACK_SECTOR_INDICES.items():
+            f=_pb_frame(_pb_candles('NSE_INDEX|'+index,tf),tf)
+            trend=_pb_trend(f)
+            if trend and len(f):
+                sectors[label]={'trend':trend,'change':(float(f.close.iloc[-1])/float(f.open.iloc[0])-1)*100,'market_change':market_change}
+        universe=GLOBAL_MARKET_UNIVERSE
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            futures={pool.submit(_pb_scan_stock,s,tf,market,sectors):s for s in universe if s.get('sector') in sectors}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result=future.result()
+                    if result:
+                        with PULLBACK_LOCK:PULLBACK_JOBS[key]['data'].append(result)
+                except Exception as exc:app.logger.debug('Pullback symbol skipped: %s',type(exc).__name__)
+                with PULLBACK_LOCK:PULLBACK_JOBS[key]['completed']+=1
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['data'].sort(key=lambda s:(s['state']!='TRIGGERED',s['momentum']!='Strong',s['symbol']))
+    except Exception as exc:
+        with PULLBACK_LOCK:PULLBACK_JOBS[key]['message']=str(exc)
+    finally:
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['done']=True
+            PULLBACK_JOBS[key]['updated']=time.time()
+
+@app.route('/api/pullback-scanner',methods=['GET'])
+def pullback_scanner():
+    user=current_user()
+    if not user:return jsonify(status='error',message='Login required'),401
+    if not active_subscription(user):return jsonify(status='error',message='Active subscription required'),403
+    try:tf=int(request.args.get('tf','5'))
+    except ValueError:return jsonify(status='error',message='Invalid timeframe'),400
+    if tf not in (5,15):return jsonify(status='error',message='Timeframe must be 5 or 15'),400
+    key=str(tf)
+    with PULLBACK_LOCK:
+        job=PULLBACK_JOBS.get(key)
+        if not job or (job['done'] and time.time()-job['updated']>PULLBACK_TTL):
+            job={'data':[],'completed':0,'done':False,'updated':time.time(),'message':None}
+            PULLBACK_JOBS[key]=job
+            threading.Thread(target=_pb_worker,args=(tf,),daemon=True).start()
+        return jsonify(status='success',data=list(job['data']),completed=job['completed'],
+                       done=job['done'],message=job['message'],timeframe=tf)
+
 
 @app.route("/api/screener", methods=["GET"])
 def screener():

@@ -675,6 +675,44 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   .bottom-nav .bnav-btn { font-size:8px!important; }
 }
 
+
+/* Pullback back-navigation: keeps the user inside the terminal. */
+.sfp-pullback-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.sfp-pullback-back{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-color:var(--primary);color:var(--primary);min-height:38px}
+.sfp-pullback-back:hover{background:var(--hover-bg)}
+@media(max-width:600px){.sfp-pullback-heading{gap:10px}.sfp-pullback-back{min-height:42px}}
+/* Pullback scanner: visible, correctly spaced timeframe/filter arrows */
+#view-pullback .toolbar label {display:inline-flex;align-items:center;gap:9px;flex-wrap:nowrap;color:var(--strong-text);font-size:.78rem;font-weight:650;min-width:0}
+#view-pullback .toolbar select.universe-dropdown {
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  width:auto!important;min-width:142px;max-width:100%;min-height:42px;
+  padding:10px 38px 10px 13px!important;
+  background-color:var(--input-bg);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f6aa2a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")!important;
+  background-position:right 12px center!important;background-size:16px 16px!important;
+  background-repeat:no-repeat!important;
+  border:1px solid var(--border);border-radius:9px;color:var(--strong-text);
+  line-height:1.25;cursor:pointer;
+}
+#view-pullback .toolbar select.universe-dropdown:focus-visible {outline:2px solid var(--primary);outline-offset:2px}
+#view-pullback .toolbar select.universe-dropdown option {background:#101b23;color:#eef4f7}
+:root[data-theme="light"] #view-pullback .toolbar select.universe-dropdown option {background:#fff;color:#142235}
+:root[data-theme="ocean"] #view-pullback .toolbar select.universe-dropdown option {background:#0c2b41;color:#effaff}
+:root[data-theme="amoled"] #view-pullback .toolbar select.universe-dropdown option {background:#080808;color:#fff}
+@media(max-width:600px){
+ #view-pullback .toolbar {align-items:stretch!important}
+ #view-pullback .toolbar label {width:100%;justify-content:space-between}
+ #view-pullback .toolbar select.universe-dropdown {width:min(210px,65%)!important;min-width:0}
+}
+
+
+/* Match the landing-page brand identity in the terminal sidebar. */
+.sfp-sidebar-brand{gap:0!important;padding-left:7px!important;padding-right:0!important;align-items:flex-start!important;font-family:Inter,'Segoe UI',Arial,sans-serif!important;text-shadow:none!important}
+.sfp-sidebar-brand .sfp-brand-mark{display:inline!important;flex:0 0 auto!important;width:auto!important;height:auto!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--primary)!important;font-size:23px!important;font-weight:850!important;line-height:1.1!important;margin-right:6px!important}
+.sfp-sidebar-brand .sfp-brand-name{font-family:Inter,'Segoe UI',Arial,sans-serif!important;font-size:19px!important;font-weight:850!important;letter-spacing:-.7px!important;line-height:1.15!important;color:var(--strong-text)!important}
+.sfp-sidebar-brand .sfp-brand-name em{font-style:normal!important;color:var(--primary)!important}
+.sfp-sidebar-brand .sfp-brand-name small{display:block!important;margin:5px 0 0!important;font-size:7.3px!important;font-weight:700!important;letter-spacing:.8px!important;white-space:nowrap!important;color:var(--muted)!important}
+.sfp-sidebar-brand #api-status{margin:7px 0 0 auto!important;flex:0 0 7px!important}
 </style>
 </head>
 <body>
@@ -682,7 +720,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <aside class="sidebar" id="app-sidebar">
-    <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<span>Pro</span><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
+    <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<em>Pro</em><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
     <div class="sidebar-nav">
       <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
       <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
@@ -773,6 +811,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           <div class="filter-wrapper" id="screener-filters">
             <button class="filter-btn active" id="flt-all-btn" onclick="setFilter('ALL', this)">ALL</button>
             <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
+            <button class="filter-btn" onclick="openPullbackScanner()">📈 PULLBACK SCANNER</button>
             <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
             <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
             <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
@@ -801,6 +840,26 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
               <tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">Loading Market Data...</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+
+      <!-- PULLBACK SCANNER VIEW -->
+      <div id="view-pullback" style="display:none">
+        <div class="panel">
+          <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="switchTab('scr')" aria-label="Back to Live Screener">← Back to Screener</button></div>
+          <p style="font-size:.76rem;margin-bottom:16px">Only market + actual sector index + stock trend aligned, confirmed VWAP retests. Previous day and daily EMA levels are informational.</p>
+          <div class="toolbar" style="gap:10px">
+            <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks()"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
+            <label>Direction <select class="universe-dropdown" style="width:auto" id="pb-direction" onchange="renderPullbacks()"><option value="All">All</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option></select></label>
+            <label>Momentum <select class="universe-dropdown" style="width:auto" id="pb-momentum" onchange="renderPullbacks()"><option value="All">All Momentum</option><option value="Strong">Strong</option><option value="Moderate">Moderate</option></select></label>
+            <button class="filter-btn" onclick="fetchPullbacks()">↻ Refresh</button>
+          </div>
+          <div id="pb-status" style="font-size:.78rem;margin-bottom:10px;color:var(--muted)">Waiting for scan...</div>
+          <div class="table-container" style="min-height:300px;max-height:calc(100vh - 350px)">
+            <table><thead><tr><th>Stock</th><th>Signal</th><th>Pullback IST</th><th>Momentum</th><th>Sector</th><th>VWAP</th><th>Daily EMA20</th><th>Previous Day High</th><th>Previous Day Low</th></tr></thead>
+            <tbody id="pb-tbody"><tr><td colspan="9">Open scanner to load results</td></tr></tbody></table>
+          </div>
         </div>
       </div>
 
@@ -1134,9 +1193,42 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       else { sb.classList.toggle('collapsed'); }
     }
 
+
+    let pbData=[],pbPolling=null;
+    function openPullbackScanner(){switchTab('pullback');fetchPullbacks();}
+    async function fetchPullbacks(){
+      if(pbPolling){clearTimeout(pbPolling);pbPolling=null;}
+      const tf=document.getElementById('pb-tf').value;
+      const status=document.getElementById('pb-status');
+      status.textContent='Scanning  '+tf+'-minute candles and sector indices...';
+      try{
+        const response=await fetch('/api/pullback-scanner?tf='+tf+'&_t='+Date.now(),{cache:'no-store'});
+        const result=await response.json();
+        if(!response.ok||result.status!=='success')throw new Error(result.message||'Scanner unavailable');
+        pbData=result.data||[];
+        status.textContent=result.done?(result.message||('Scan complete • '+pbData.length+' qualified stocks')):('Scanning • '+result.completed+' checked • '+pbData.length+' qualified');
+        renderPullbacks();
+        if(!result.done&&currentTab==='pullback')pbPolling=setTimeout(fetchPullbacks,3500);
+      }catch(e){status.textContent='Scan error: '+e.message;}
+    }
+    function renderPullbacks(){
+      const dir=document.getElementById('pb-direction').value;
+      const momentum=document.getElementById('pb-momentum').value;
+      const list=pbData.filter(x=>(dir==='All'||x.direction===dir)&&(momentum==='All'||x.momentum===momentum));
+      const esc=x=>String(x??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      document.getElementById('pb-tbody').innerHTML=list.length?list.map(x=>`<tr>
+        <td><a class="stock-link" target="_blank" rel="noopener" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(x.symbol)}">${esc(x.symbol)}</a></td>
+        <td><span class="badge ${x.direction==='Bullish'?'badge-green':'badge-red'}">${esc(x.direction)} ${esc(x.state)}</span></td>
+        <td>${esc(x.time)}</td><td>${esc(x.momentum)}</td>
+        <td>${esc(x.sector)} (${esc(x.sectorChange)}%)</td>
+        <td>${esc(x.vwap)}</td><td>₹${esc(x.dailyEma20)} · ${esc(x.emaReaction)}</td>
+        <td>₹${esc(x.pdh)} · ${esc(x.pdhStatus)}</td><td>₹${esc(x.pdl)} · ${esc(x.pdlStatus)}</td>
+      </tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:2rem">No qualified pullbacks yet (or scan in progress).</td></tr>';
+    }
+
     function switchTab(tab) {
       currentTab = tab;
-      ['scr', 'sec', 'zones', 'watchlist'].forEach(t => {
+      ['scr', 'sec', 'zones', 'watchlist', 'pullback'].forEach(t => {
         const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
         if(btn) btn.classList.toggle('active', t === tab);
         if(bnav) bnav.classList.toggle('active', t === tab);

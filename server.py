@@ -38,6 +38,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "9f31b85adc90a103684b3c46ac83610a
 if not app.secret_key:
     raise RuntimeError("Set FLASK_SECRET_KEY in your environment before starting StockFinder Pro")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = bool(os.getenv('RENDER'))
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 
@@ -47,6 +48,8 @@ db_path = os.getenv('DATABASE_PATH', os.path.join(basedir, 'users.db'))
 database_url = os.getenv('DATABASE_URL', '').strip()
 if database_url.startswith('postgres://'):
     database_url = 'postgresql://' + database_url[len('postgres://'):]
+if os.getenv('RENDER') and not database_url and not os.getenv('DATABASE_PATH'):
+    raise RuntimeError('Configure a persistent DATABASE_URL on Render; ephemeral SQLite loses user accounts and subscriptions')
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or ('sqlite:///' + db_path)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -62,6 +65,38 @@ class User(db.Model):
     reset_otp = db.Column(db.String(6), nullable=True)
     otp_expiry = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class DeviceLogin(db.Model):
+    __tablename__ = 'device_login'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked = db.Column(db.Boolean, nullable=False, default=False)
+
+
+def establish_device_login(user):
+    # Every browser/device gets its own independent, revocable login token.
+    session.clear()
+    session.permanent = True
+    token = secrets.token_urlsafe(32)
+    record = DeviceLogin(user_id=user.id,
+                         token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                         expires_at=datetime.utcnow() + timedelta(days=30))
+    db.session.add(record)
+    db.session.commit()
+    session['user'] = user.email
+    session['device_token'] = token
+
+
+def revoke_device_login():
+    token = session.get('device_token')
+    if token:
+        record = DeviceLogin.query.filter_by(token_hash=hashlib.sha256(token.encode()).hexdigest()).first()
+        if record:
+            record.revoked = True
+            db.session.commit()
+    session.clear()
 
 class Payment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -101,11 +136,23 @@ class UserPreference(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_Tzw6f8DK80fuBg').strip()
-RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'j158BTxyNYtNNDYuHd5j7nZy').strip()
+RAZORPAY_KEY_ID = (os.getenv('RAZORPAY_KEY_ID') or 'rzp_test_TzOiKGfQnvAcaw').strip()
+RAZORPAY_KEY_SECRET = (os.getenv('RAZORPAY_KEY_SECRET') or 'RE9fr3o5YeqTo16lulirt0z5').strip()
 
 def current_user():
-    return User.query.filter_by(email=session.get('user', '')).first() if session.get('user') else None
+    email = session.get('user')
+    token = session.get('device_token')
+    if not email or not token:
+        return None
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return None
+    record = DeviceLogin.query.filter_by(
+        user_id=user.id, token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        revoked=False).first()
+    if not record or record.expires_at <= datetime.utcnow():
+        return None
+    return user
 
 def active_subscription(user):
     if not user:
@@ -633,6 +680,25 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if len(candles) < 3:
             return zones
 
+    # Completed weekly candles only for confirmed patterns; incomplete current week
+    # must not be used to confirm or invalidate zones.
+    if tf == 'week':
+        today_ist = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+        monday = today_ist - timedelta(days=today_ist.weekday())
+        completed = []
+        for candle in candles:
+            stamp = pd.to_datetime(candle[0], errors='coerce')
+            if pd.isna(stamp):
+                continue
+            # Upstox weekly stamps normally identify the beginning of the week.
+            # Exclude only timestamps in the currently forming week.
+            if stamp.date() < monday:
+                completed.append(candle)
+        candles = completed
+        if len(candles) < 2:
+            return zones
+
+    # Scan the full available history, preserving all independent price levels.
     # Upstox may return newest-first; all structure/retest logic needs oldest-first.
     candles = sorted({str(c[0]): c for c in candles if len(c) >= 5}.values(), key=lambda c: str(c[0]))
 
@@ -648,12 +714,12 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
 
     def compact(j, leg_body):
         v = m[j]
-        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.35*leg_body)
+        return bool(v and v['ratio'] <= 0.45 and v['body'] <= 0.45*leg_body)
 
     # Iterate each leg-in once, count the FULL contiguous base sequence.
     for legin_idx in range(len(candles)-2):
         legin = m[legin_idx]
-        if not legin or not (0.70 <= legin['ratio'] <= 0.98):
+        if not legin or not (0.60 <= legin['ratio'] <= 1.0):
             continue
         first_base = legin_idx+1
         if not compact(first_base, legin['body']):
@@ -665,9 +731,9 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if num_bases not in (1, 2) or legout_idx >= len(candles):
             continue
         legout = m[legout_idx]
-        if not legout or not (0.75 <= legout['ratio'] <= 0.98):
+        if not legout or not (0.70 <= legout['ratio'] <= 1.0):
             continue
-        if legout['body'] < legin['body']:
+        if legout['body'] < 0.85 * legin['body']:
             continue
         base = m[first_base:legout_idx]
         base_high = max(c['h'] for c in base)
@@ -698,8 +764,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if risk <= 0:
             continue
         distance_pct = round(abs(current_ltp-proximal)/current_ltp*100, 2)
-        if max_dist_pct is not None and distance_pct > max_dist_pct:
-            continue
+        # CMP proximity belongs in the UI; never erase historical zones here.
+        # The optional max_dist_pct parameter is retained for API compatibility.
 
         # Count separate retest EVENTS, not every candle that touches the zone.
         test_count, violated, inside_previous = 0, False, False
@@ -738,18 +804,108 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'strongZone': has_strong_exit_confirmation(candles, legout_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
             'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
-            'timeframe': tf.upper(), 'baseCandles': num_bases
+            'timeframe': tf.upper(), 'baseCandles': num_bases,
+            'zoneCandleDate': str(candles[first_base][0]),
+            'incomingCandleDate': str(candles[legin_idx][0]),
+            'exitCandleDate': str(candles[legout_idx][0]),
+            'zoneBoundarySource': 'BASE_CANDLES'
         })
+    # Impulse-origin detection: historical bases often precede a very strong
+    # departure without a strong preceding leg-in. Do not impose the strict
+    # 60% leg-in body rule on these BASED structures. Keep 1-2 bases only.
+    # This is a separate conservative candidate path, not a hardcoded stock fix.
+    for exit_idx in range(2, len(m)):
+        out = m[exit_idx]
+        if not out or out['ratio'] < 0.70:
+            continue
+        direction = 'DEMAND' if out['c'] > out['o'] else 'SUPPLY'
+        for count in (1, 2):
+            start = exit_idx - count
+            incoming_idx = start - 1
+            if incoming_idx < 0:
+                continue
+            base = m[start:exit_idx]
+            incoming = m[incoming_idx]
+            if not incoming or any(v is None for v in base):
+                continue
+            # All base candles must be compact relative to the departing body.
+            if any(v['ratio'] > 0.55 or v['body'] > 0.40 * out['body'] for v in base):
+                continue
+            base_high = max(v['h'] for v in base)
+            base_low = min(v['l'] for v in base)
+            width = base_high - base_low
+            if width <= 0 or width > 0.70 * out['body']:
+                continue
+            if direction == 'DEMAND':
+                if out['c'] <= base_high or out['body'] < 1.30 * width:
+                    continue
+                proximal = max(max(v['o'], v['c']) for v in base)
+                distal = base_low
+                pattern = 'Rally-Base-Rally' if incoming['c'] >= incoming['o'] else 'Drop-Base-Rally'
+            else:
+                if out['c'] >= base_low or out['body'] < 1.30 * width:
+                    continue
+                proximal = min(min(v['o'], v['c']) for v in base)
+                distal = base_high
+                pattern = 'Rally-Base-Drop' if incoming['c'] >= incoming['o'] else 'Drop-Base-Drop'
+            risk = abs(proximal - distal)
+            if risk <= 0:
+                continue
+            # Count all subsequent retests; a CLOSE beyond distal invalidates.
+            test_count, violated, inside_previous = 0, False, False
+            for later in m[exit_idx+1:]:
+                if later is None:
+                    continue
+                if direction == 'DEMAND':
+                    touched = later['l'] <= proximal and later['h'] >= distal
+                    violated = later['c'] < distal
+                else:
+                    touched = later['h'] >= proximal and later['l'] <= distal
+                    violated = later['c'] > distal
+                if violated:
+                    break
+                if touched and not inside_previous:
+                    test_count += 1
+                inside_previous = touched
+            if violated or (direction == 'DEMAND' and current_ltp < distal) or (direction == 'SUPPLY' and current_ltp > distal):
+                continue
+            # Do not create the same zone twice when both 1 and 2 bases fit.
+            # Prefer the shorter, nearest departure base when it is valid.
+            in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+            status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+            zones.append({
+                'pattern': pattern, 'bias': direction, 'proximal': round(proximal, 2),
+                'distal': round(distal, 2), 'entry': round(proximal, 2),
+                'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+                'riskPct': round(risk/current_ltp*100, 2),
+                'target1R2': round(proximal+2*risk if direction == 'DEMAND' else proximal-2*risk, 2),
+                'target1R3': round(proximal+3*risk if direction == 'DEMAND' else proximal-3*risk, 2),
+                'status': status, 'testCount': test_count,
+                'distancePct': round(abs(current_ltp-proximal)/current_ltp*100, 2),
+                'multiplier': round(out['body']/max(incoming['body'], 0.01), 2),
+                'strongZone': has_strong_exit_confirmation(candles, exit_idx, direction),
+                'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+                'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+                'timeframe': tf.upper(), 'baseCandles': count,
+                'zoneCandleDate': str(candles[start][0]),
+                'incomingCandleDate': str(candles[incoming_idx][0]),
+                'exitCandleDate': str(candles[exit_idx][0]),
+                'zoneBoundarySource': 'COMPACT_IMPULSE_ORIGIN'
+            })
+            break
+
     # Base-free reversal patterns: DR / RD (two adjacent completed candles).
+    # Leg-in body must be >=65% of leg-out body; leg-out is a strong >=75% body candle.
     # These are separate from RBR/DBR/RBD/DBD; they have ZERO base candles.
     for incoming_idx in range(len(m) - 1):
         outgoing_idx = incoming_idx + 1
         incoming, outgoing = m[incoming_idx], m[outgoing_idx]
         if not incoming or not outgoing:
             continue
-        if not (0.70 <= incoming['ratio'] <= 0.98 and
-                0.75 <= outgoing['ratio'] <= 0.98 and
-                outgoing['body'] > incoming['body']):
+        if not (0.65 <= incoming['ratio'] <= 1.0 and
+                0.75 <= outgoing['ratio'] <= 1.0 and
+                incoming['body'] >= 0.65 * outgoing['body'] and
+                outgoing['body'] >= incoming['body']):
             continue
         if incoming['c'] < incoming['o'] and outgoing['c'] > outgoing['o']:
             bias, pattern = 'DEMAND', 'Drop-Rally'
@@ -771,8 +927,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if risk <= 0:
             continue
         distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
-        if max_dist_pct is not None and distance_pct > max_dist_pct:
-            continue
+        # CMP proximity belongs in the UI; never erase historical zones here.
+        # The optional max_dist_pct parameter is retained for API compatibility.
         test_count, violated, inside_previous = 0, False, False
         for later in m[outgoing_idx + 1:]:
             if later is None:
@@ -824,7 +980,34 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'exitCandleClose': outgoing['c'],
             'zoneBoundarySource': 'SECOND_CANDLE_ONLY'
         })
-    return zones
+    # Diagnostic trace of price structures for one symbol/timeframe. This never changes
+    # eligibility, and is deliberately not persisted or exposed to anonymous users.
+    if os.getenv('SFP_ZONE_DEBUG_SYMBOL', '').upper() == symbol.upper():
+        from collections import Counter
+        counts = Counter(z['pattern'] for z in zones)
+        print(f'[ZONE DEBUG] {symbol}/{tf} candles={len(candles)} retained={len(zones)} patterns={dict(counts)}')
+    # Preserve level-over-level zones: deduplicate only identical formations.
+    unique = {}
+    for zone in zones:
+        identity = (zone['pattern'], zone['bias'], zone.get('incomingCandleDate'),
+                    zone.get('exitCandleDate'), zone['proximal'], zone['distal'])
+        unique.setdefault(identity, zone)
+    # For the same departure candle, prefer the strict structure when it
+    # produces the same price band; keep genuinely separate level-over-level.
+    ranked = sorted(unique.values(), key=lambda z: z.get('zoneBoundarySource') == 'COMPACT_IMPULSE_ORIGIN')
+    kept = []
+    for z in ranked:
+        duplicate = False
+        for prior in kept:
+            if z['bias'] != prior['bias'] or z.get('exitCandleDate') != prior.get('exitCandleDate'):
+                continue
+            width = max(z['risk'], prior['risk'], 0.01)
+            if abs(z['proximal'] - prior['proximal']) <= 0.12 * width and abs(z['distal'] - prior['distal']) <= 0.12 * width:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(z)
+    return kept
 
 # Four-year persistent candle store. PostgreSQL survives Render deploys/restarts;
 # local SQLite is only durable when stored on a persistent disk.
@@ -963,7 +1146,7 @@ def send_otp_email(to_email, otp_code):
         return False
 
 # ================= HTML TEMPLATES WITH STANDARD FORM POST =================
-LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="StockFinder Pro: intraday stock screening, demand and supply zones, and sector analysis for Indian equity traders."><title>StockFinder Pro | Find the Setup. Trade with Clarity.</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#080e14;--surface:#101c26;--border:#293a46;--txt:#edf5fa;--muted:#9fb0bd;--accent:#ffb342;--green:#32d596}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 75% 0,#17443755,transparent 40%),var(--bg);color:var(--txt);font-family:\'Plus Jakarta Sans\',sans-serif}a{color:inherit;text-decoration:none}.wrap{width:min(1160px,calc(100% - 40px));margin:auto}header{position:sticky;top:0;z-index:10;background:#081018ed;border-bottom:1px solid var(--border);backdrop-filter:blur(12px)}.top{display:flex;align-items:center;justify-content:space-between;min-height:72px;gap:14px}.brand{font-weight:800;font-size:19px;letter-spacing:-.7px}.brand b{color:var(--green)}nav{display:flex;align-items:center;gap:18px;font-size:13px;font-weight:700}nav a:hover,.footlinks a:hover{color:var(--accent)}.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #425565;background:#162733;border-radius:10px;padding:13px 19px;font-weight:800;font-size:13px;min-height:44px}.btn:hover{border-color:var(--accent)}.primary{background:var(--accent);color:#101820;border-color:var(--accent)}.hero{padding:92px 0 78px}.hero-grid{display:grid;grid-template-columns:1.12fr .88fr;align-items:center;gap:45px}.eyebrow,.kicker{color:var(--green);font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(39px,5vw,68px);line-height:1.1;letter-spacing:-2.5px;margin:20px 0}.hero h1 span{color:var(--accent)}.lead{font-size:16px;line-height:1.9;color:var(--muted);max-width:600px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}.hero-notes{display:flex;gap:20px;flex-wrap:wrap;margin-top:28px;color:#bbcad3;font-size:12px}.hero-notes span:before{content:\'✓ \';color:var(--green)}.screen{background:#0d1921;border:1px solid #355160;border-radius:20px;overflow:hidden;box-shadow:0 35px 80px #0009}.screen-head{display:flex;justify-content:space-between;padding:16px 18px;background:#14242e;border-bottom:1px solid var(--border);font-weight:800;font-size:12px}.screen-head span{color:var(--green)}.screen-body{padding:18px}.ticker{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.ticker div{border:1px solid var(--border);background:#14242e;padding:17px;border-radius:10px}.ticker small{display:block;color:var(--muted);font-size:11px;margin-bottom:10px}.ticker strong{font-size:19px}.up{color:var(--green)}.down{color:#ff6976}.screen-foot{padding:14px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}section{padding:76px 0;border-top:1px solid var(--border)}h2{font-size:clamp(27px,3.5vw,40px);letter-spacing:-1px;margin:10px 0 13px}.desc{color:var(--muted);line-height:1.8;max-width:720px;font-size:14px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px}.card,.plan,.faq-item{background:linear-gradient(145deg,#142632,#0d1821);border:1px solid var(--border);border-radius:16px;padding:24px}.card .ico{font-size:27px;color:var(--accent)}.card h3{font-size:16px;margin:16px 0 9px}.card p{color:var(--muted);font-size:13px;line-height:1.8}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}.step{padding:22px;border-left:2px solid var(--green);background:#101c26;border-radius:0 12px 12px 0}.step b{display:block;color:var(--accent);margin-bottom:10px}.step p{color:var(--muted);font-size:13px;line-height:1.7}.plans{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:30px}.plan{display:flex;flex-direction:column;gap:12px}.plan.popular{border-color:var(--accent)}.plan h3{font-size:16px;margin:0}.amount{font-size:30px;font-weight:800}.plan small{color:var(--muted)}.plan ul{padding-left:18px;color:#cad6dd;font-size:12px;line-height:2}.plan .btn{margin-top:auto}.tag{color:var(--accent);font-size:11px;font-weight:800}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:28px}.faq-item h3{font-size:14px;margin:0 0 9px}.faq-item p{font-size:13px;color:var(--muted);line-height:1.8;margin:0}.contact{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}.contact-panel{background:#11262a;border:1px solid #31594c;padding:30px;border-radius:16px}.contact-panel p{color:var(--muted);line-height:1.8}.contact-panel a{color:var(--accent);font-weight:800}.disclaimer{font-size:12px;color:var(--muted);line-height:1.8}footer{padding:28px 0;border-top:1px solid var(--border);color:var(--muted);font-size:12px}.foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.footlinks{display:flex;gap:16px;flex-wrap:wrap}@media(max-width:960px){.hero-grid,.contact{grid-template-columns:1fr}.plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:650px){.wrap{width:min(100% - 28px,1160px)}.top{min-height:65px;flex-wrap:wrap;padding:12px 0}.brand{font-size:16px}nav{gap:10px;flex-wrap:wrap;font-size:12px}nav .hide-mobile{display:none}.hero{padding:56px 0}.hero h1{letter-spacing:-1.5px}.cards,.steps,.plans,.faq{grid-template-columns:1fr}section{padding:54px 0}.contact-panel{padding:22px}}\n</style></head><body><header><div class="wrap top"><a class="brand" href="/">◉ STOCKFINDER <b>PRO</b></a><nav><a class="hide-mobile" href="#features">Features</a><a href="#pricing">Plans</a><a href="#contact">Contact</a><a href="/login">Login</a><a class="btn primary" href="/signup">Get Started</a></nav></div></header><main><div class="hero"><div class="wrap hero-grid"><div><div class="eyebrow">Built for focused Indian equity market analysis</div><h1>Find the setup.<br><span>Trade with clarity.</span></h1><p class="lead">StockFinder Pro brings intraday stock screening, demand and supply zone discovery, and sector-level analysis into one streamlined trading workspace. Spend less time searching and more time evaluating your setups.</p><div class="actions"><a class="btn primary" href="/signup">Create an Account →</a><a class="btn" href="#features">Explore Features</a></div><div class="hero-notes"><span>Multi-timeframe analysis</span><span>Structured zone screening</span><span>Secure account access</span></div></div><div class="screen"><div class="screen-head">◈ MARKET SCANNER <span>PRODUCT PREVIEW</span></div><div class="screen-body"><div class="ticker"><div><small>DEMAND ZONES</small><strong class="up">↗ Buy-side structure</strong></div><div><small>SUPPLY ZONES</small><strong class="down">↘ Sell-side structure</strong></div><div><small>INTRADAY</small><strong>Open = High / Low</strong></div><div><small>TREND</small><strong>EMA 9 / 20</strong></div></div></div><div class="screen-foot">Illustrative product preview, not a live signal or recommendation.</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">Platform features</div><h2>One workspace. Multiple ways to scan.</h2><p class="desc">Designed to help you review market structure and narrow down stocks for further analysis.</p><div class="cards"><article class="card"><div class="ico">▦</div><h3>Intraday Stock Screener</h3><p>Explore supported Indian equity and F&amp;O stocks using intraday price-action filters, including Open = High and Open = Low setups.</p></article><article class="card"><div class="ico">◈</div><h3>Demand &amp; Supply Zones</h3><p>Screen Drop-Rally, Rally-Drop, Rally-Base-Rally, Drop-Base-Rally, Rally-Base-Drop and Drop-Base-Drop patterns with zone boundaries and test status.</p></article><article class="card"><div class="ico">▥</div><h3>Multi-Timeframe Zones</h3><p>Review zone candidates across daily, weekly, monthly, quarterly and half-yearly timeframes where data is available.</p></article><article class="card"><div class="ico">↗</div><h3>EMA Trend Screening</h3><p>Use 9/20 EMA alignment to shortlist potential momentum and trend candidates for your own chart review.</p></article><article class="card"><div class="ico">◉</div><h3>Sector Analysis</h3><p>Compare sector strength and weakness using a simple, readable market overview.</p></article><article class="card"><div class="ico">⌁</div><h3>Zone Status &amp; Risk Levels</h3><p>View proximal, distal, stop-loss and illustrative risk-to-reward levels alongside detected zone status.</p></article></div></div></section><section id="how-it-works"><div class="wrap"><div class="kicker">How it works</div><h2>A simple workflow for every trading session.</h2><div class="steps"><div class="step"><b>01 · Create your account</b><p>Register, sign in and choose a membership plan that fits your usage.</p></div><div class="step"><b>02 · Run your screens</b><p>Choose a market universe, screener and timeframe to review potential setups.</p></div><div class="step"><b>03 · Verify on the chart</b><p>Confirm price action, liquidity and risk independently before making a trading decision.</p></div></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">Membership plans</div><h2>Clear pricing. One focused platform.</h2><p class="desc">All plans include access to the supported StockFinder Pro terminal and screening tools for the selected duration. Payment is handled through Razorpay.</p><div class="plans"><article class="plan"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=monthly">Choose Monthly</a></article><article class="plan popular"><div class="tag">POPULAR CHOICE</div><h3>Quarterly</h3><div class="amount">₹1,199</div><small>3 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn primary" href="/checkout?plan=quarterly">Choose Quarterly</a></article><article class="plan"><h3>Half-Yearly</h3><div class="amount">₹2,499</div><small>6 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose Half-Yearly</a></article><article class="plan"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months access</small><ul><li>Stock screening tools</li><li>Demand &amp; supply zones</li><li>Sector &amp; EMA analysis</li></ul><a class="btn" href="/checkout?plan=yearly">Choose Yearly</a></article></div><p class="disclaimer">Access begins after successful payment verification. A valid membership is required to use subscription-protected tools. Prices shown are the current amounts configured in this application.</p></div></section><section id="faq"><div class="wrap"><div class="kicker">Common questions</div><h2>Before you get started.</h2><div class="faq"><div class="faq-item"><h3>Is StockFinder Pro a broker?</h3><p>No. It is a market screening and analysis tool. Orders and trade execution are handled separately through your broker.</p></div><div class="faq-item"><h3>Does the screener guarantee profits?</h3><p>No. Screening results are informational and may be delayed or incomplete. Verify every setup and manage your own risk.</p></div><div class="faq-item"><h3>Do I have to pay every time I log in?</h3><p>No. You can sign in again while your verified subscription remains active. Renewal is required when the membership expires.</p></div><div class="faq-item"><h3>How do I reset my password?</h3><p>Use the Forgot Password link on the login page and follow the account recovery steps.</p></div></div></div></section><section id="contact"><div class="wrap contact"><div><div class="kicker">Contact &amp; support</div><h2>Questions about access or billing?</h2><p class="desc">For login, subscription, payment verification or platform issues, contact the StockFinder Pro support team. Include the registered email and a short description of the problem. Never share your password or OTP.</p></div><div class="contact-panel"><h3>StockFinder Pro Support</h3><p>Need help with your account or subscription? Use the support email configured by the platform owner.</p>{% if support_email %}<a href="mailto:{{ support_email }}?subject=StockFinder%20Pro%20Support">{{ support_email }}</a>{% else %}<p><strong>Support email:</strong> To be announced. Configure the <code>SUPPORT_EMAIL</code> environment variable to publish your address.</p>{% endif %}<p class="disclaimer">Support requests are handled separately from trading or investment advice.</p></div></div></section></main><footer><div class="wrap foot"><span>© <span id="year"></span> StockFinder Pro. All rights reserved.</span><div class="footlinks"><a href="#features">Features</a><a href="#pricing">Plans</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a href="/login">Login</a></div><div class="disclaimer">Educational and analytical tools only. Not investment advice. Trading involves financial risk.</div></div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
+LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="StockFinder Pro — intraday equity screening and demand & supply zone discovery for swing traders."><title>StockFinder Pro | Intraday & Swing Trading Screener</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#070b10;--surface:#101923;--surface2:#151f2b;--line:#263341;--white:#f6f8fb;--muted:#a2b1c0;--gold:#ffab22;--green:#31d998;--red:#ff6479}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--white);font-family:\'Plus Jakarta Sans\',sans-serif}a{text-decoration:none;color:inherit}.wrap{max-width:1200px;width:calc(100% - 42px);margin:auto}header{position:sticky;top:0;z-index:20;background:#080e15ed;backdrop-filter:blur(18px);border-bottom:1px solid #263341}.top{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{font-size:22px;font-weight:800;letter-spacing:-1px;white-space:nowrap}.brand em{color:var(--gold);font-style:normal}.brand .mark{color:var(--gold);margin-right:9px}nav{display:flex;align-items:center;gap:24px;font-size:13px;font-weight:700}nav a:hover{color:var(--gold)}.btn{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:13px 21px;border-radius:10px;border:1px solid #41505e;font-weight:800;font-size:13px;background:#17232e;transition:transform .2s,border-color .2s}.btn:hover{transform:translateY(-2px);border-color:var(--gold)}.btn.gold{background:linear-gradient(135deg,#ffc04e,#ff9810);border-color:#ffae29;color:#10131a}.hero{background:radial-gradient(ellipse at 70% 0%,#59330d44,transparent 45%),#070b10;padding:44px 0 60px}.eyebrow,.kicker{color:var(--gold);font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(36px,4.9vw,66px);line-height:1.12;letter-spacing:-2px;margin:14px 0 18px;max-width:850px}.hero h1 span{color:var(--gold)}.lead{font-size:16px;line-height:1.8;color:var(--muted);max-width:770px;margin:0 0 24px}.actions{display:flex;flex-wrap:wrap;gap:12px}.hero-image{position:relative;margin-top:30px;border-radius:20px;overflow:hidden;border:1px solid #5d4628;box-shadow:0 26px 90px #0009}.hero-image img{display:block;width:100%;height:auto}.image-caption{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,#03080de8);padding:30px 18px 12px;text-align:right;color:#b3c0cb;font-size:11px}.pill-row{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.pill{font-size:12px;font-weight:700;border:1px solid #364453;border-radius:30px;background:#101a24;padding:9px 13px;color:#cbd5df}section{padding:75px 0;border-top:1px solid #1e2a36}h2{font-size:clamp(29px,3.7vw,44px);letter-spacing:-1.3px;margin:12px 0}.desc{max-width:760px;color:var(--muted);line-height:1.85;font-size:14px}.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:30px}.feature-panel{border:1px solid #334150;border-radius:18px;background:linear-gradient(145deg,#162331,#0d151e);padding:30px}.feature-panel.green{border-top:3px solid var(--green)}.feature-panel.goldline{border-top:3px solid var(--gold)}.feature-panel h3{font-size:25px;letter-spacing:-.7px;margin:14px 0}.feature-panel p{font-size:14px;line-height:1.8;color:var(--muted)}.feature-panel ul{padding-left:20px;color:#d5dce4;line-height:2.2;font-size:13px}.feature-panel .symbol{font-size:30px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:28px}.card,.plan,.faq-item{background:#111c27;border:1px solid #2a3948;border-radius:15px;padding:24px}.card strong{font-size:16px}.card .ico{font-size:27px;color:var(--gold);display:block;margin-bottom:14px}.card p,.faq-item p{font-size:13px;color:var(--muted);line-height:1.8}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}.step{border-left:3px solid var(--gold);padding:20px;background:#111c27;border-radius:0 12px 12px 0}.step b{color:var(--gold)}.step p{font-size:13px;color:var(--muted);line-height:1.8}.plans{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-top:30px}.plan{display:flex;flex-direction:column;gap:13px}.plan.popular{border:2px solid var(--gold);background:linear-gradient(160deg,#302315,#111c27 55%)}.plan h3{margin:0;font-size:16px}.amount{font-size:31px;font-weight:800}.plan small{color:var(--muted)}.plan ul{padding-left:18px;font-size:12px;color:#d2dbe5;line-height:2.1}.plan .btn{margin-top:auto}.tag{color:var(--gold);font-size:11px;font-weight:800}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:28px}.faq-item h3{font-size:14px;margin:0 0 10px}.contact{display:grid;grid-template-columns:1fr 1fr;gap:25px;align-items:center}.contact-panel{border:1px solid #364653;border-radius:16px;background:#13212c;padding:25px}.contact-panel p{color:var(--muted);line-height:1.8}.contact-panel a{color:var(--gold);font-weight:800}.disclaimer{font-size:12px;line-height:1.8;color:var(--muted)}footer{padding:28px 0;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:18px}.footlinks{display:flex;gap:15px;flex-wrap:wrap}@media(max-width:1000px){.plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.wrap{width:calc(100% - 28px)}.top{min-height:70px;flex-wrap:wrap;padding:12px 0}.brand{font-size:18px}nav{gap:10px;flex-wrap:wrap}nav .hide-mobile{display:none}.hero{padding:36px 0 48px}.hero h1{letter-spacing:-1px}.hero-image{margin-top:23px}.split,.cards,.steps,.plans,.faq,.contact{grid-template-columns:1fr}section{padding:53px 0}.feature-panel{padding:22px}}\n</style></head><body><header><div class="wrap top"><a class="brand" href="/"><span class="mark">⌕</span>StockFinder<em>Pro</em></a><nav><a class="hide-mobile" href="#features">Features</a><a href="#pricing">Plans</a><a class="hide-mobile" href="#faq">FAQs</a><a href="/login">Login</a><a class="btn gold" href="/signup">Get Started</a></nav></div></header><main><div class="hero"><div class="wrap"><div class="eyebrow">Professional Indian equity screening platform</div><h1>Discover intraday setups.<br><span>Map swing trading zones.</span></h1><p class="lead">From fast-moving intraday opportunities to higher-timeframe demand and supply zones, StockFinder Pro brings your stock screening workflow into one powerful, organized terminal. Scan, shortlist and verify setups with clarity.</p><div class="actions"><a class="btn gold" href="#pricing">Explore Subscription Plans →</a><a class="btn" href="/login">Already a member? Login</a></div><div class="pill-row"><span class="pill">⚡ Intraday price action</span><span class="pill">▤ Demand &amp; Supply Zones</span><span class="pill">◉ Fresh &amp; Tested Zones</span><span class="pill">↗ EMA 9/20 Screening</span><span class="pill">▦ Multiple Timeframes</span></div><div class="hero-image"><img src="/landing-hero.png" alt="Illustrative StockFinder Pro trading platform showing intraday charts and swing demand and supply zones"><div class="image-caption">Concept illustration · Not a live platform screenshot or trading signal</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">Built around your trading style</div><h2>Intraday speed. Swing trading structure.</h2><p class="desc">Two complementary workflows in one terminal. Discover potential candidates quickly, then validate them using your own chart and risk analysis.</p><div class="split"><article class="feature-panel goldline"><div class="symbol">⚡</div><div class="kicker">For active day traders</div><h3>Intraday Stock Screener</h3><p>Identify stocks worth watching during the trading session using price-action and trend filters.</p><ul><li>Open = High and Open = Low screening</li><li>9/20 EMA trend and crossover analysis</li><li>Breakout, pullback and momentum candidates</li><li>F&amp;O and supported equity universes</li><li>Sector strength and market movers</li></ul></article><article class="feature-panel green"><div class="symbol">▤</div><div class="kicker">For structured swing traders</div><h3>Demand &amp; Supply Zone Screener</h3><p>Shortlist potential higher-timeframe zones and review price reaction around meaningful areas.</p><ul><li>RBR, DBR, RBD and DBD structures</li><li>Fresh and previously tested zone filters</li><li>Daily, weekly, monthly, quarterly and half-yearly views</li><li>Zone boundaries and indicative risk levels</li><li>Structured zones with up to two base candles</li></ul></article></div></div></section><section><div class="wrap"><div class="kicker">Why StockFinder Pro</div><h2>Less searching. More focused chart review.</h2><div class="cards"><article class="card"><span class="ico">⌕</span><strong>Smart Stock Discovery</strong><p>Bring relevant stocks into a single shortlist instead of manually opening dozens of charts.</p></article><article class="card"><span class="ico">▱</span><strong>Zone Status Filters</strong><p>Separate fresh zone candidates from zones that have already been tested.</p></article><article class="card"><span class="ico">◷</span><strong>Multiple Timeframes</strong><p>Compare intraday conditions with higher-timeframe swing trading structures.</p></article><article class="card"><span class="ico">↗</span><strong>Trend &amp; Momentum</strong><p>Combine EMA analysis and price action for an organized intraday workflow.</p></article><article class="card"><span class="ico">▦</span><strong>Sector Overview</strong><p>Monitor strength and weakness across supported market sectors and stock universes.</p></article><article class="card"><span class="ico">◈</span><strong>Professional Terminal</strong><p>Clean, responsive layouts designed for desktop and mobile market review.</p></article></div></div></section><section><div class="wrap"><div class="kicker">Getting started</div><h2>Three steps to a focused workflow.</h2><div class="steps"><div class="step"><b>01 · Create your account</b><p>Sign up once, select a plan and complete secure payment verification.</p></div><div class="step"><b>02 · Choose your screener</b><p>Explore intraday setups or swing demand and supply zones with your preferred filters.</p></div><div class="step"><b>03 · Validate before trading</b><p>Review chart structure, liquidity, stop-loss and risk independently before placing a trade.</p></div></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">Membership</div><h2>Choose your StockFinder Pro access.</h2><p class="desc">All plans provide access to supported intraday and demand &amp; supply screening features for the selected period. Payments are processed through Razorpay.</p><div class="plans"><article class="plan"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=monthly">Choose Monthly</a></article><article class="plan popular"><div class="tag">POPULAR CHOICE</div><h3>Quarterly</h3><div class="amount">₹1,199</div><small>3 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn gold" href="/checkout?plan=quarterly">Choose Quarterly</a></article><article class="plan"><h3>Half-Yearly</h3><div class="amount">₹2,499</div><small>6 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose Half-Yearly</a></article><article class="plan"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=yearly">Choose Yearly</a></article></div><p class="disclaimer">Access is activated only after verified payment. Existing members with an active subscription can log in without paying again. Displayed prices match the current application configuration.</p></div></section><section id="faq"><div class="wrap"><div class="kicker">FAQs</div><h2>Know before you subscribe.</h2><div class="faq"><article class="faq-item"><h3>Is this an automated trading or brokerage service?</h3><p>No. StockFinder Pro is an analytical screening tool, not a broker or automated order execution platform.</p></article><article class="faq-item"><h3>Are the setups guaranteed to be profitable?</h3><p>No. Results may be delayed or incomplete and do not guarantee outcomes. Always independently verify signals and manage risk.</p></article><article class="faq-item"><h3>Do I need to pay each time I log in?</h3><p>No. A verified active membership remains valid until its expiry date. Payment is needed when a subscription is not active.</p></article><article class="faq-item"><h3>Can I use the screener on PC and mobile?</h3><p>The interface supports both. Sign in separately on each device using your registered account.</p></article></div></div></section><section id="contact"><div class="wrap contact"><div><div class="kicker">Support</div><h2>Need help getting started?</h2><p class="desc">For login, payment or membership questions, contact support with your registered email and a brief description. Never share passwords or OTPs.</p></div><div class="contact-panel"><h3>StockFinder Pro Support</h3>{% if support_email %}<p>Email our support team:</p><a href="mailto:{{ support_email }}?subject=StockFinder%20Pro%20Support">{{ support_email }}</a>{% else %}<p>Support email will appear here once the platform owner configures <code>SUPPORT_EMAIL</code>.</p>{% endif %}</div></div></section></main><footer><div class="wrap foot"><span>© <span id="year"></span> StockFinder Pro. All rights reserved.</span><div class="footlinks"><a href="#features">Features</a><a href="#pricing">Plans</a><a href="#faq">FAQs</a><a href="/login">Login</a></div><div class="disclaimer">For analytical and educational use only. Not investment advice. Trading involves risk.</div></div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
 
 LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -1210,7 +1393,15 @@ body{min-height:100dvh!important;height:auto!important;background:radial-gradien
 </html>
 """
 
+# Landing page is a separate, editable HTML template; existing auth/payment logic is unchanged.
+with open(os.path.join(basedir, 'landing.html'), encoding='utf-8') as landing_file:
+    LANDING_PAGE_HTML = landing_file.read()
+
 # ================= FLASK ROUTING & AUTHENTICATION =================
+@app.route("/landing-hero.png")
+def landing_hero_asset():
+    return send_from_directory(basedir, "landing-hero.png")
+
 @app.route("/")
 def landing_page():
     if current_user():
@@ -1246,9 +1437,7 @@ def signup():
             return render_template_string(SIGNUP_PAGE_HTML, error="Database error during signup. Try again.")
         
         chosen_plan = request.form.get('plan') or session.get('selected_plan')
-        session.clear()
-        session.permanent = True
-        session['user'] = email
+        establish_device_login(new_user)
         return redirect(url_for('checkout', plan=chosen_plan if chosen_plan in PLAN_DETAILS else 'monthly'))
     selected = request.args.get('plan', '')
     if selected in PLAN_DETAILS: session['selected_plan'] = selected
@@ -1274,9 +1463,7 @@ def login_page():
             print(f"🔍 User found in DB. Password Match: {password_match}")
             if password_match:
                 chosen_plan = session.get('selected_plan', 'monthly')
-                session.clear()
-                session.permanent = True
-                session['user'] = email
+                establish_device_login(user)
                 return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account'))
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
@@ -1521,7 +1708,7 @@ def settings_page():
 
 @app.route("/terminal")
 def terminal_app():
-    if 'user' not in session:
+    if not current_user():
         return redirect(url_for('login_page'))
     if not active_subscription(current_user()):
         return redirect(url_for('landing_page') + '#pricing')
@@ -1529,7 +1716,7 @@ def terminal_app():
 
 @app.route("/logout")
 def logout():
-    session.pop('user', None)
+    revoke_device_login()
     return redirect(url_for('landing_page'))
 
 @app.before_request
@@ -1544,7 +1731,7 @@ def checkout():
     if plan not in PLAN_DETAILS: abort(400)
     if not current_user():
         session['selected_plan'] = plan
-        return redirect(url_for('signup', plan=plan))
+        return redirect(url_for('login_page'))
     user = current_user()
     if active_subscription(user) and request.args.get('renew') != '1':
         return redirect(url_for('terminal_app'))
@@ -1594,7 +1781,7 @@ const opts={key:{{key_id|tojson}},amount:{{amount|tojson}},currency:'INR',name:'
  handler:async function(response){document.getElementById('status').textContent='Verifying payment...';
  try{const r=await fetch('/api/payment/verify',{method:'POST',headers:{'Content-Type':'application/json'},
  body:JSON.stringify(response)});const data=await r.json();if(!r.ok)throw Error(data.message||'Verification failed');
- location.href='/account';}catch(e){document.getElementById('status').textContent=e.message+' Please contact support if charged.';}},
+ location.href=data.redirect||'/terminal';}catch(e){document.getElementById('status').textContent=e.message+' Please contact support if charged.';}},
  theme:{color:'#ff9e0b'}};
 document.getElementById('pay').onclick=()=>new Razorpay(opts).open();
 window.addEventListener('load',()=>{if(typeof Razorpay==='function')new Razorpay(opts).open();});
@@ -1640,9 +1827,9 @@ def verify_payment():
 
 @app.route("/api/watchlist", methods=["GET"])
 def get_watchlist():
-    if 'user' not in session:
+    if not current_user():
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    user = User.query.filter_by(email=session['user']).first()
+    user = current_user()
     if not user or not user.watchlist:
         return jsonify({"status": "success", "data": []})
     symbols = [s.strip().upper() for s in user.watchlist.split(",") if s.strip()]
@@ -1650,7 +1837,7 @@ def get_watchlist():
 
 @app.route("/api/watchlist/toggle", methods=["POST"])
 def toggle_watchlist():
-    if 'user' not in session:
+    if not current_user():
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
     data = request.json
     symbol = data.get('symbol')
@@ -1658,7 +1845,7 @@ def toggle_watchlist():
         return jsonify({"status": "error", "message": "Symbol required"}), 400
     
     symbol = symbol.strip().upper()
-    user = User.query.filter_by(email=session['user']).first()
+    user = current_user()
     if not user:
         return jsonify({"status": "error", "message": "User not found"}), 404
 
@@ -1715,6 +1902,8 @@ def get_smart_orb():
     except Exception:
         return jsonify({"status": "success", "data": []})
 
+ZONE_ALGORITHM_VERSION = 'v14_regression_diagnostics'
+
 ZONE_SCAN_LOCKS = {}
 ZONE_SCAN_LOCKS_GUARD = threading.Lock()
 
@@ -1734,7 +1923,7 @@ PRECOMPUTE_THREAD = None
 def _stored_zone_snapshot(univ_key, tf):
     try:
         with app.app_context():
-            row = db.session.get(ZoneResultStore, f'v8_zone_visibility_testcount:{univ_key}:{tf}')
+            row = db.session.get(ZoneResultStore, f'{ZONE_ALGORITHM_VERSION}:{univ_key}:{tf}')
             if row is not None:
                 data = json.loads(row.zones_json)
                 if isinstance(data, list):
@@ -1807,7 +1996,8 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
             "zoneCandleClose": z.get("zoneCandleClose"),
             "exitCandleDate": z.get("exitCandleDate"),
             "incomingCandleDate": z.get("incomingCandleDate"),
-            "zoneBoundarySource": z.get("zoneBoundarySource")
+            "zoneBoundarySource": z.get("zoneBoundarySource"),
+            "confirmation": "Confirmed"
             } for z in zones]
         except Exception as exc:
             print(f"Zone worker {tf}/{item.get('symbol')}: {type(exc).__name__}: {str(exc)[:150]}")
@@ -1860,7 +2050,7 @@ def _zone_scan_background(key, tf, target_universe, live_quotes):
         results.sort(key=lambda x: (cmp_distance(x), x.get('symbol', '')))
         try:
             with app.app_context():
-                store_key = f'v8_zone_visibility_testcount:{univ_key}:{tf}'
+                store_key = f'{ZONE_ALGORITHM_VERSION}:{univ_key}:{tf}'
                 record = db.session.get(ZoneResultStore, store_key)
                 if record is None:
                     record = ZoneResultStore(cache_key=store_key, zones_json='[]')
@@ -1919,6 +2109,104 @@ def zone_screener():
         if job:
             return jsonify(status='success', data=list(job['data']), done=job['done'], completed=job['completed'], total=job['total'], message=job.get('error'), source='scan')
     return jsonify(status='error', data=[], done=True, message='Scan could not start'), 503
+
+@app.route('/api/zone-debug', methods=['GET'])
+def zone_debug():
+    """Authenticated single-symbol diagnostic, no secrets or API tokens exposed."""
+    user = current_user()
+    if not user:
+        return jsonify(status='error', message='Login required'), 401
+    if not active_subscription(user):
+        return jsonify(status='error', message='Active subscription required'), 403
+    symbol = request.args.get('symbol', 'COCHINSHIP').strip().upper()
+    tf = request.args.get('tf', 'week').strip().lower()
+    if tf not in ('day', 'week', 'month', 'quarter', 'halfyear'):
+        return jsonify(status='error', message='Invalid timeframe'), 400
+    _, universe = get_active_universe_list(request.args.get('universe', 'FO'))
+    item = next((x for x in universe if x['symbol'] == symbol), None)
+    if not item:
+        return jsonify(status='error', message='Symbol not in selected universe'), 404
+    candles = fetch_historical_candles(item['isin'], tf)
+    if not candles:
+        return jsonify(status='error', message='No historical candles returned'), 502
+    ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+    ltp = float(request.args.get('ltp') or ordered[-1][4])
+    zones = scan_four_institutional_zones(ordered, ltp, symbol, tf)
+    # Report all price structure candidates without falsely labelling them as
+    # confirmed supply/demand zones. This makes missed formations inspectable.
+    candidates = []
+    for i in range(len(ordered)-2):
+        try:
+            a, b, c = ordered[i:i+3]
+            def strength(x):
+                o,h,l,cl = map(float, (x[1],x[2],x[3],x[4]))
+                return abs(cl-o)/max(h-l, 0.000001)
+            a_down = float(a[4]) < float(a[1]); c_down = float(c[4]) < float(c[1])
+            a_up = float(a[4]) > float(a[1]); c_up = float(c[4]) > float(c[1])
+            if ((a_down and c_down) or (a_up and c_up)) and strength(a) >= 0.50 and strength(c) >= 0.55:
+                candidates.append({'legIn':str(a[0]),'base':str(b[0]),'legOut':str(c[0]),
+                                   'direction':'SUPPLY' if c_down else 'DEMAND',
+                                   'baseHigh':float(b[2]),'baseLow':float(b[3]),
+                                   'legInBodyRatio':round(strength(a),3),
+                                   'legOutBodyRatio':round(strength(c),3),
+                                   'note':'Candidate only; check base, departure, retests and invalidation'})
+        except (ValueError,TypeError,IndexError):
+            continue
+    reference = request.args.get('reference', '').strip()
+    reference_analysis = None
+    if reference:
+        try:
+            ref_price = float(reference)
+            nearby = sorted(zones, key=lambda z: min(abs(z['proximal']-ref_price), abs(z['distal']-ref_price)))[:8]
+            reference_analysis = {'price': ref_price, 'nearestConfirmedZones': nearby}
+        except ValueError:
+            return jsonify(status='error', message='reference must be a number'), 400
+    return jsonify(status='success',referenceAnalysis=reference_analysis,symbol=symbol,timeframe=tf,ltp=ltp,
+                   candleCount=len(ordered),firstCandle=str(ordered[0][0]),
+                   lastCandle=str(ordered[-1][0]),confirmedZones=zones,
+                   recentCandles=ordered[-26:],historicalCandidates=candidates[-100:],
+                   note='Candidates are not confirmed zones. No levels are hardcoded.')
+
+@app.route('/api/zone-regression', methods=['GET'])
+def zone_regression():
+    """Live diagnostics for both reference formations; no prices are hardcoded into detection."""
+    user = current_user()
+    if not user:
+        return jsonify(status='error', message='Login required'), 401
+    if not active_subscription(user):
+        return jsonify(status='error', message='Active subscription required'), 403
+    _, universe = get_active_universe_list('FO')
+    by_symbol = {item['symbol']: item for item in universe}
+    cases = [('COCHINSHIP', 'week', 1106.10, 1016.20),
+             ('INDHOTEL', 'month', 438.35, 416.90)]
+    report = []
+    for symbol, tf, expected_proximal, expected_distal in cases:
+        item = by_symbol.get(symbol)
+        if not item:
+            report.append(dict(symbol=symbol, timeframe=tf, error='Missing from FO universe'))
+            continue
+        try:
+            candles = fetch_historical_candles(item['isin'], tf)
+            if not candles:
+                report.append(dict(symbol=symbol, timeframe=tf, error='No candles available'))
+                continue
+            ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+            ltp = float(ordered[-1][4])
+            zones = scan_four_institutional_zones(ordered, ltp, symbol, tf)
+            matches = [z for z in zones if z['bias'] == 'DEMAND' and
+                       abs(z['proximal']-expected_proximal) <= max(2.0, expected_proximal*0.01) and
+                       abs(z['distal']-expected_distal) <= max(2.0, expected_distal*0.01)]
+            nearest = sorted((z for z in zones if z['bias'] == 'DEMAND'),
+                             key=lambda z: abs(z['proximal']-expected_proximal)+abs(z['distal']-expected_distal))[:5]
+            report.append(dict(symbol=symbol, timeframe=tf, candles=len(ordered),
+                               firstCandle=str(ordered[0][0]), lastCandle=str(ordered[-1][0]),
+                               reference=dict(proximal=expected_proximal, distal=expected_distal),
+                               referenceMatched=bool(matches), matches=matches,
+                               nearestDemandZones=nearest, totalZones=len(zones)))
+        except Exception as exc:
+            report.append(dict(symbol=symbol, timeframe=tf, error=type(exc).__name__ + ': ' + str(exc)[:160]))
+    return jsonify(status='success', algorithmVersion=ZONE_ALGORITHM_VERSION,
+                   results=report, note='Reference prices used only to test matches; never to generate zones.')
 
 @app.route('/api/zone-cache-status', methods=['GET'])
 def zone_cache_status():

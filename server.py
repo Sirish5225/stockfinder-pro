@@ -1421,14 +1421,14 @@ def landing_hero_asset():
 
 @app.route("/")
 def landing_page():
-    if current_user():
-        return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account_page'))
+    # Always show the landing page, even if a login session exists.
+    # Login/signup routes handle subscription-based redirects separately.
     return render_template_string(LANDING_PAGE_HTML, support_email=os.getenv("SUPPORT_EMAIL", "").strip())
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == 'GET' and current_user():
-        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
+        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account_page'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1464,7 +1464,7 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == 'GET' and current_user():
-        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
+        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account_page'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1481,7 +1481,7 @@ def login_page():
             if password_match:
                 chosen_plan = session.get('selected_plan', 'monthly')
                 establish_device_login(user)
-                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account'))
+                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account_page'))
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)

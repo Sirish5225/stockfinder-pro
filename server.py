@@ -1427,8 +1427,6 @@ def landing_page():
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    if request.method == 'GET' and current_user():
-        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account_page'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1463,8 +1461,6 @@ def signup():
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
-    if request.method == 'GET' and current_user():
-        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account_page'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password")
@@ -1739,7 +1735,19 @@ def terminal_app():
 @app.route("/logout")
 def logout():
     revoke_device_login()
-    return redirect(url_for('landing_page'))
+    response = redirect(url_for('landing_page'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    response.headers['Pragma'] = 'no-cache'
+    return response
+
+@app.after_request
+def prevent_auth_page_caching(response):
+    # Avoid restoring a previous account or login screen from mobile browser cache.
+    if request.path in ('/login', '/signup', '/logout', '/account') or request.path.startswith('/account/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 
 @app.before_request
 def protect_market_apis():

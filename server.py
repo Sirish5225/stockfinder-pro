@@ -1453,7 +1453,7 @@ def signup():
         
         chosen_plan = request.form.get('plan') or session.get('selected_plan')
         establish_device_login(new_user)
-        return redirect(url_for('checkout', plan=chosen_plan if chosen_plan in PLAN_DETAILS else 'monthly'))
+        return redirect(url_for('landing_page') + '#pricing')
     selected = request.args.get('plan', '')
     if selected in PLAN_DETAILS: session['selected_plan'] = selected
     else: session.pop('selected_plan', None)
@@ -1477,7 +1477,7 @@ def login_page():
             if password_match:
                 chosen_plan = session.get('selected_plan', 'monthly')
                 establish_device_login(user)
-                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account_page'))
+                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('landing_page') + '#pricing')
             
         return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
     return render_template_string(LOGIN_PAGE_HTML)

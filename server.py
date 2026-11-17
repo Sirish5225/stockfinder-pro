@@ -140,8 +140,8 @@ class UserPreference(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_TzOiKGfQnvAcaw').strip()
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'RE9fr3o5YeqTo16lulirt0z5').strip()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '').strip()
 
 def current_user():
     email = session.get('user')
@@ -718,12 +718,12 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
 
     def compact(j, leg_body):
         v = m[j]
-        return bool(v and v['ratio'] <= 0.45 and v['body'] <= 0.45*leg_body)
+        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.30*leg_body)
 
     # Iterate each leg-in once, count the FULL contiguous base sequence.
     for legin_idx in range(len(candles)-2):
         legin = m[legin_idx]
-        if not legin or not (0.60 <= legin['ratio'] <= 1.0):
+        if not legin or not (0.80 <= legin['ratio'] <= 1.0):
             continue
         first_base = legin_idx+1
         if not compact(first_base, legin['body']):
@@ -735,7 +735,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if num_bases not in (1, 2) or legout_idx >= len(candles):
             continue
         legout = m[legout_idx]
-        if not legout or not (0.70 <= legout['ratio'] <= 1.0):
+        if not legout or not (0.80 <= legout['ratio'] <= 1.0):
             continue
         if legout['body'] < 0.85 * legin['body']:
             continue
@@ -794,6 +794,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
+        if test_count > 1:
+            continue
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
         status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
@@ -820,7 +822,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
     # This is a separate conservative candidate path, not a hardcoded stock fix.
     for exit_idx in range(2, len(m)):
         out = m[exit_idx]
-        if not out or out['ratio'] < 0.70:
+        if not out or out['ratio'] < 0.80:
             continue
         direction = 'DEMAND' if out['c'] > out['o'] else 'SUPPLY'
         for count in (1, 2):
@@ -830,10 +832,10 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 continue
             base = m[start:exit_idx]
             incoming = m[incoming_idx]
-            if not incoming or any(v is None for v in base):
+            if not incoming or incoming['ratio'] < 0.80 or any(v is None for v in base):
                 continue
             # All base candles must be compact relative to the departing body.
-            if any(v['ratio'] > 0.55 or v['body'] > 0.40 * out['body'] for v in base):
+            if any(v['ratio'] > 0.30 or v['body'] > 0.30 * incoming['body'] for v in base):
                 continue
             base_high = max(v['h'] for v in base)
             base_low = min(v['l'] for v in base)
@@ -875,6 +877,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 continue
             # Do not create the same zone twice when both 1 and 2 bases fit.
             # Prefer the shorter, nearest departure base when it is valid.
+            if test_count > 1:
+                continue
             in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
             status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
             zones.append({
@@ -906,8 +910,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         incoming, outgoing = m[incoming_idx], m[outgoing_idx]
         if not incoming or not outgoing:
             continue
-        if not (0.65 <= incoming['ratio'] <= 1.0 and
-                0.75 <= outgoing['ratio'] <= 1.0 and
+        if not (0.80 <= incoming['ratio'] <= 1.0 and
+                0.80 <= outgoing['ratio'] <= 1.0 and
                 incoming['body'] >= 0.65 * outgoing['body'] and
                 outgoing['body'] >= incoming['body']):
             continue
@@ -954,6 +958,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
+            continue
+        if test_count > 1:
             continue
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
         status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
@@ -1123,30 +1129,37 @@ def fetch_historical_candles(instrument_key, interval):
             CANDLE_CACHE[derived_key]={'candles':derived,'ts':time.time()}
         return derived
 
-# ================= GMAIL / RESEND SMTP EMAIL DISPATCH =================
-import resend
-resend.api_key = os.getenv("RESEND_API_KEY", "re_941CAtqZ_ChB72k3MAvZdx3QBVVgBfzgQ")
+# ================= DOMAIN-FREE GMAIL SMTP OTP DELIVERY =================
+from email.utils import formataddr
 
 def send_otp_email(to_email, otp_code):
+    """Send reset OTP through Gmail SMTP; credentials are Render environment variables."""
+    sender = os.getenv('SMTP_EMAIL', '').strip()
+    app_password = os.getenv('SMTP_APP_PASSWORD', '').replace(' ', '').strip()
+    if not sender or not app_password:
+        app.logger.error('OTP email not configured: set SMTP_EMAIL and SMTP_APP_PASSWORD')
+        return False
+    message = MIMEMultipart('alternative')
+    message['From'] = formataddr(('StockFinder Pro', sender))
+    message['To'] = to_email
+    message['Subject'] = 'Password Reset OTP - StockFinder Pro'
+    html = ("<div style='font-family:Arial,sans-serif'>"
+            "<h2>StockFinder Pro password reset</h2>"
+            "<p>Your verification code is:</p>"
+            f"<h1>{otp_code}</h1><p>Valid for 10 minutes.</p>"
+            "<p>If you did not request this, ignore this email.</p></div>")
+    message.attach(MIMEText(html, 'html', 'utf-8'))
     try:
-        params = {
-            "from": "Stock Finder Pro <onboarding@resend.dev>", 
-            "to": [to_email],
-            "subject": "Password Reset OTP - Stock Finder Pro",
-            "html": f"""
-                <div style="font-family: Arial, sans-serif; color: #333;">
-                    <h2>Password Reset Request</h2>
-                    <p>Your password reset verification code is:</p>
-                    <h1 style="color: #f39c12; letter-spacing: 4px;">{otp_code}</h1>
-                    <p>This code is valid for 10 minutes.</p>
-                </div>
-            """
-        }
-        resend.Emails.send(params)
-        print(f"✅ OTP email successfully dispatched via Resend to {to_email}")
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(sender, app_password)
+            smtp.sendmail(sender, [to_email], message.as_string())
+        app.logger.info('Password reset OTP sent via SMTP')
         return True
-    except Exception as e:
-        print(f"❌ Failed to send email via Resend API: {e}")
+    except (smtplib.SMTPException, OSError) as exc:
+        app.logger.error('SMTP OTP delivery failed: %s', type(exc).__name__)
         return False
 
 # ================= HTML TEMPLATES WITH STANDARD FORM POST =================
@@ -1409,7 +1422,7 @@ def landing_hero_asset():
 @app.route("/")
 def landing_page():
     if current_user():
-        return redirect(url_for('terminal_app') if active_subscription(current_user()) else url_for('account'))
+        return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('account_page'))
     return render_template_string(LANDING_PAGE_HTML, support_email=os.getenv("SUPPORT_EMAIL", "").strip())
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -1480,14 +1493,14 @@ def forgot_password():
         user = User.query.filter_by(email=email).first()
         
         if user:
-            otp = str(random.randint(100000, 999999))
+            otp = str(secrets.randbelow(900000) + 100000)
             user.reset_otp = otp
-            user.otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+            user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
             db.session.commit()
             
             email_sent = send_otp_email(email, otp)
             if not email_sent:
-                return render_template_string(FORGOT_PASSWORD_HTML, error="Failed to send email. Please check your Resend API key.")
+                return render_template_string(FORGOT_PASSWORD_HTML, error="Unable to send OTP. Please try again later or contact support.")
             
             session['reset_email'] = email
             return redirect(url_for('verify_otp'))
@@ -1506,11 +1519,14 @@ def verify_otp():
         email = session['reset_email']
         user = User.query.filter_by(email=email).first()
         
-        expiry = user.otp_expiry
+        expiry = user.otp_expiry if user else None
         if expiry and expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
             
-        if user and user.reset_otp == entered_otp and expiry and expiry > datetime.now(timezone.utc):
+        if user and user.reset_otp and hmac.compare_digest(user.reset_otp, entered_otp) and expiry and expiry > datetime.now(timezone.utc):
+            user.reset_otp = None
+            user.otp_expiry = None
+            db.session.commit()
             session['otp_verified'] = True
             return redirect(url_for('reset_password'))
         else:
@@ -1524,7 +1540,9 @@ def reset_password():
         return redirect(url_for('forgot_password'))
         
     if request.method == "POST":
-        new_password = request.form.get("password")
+        new_password = request.form.get("password", "")
+        if len(new_password) < 8:
+            return render_template_string(RESET_PASSWORD_HTML, error="Password must contain at least 8 characters.")
         email = session['reset_email']
         user = User.query.filter_by(email=email).first()
         
@@ -1906,7 +1924,7 @@ def get_smart_orb():
     except Exception:
         return jsonify({"status": "success", "data": []})
 
-ZONE_ALGORITHM_VERSION = 'v14_regression_diagnostics'
+ZONE_ALGORITHM_VERSION = 'v15_strict_80_30_max1'
 
 ZONE_SCAN_LOCKS = {}
 ZONE_SCAN_LOCKS_GUARD = threading.Lock()
@@ -2233,27 +2251,37 @@ def zone_cache_status():
 PULLBACK_LOCK = threading.RLock()
 PULLBACK_JOBS = {}
 PULLBACK_TTL = 180
+PULLBACK_STALE_SECONDS = 150
 PULLBACK_IST = pytz.timezone('Asia/Kolkata')
 # Use only actual exchange indices. Unmapped/custom sectors are intentionally excluded.
 PULLBACK_SECTOR_INDICES = {
     'Nifty Bank':'Nifty Bank', 'Nifty IT':'Nifty IT', 'Nifty Auto':'Nifty Auto',
     'Nifty Pharma':'Nifty Pharma', 'Nifty Metal':'Nifty Metal',
     'Nifty Energy':'Nifty Energy', 'Nifty FMCG':'Nifty FMCG',
-    'Fin Service':'Nifty Financial Services',
+    'Fin Service':'Nifty Fin Service',
 }
 
-def _pb_candles(key, unit, days=1):
-    if not UPSTOX_ACCESS_TOKEN: return []
+def _pb_candles(key, unit, days=1, diagnostic=False):
+    if not UPSTOX_ACCESS_TOKEN:
+        if diagnostic: raise RuntimeError('UPSTOX_ACCESS_TOKEN is not configured')
+        return []
     url = ('https://api.upstox.com/v3/historical-candle/intraday/'
            + urllib.parse.quote(key, safe='') + '/minutes/' + str(unit))
     try:
         with HISTORY_API_SLOTS:
             response = HTTP_SESSION.get(url, headers={'Accept':'application/json',
                 'Authorization':'Bearer '+UPSTOX_ACCESS_TOKEN}, timeout=(5,13))
-        if response.status_code != 200: return []
+        if response.status_code != 200:
+            if diagnostic:
+                try: detail = response.json().get('message') or response.json().get('errors') or response.text[:200]
+                except ValueError: detail = response.text[:200]
+                raise RuntimeError('Upstox intraday HTTP %s: %s' % (response.status_code, detail))
+            return []
         candles = response.json().get('data',{}).get('candles',[])
         return sorted([c for c in candles if len(c)>=6],key=lambda c:str(c[0]))
-    except (ValueError, KeyError, requests.RequestException): return []
+    except (ValueError, KeyError, requests.RequestException) as exc:
+        if diagnostic: raise RuntimeError('Upstox intraday request failed: %s' % type(exc).__name__) from exc
+        return []
 
 def _pb_frame(candles,unit):
     if not candles: return pd.DataFrame()
@@ -2275,9 +2303,35 @@ def _pb_trend(frame):
     fast=c.ewm(span=9,adjust=False).mean()
     slow=c.ewm(span=20,adjust=False).mean()
     vwap=( ((frame.high+frame.low+frame.close)/3)*frame.volume ).cumsum()/frame.volume.cumsum().replace(0,np.nan)
+    # NSE index candles often have zero volume. VWAP is undefined for indices;
+    # use price-only trend confirmation rather than rejecting every sector.
+    if not np.isfinite(vwap.iloc[-1]):
+        vwap = (frame.high + frame.low + frame.close) / 3
+        vwap = vwap.expanding().mean()
     last=float(c.iloc[-1]); prev=float(c.iloc[-4])
     if last>float(vwap.iloc[-1]) and fast.iloc[-1]>slow.iloc[-1] and last>prev: return 1
     if last<float(vwap.iloc[-1]) and fast.iloc[-1]<slow.iloc[-1] and last<prev: return -1
+    return 0
+
+def _pb_index_trend(frame):
+    """Classify actual index price direction without requiring index VWAP/volume.
+
+    A neutral result remains possible for genuinely mixed or flat trends.
+    """
+    if len(frame) < 8:
+        return 0
+    close = frame.close.astype(float)
+    ema9 = close.ewm(span=9, adjust=False).mean()
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    last = float(close.iloc[-1])
+    recent = float(close.iloc[-4])
+    spread = (float(ema9.iloc[-1]) - float(ema20.iloc[-1])) / max(abs(last), 1e-9)
+    slope = (last - recent) / max(abs(recent), 1e-9)
+    # Both EMA alignment and recent price direction must agree.
+    if spread > 0.00005 and slope > 0:
+        return 1
+    if spread < -0.00005 and slope < 0:
+        return -1
     return 0
 
 def _pb_daily_levels(key):
@@ -2318,17 +2372,17 @@ def _pb_reaction(frame,level,name):
 
 def _pb_scan_stock(item,tf,market,sector):
     sector_name=item.get('sector')
-    if sector_name not in sector:return None
+    if sector_name not in sector:return None, 'sector_unavailable'
     sf=sector[sector_name]
-    if sf['trend']==0 or sf['trend']!=market:return None
+    if sf['trend']==0 or (market != 0 and sf['trend']!=market):return None, 'market_sector_mismatch'
     f=_pb_frame(_pb_candles(item['isin'],tf),tf)
-    if len(f)<21:return None
+    if len(f)<21:return None, 'insufficient_stock_candles'
     c=f.close
     e9=c.ewm(span=9,adjust=False).mean(); e20=c.ewm(span=20,adjust=False).mean()
     vw=(((f.high+f.low+f.close)/3)*f.volume).cumsum()/f.volume.cumsum().replace(0,np.nan)
-    if not np.isfinite(vw.iloc[-1]):return None
+    if not np.isfinite(vw.iloc[-1]):return None, 'stock_vwap_unavailable'
     trend=_pb_trend(f)
-    if trend!=market:return None
+    if trend==0 or (market != 0 and trend!=market) or trend!=sf['trend']:return None, 'stock_trend_mismatch'
     # Require actual VWAP test and rejection in recent completed candles, not just proximity.
     found=None
     for i in range(max(20,len(f)-5),len(f)):
@@ -2337,18 +2391,18 @@ def _pb_scan_stock(item,tf,market,sector):
         if not near:continue
         if trend==1 and close>v and close>b.open and e9.iloc[i]>=e20.iloc[i]:found=i
         if trend==-1 and close<v and close<b.open and e9.iloc[i]<=e20.iloc[i]:found=i
-    if found is None:return None
+    if found is None:return None, 'no_confirmed_vwap_retest'
     pb=f.iloc[found]
     # Signal WATCH immediately after a completed VWAP rejection candle; trigger only on a later candle.
     later=f.iloc[found+1:]
     triggered=bool(len(later) and (float(later.high.max())>float(pb.high) if trend==1 else float(later.low.min())<float(pb.low)))
     levels=_pb_daily_levels(item['isin'])
-    if not levels:return None
+    if not levels:return None, 'daily_levels_unavailable'
     p=float(f.close.iloc[-1]); pdh=levels['pdh'];pdl=levels['pdl'];ema=levels['ema20']
     change=(p/float(f.open.iloc[0])-1)*100
-    if (trend==1 and change<=0) or (trend==-1 and change>=0):return None
+    if (trend==1 and change<=0) or (trend==-1 and change>=0):return None, 'daily_direction_mismatch'
     # Relative sector strength: sector must be directional AND outperform market in that direction.
-    if (trend==1 and sf['change']<=sf['market_change']) or (trend==-1 and sf['change']>=sf['market_change']):return None
+    if market != 0 and ((trend==1 and sf['change']<=sf['market_change']) or (trend==-1 and sf['change']>=sf['market_change'])):return None, 'sector_relative_strength'
     vratio=float(f.volume.iloc[-1]/max(1,f.volume.iloc[-min(len(f),12):-1].mean()))
     momentum='Strong' if abs(change)>=.7 and vratio>=1.2 else 'Moderate'
     return {'symbol':item['symbol'],'sector':sector_name,'direction':'Bullish' if trend==1 else 'Bearish',
@@ -2357,32 +2411,57 @@ def _pb_scan_stock(item,tf,market,sector):
       'sectorChange':round(sf['change'],2),'marketChange':round(sf['market_change'],2),
       'dailyEma20':round(ema,2),'emaReaction':_pb_reaction(f,ema,'EMA20'),
       'pdh':round(pdh,2),'pdl':round(pdl,2),'pdhStatus':_pb_reaction(f,pdh,'PDH'),
-      'pdlStatus':_pb_reaction(f,pdl,'PDL'),'ltp':round(p,2),'volumeRatio':round(vratio,2)}
+      'pdlStatus':_pb_reaction(f,pdl,'PDL'),'ltp':round(p,2),'volumeRatio':round(vratio,2)}, 'qualified'
 
 def _pb_worker(tf):
     key=str(tf)
     try:
         # A true sector index is mandatory; never substitute a custom bucket's average.
-        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf),tf)
-        market=_pb_trend(market_f)
-        if not market:raise ValueError('Market sideways or market candles unavailable')
+        with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Loading NIFTY 50 index'
+        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf,diagnostic=True),tf)
+        if len(market_f) < 8:
+            raise ValueError('NIFTY 50 intraday candles unavailable or insufficient (need at least 8 completed candles today). Check Upstox data and market hours.')
+        market=_pb_index_trend(market_f)
+        # Sideways (0) is valid: scan both directions with matching sector and stock trends.
         market_change=(float(market_f.close.iloc[-1])/float(market_f.open.iloc[0])-1)*100
         sectors={}
+        sector_diagnostics=[]
+        with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Checking sector indices'
         for label,index in PULLBACK_SECTOR_INDICES.items():
             f=_pb_frame(_pb_candles('NSE_INDEX|'+index,tf),tf)
-            trend=_pb_trend(f)
+            trend=_pb_index_trend(f)
             if trend and len(f):
                 sectors[label]={'trend':trend,'change':(float(f.close.iloc[-1])/float(f.open.iloc[0])-1)*100,'market_change':market_change}
+            else:
+                sector_diagnostics.append('%s: %s completed candles, trend=%s' % (label,len(f),trend))
         universe=GLOBAL_MARKET_UNIVERSE
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['diagnostics']={'universe':len(universe),'sectorsAvailable':len(sectors),'sectorDetails':sector_diagnostics,'rejections':{},'qualified':0}
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['stage']='Scanning eligible stocks'
+            PULLBACK_JOBS[key]['total']=len(universe)
+        if not sectors:
+            raise ValueError('No directional sector indices available. ' + '; '.join(sector_diagnostics[:8]) + '. Check Upstox index instrument keys and candle data.')
+        if not universe: raise ValueError('FO universe is empty. Check instrument loading.')
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-            futures={pool.submit(_pb_scan_stock,s,tf,market,sectors):s for s in universe if s.get('sector') in sectors}
+            futures={pool.submit(_pb_scan_stock,s,tf,market,sectors):s for s in universe}
             for future in concurrent.futures.as_completed(futures):
                 try:
-                    result=future.result()
-                    if result:
-                        with PULLBACK_LOCK:PULLBACK_JOBS[key]['data'].append(result)
-                except Exception as exc:app.logger.debug('Pullback symbol skipped: %s',type(exc).__name__)
-                with PULLBACK_LOCK:PULLBACK_JOBS[key]['completed']+=1
+                    result, reason=future.result()
+                    with PULLBACK_LOCK:
+                        counts=PULLBACK_JOBS[key]['diagnostics']['rejections']
+                        if result:
+                            PULLBACK_JOBS[key]['data'].append(result)
+                            PULLBACK_JOBS[key]['diagnostics']['qualified']+=1
+                        else: counts[reason]=counts.get(reason,0)+1
+                except Exception as exc:
+                    app.logger.warning('Pullback symbol %s failed: %s', futures[future].get('symbol'),type(exc).__name__)
+                    with PULLBACK_LOCK:
+                        counts=PULLBACK_JOBS[key]['diagnostics']['rejections']
+                        counts['scan_error']=counts.get('scan_error',0)+1
+                with PULLBACK_LOCK:
+                    PULLBACK_JOBS[key]['completed']+=1
+                    PULLBACK_JOBS[key]['updated']=time.time()
         with PULLBACK_LOCK:
             PULLBACK_JOBS[key]['data'].sort(key=lambda s:(s['state']!='TRIGGERED',s['momentum']!='Strong',s['symbol']))
     except Exception as exc:
@@ -2390,6 +2469,7 @@ def _pb_worker(tf):
     finally:
         with PULLBACK_LOCK:
             PULLBACK_JOBS[key]['done']=True
+            PULLBACK_JOBS[key]['stage']='Finished'
             PULLBACK_JOBS[key]['updated']=time.time()
 
 @app.route('/api/pullback-scanner',methods=['GET'])
@@ -2401,14 +2481,20 @@ def pullback_scanner():
     except ValueError:return jsonify(status='error',message='Invalid timeframe'),400
     if tf not in (5,15):return jsonify(status='error',message='Timeframe must be 5 or 15'),400
     key=str(tf)
+    refresh=request.args.get('refresh')=='1'
     with PULLBACK_LOCK:
         job=PULLBACK_JOBS.get(key)
-        if not job or (job['done'] and time.time()-job['updated']>PULLBACK_TTL):
-            job={'data':[],'completed':0,'done':False,'updated':time.time(),'message':None}
+        stale=bool(job and not job['done'] and time.time()-job['updated']>PULLBACK_STALE_SECONDS)
+        if stale:
+            job['done']=True
+            job['message']='Scanner timed out. Refresh to retry; check Render logs for Upstox errors.'
+        if not job or (job['done'] and (refresh or time.time()-job['updated']>PULLBACK_TTL)):
+            job={'data':[],'completed':0,'total':0,'stage':'Starting scan','done':False,'updated':time.time(),'message':None,'diagnostics':{}}
             PULLBACK_JOBS[key]=job
             threading.Thread(target=_pb_worker,args=(tf,),daemon=True).start()
         return jsonify(status='success',data=list(job['data']),completed=job['completed'],
-                       done=job['done'],message=job['message'],timeframe=tf)
+                       total=job.get('total',0),stage=job.get('stage','Starting scan'),
+                       done=job['done'],message=job['message'],timeframe=tf,diagnostics=job.get('diagnostics',{}))
 
 
 @app.route("/api/screener", methods=["GET"])

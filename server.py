@@ -140,8 +140,8 @@ class UserPreference(db.Model):
 
 PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
                 'halfyearly': (249900, 6), 'yearly': (499900, 12)}
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '').strip()
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '').strip()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_U19SAifu5yCSpA').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'BgsOKO8Ts1NBBUBbE8lUs9Ap').strip()
 
 def current_user():
     email = session.get('user')

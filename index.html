@@ -713,6 +713,41 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .sfp-sidebar-brand .sfp-brand-name em{font-style:normal!important;color:var(--primary)!important}
 .sfp-sidebar-brand .sfp-brand-name small{display:block!important;margin:5px 0 0!important;font-size:7.3px!important;font-weight:700!important;letter-spacing:.8px!important;white-space:nowrap!important;color:var(--muted)!important}
 .sfp-sidebar-brand #api-status{margin:7px 0 0 auto!important;flex:0 0 7px!important}
+
+/* Stock news badge and modal */
+.sfp-chart-link{display:inline-block;margin-left:5px;margin-right:3px;color:var(--muted);font-size:13px;font-weight:800;text-decoration:none;vertical-align:middle}
+.sfp-chart-link:hover{color:var(--primary)}
+.sfp-news-badge{display:inline-flex;align-items:center;margin-left:7px;padding:3px 7px;border:1px solid var(--primary);border-radius:6px;background:rgba(246,170,42,.12);color:var(--primary);font-size:10px;font-weight:800;cursor:pointer;vertical-align:middle}
+.sfp-news-badge:hover{background:rgba(246,170,42,.24)}
+.sfp-news-new{animation:sfp-news-flash 1.1s ease-in-out infinite;border-color:var(--green);color:var(--green)}
+@keyframes sfp-news-flash{50%{box-shadow:0 0 12px var(--green)}}
+.sfp-news-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:5000;display:none;align-items:center;justify-content:center;padding:15px}
+.sfp-news-dialog{width:min(650px,100%);max-height:85dvh;overflow:auto;background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 25px 80px #0008}
+.sfp-news-item{display:block;padding:14px 4px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--strong-text);line-height:1.5;font-size:14px}
+.sfp-news-item:hover{color:var(--primary)}
+.sfp-news-meta{display:block;color:var(--muted);font-size:11px;margin-top:5px}
+
+/* Market pulse strip */
+.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 12px;overflow-x:auto;flex-shrink:0;background:var(--sidebar-bg);border-bottom:1px solid var(--border);scrollbar-width:thin}
+.sfp-pulse-item{display:flex;align-items:center;gap:9px;white-space:nowrap;flex-shrink:0;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--strong-text);text-decoration:none;background:var(--panel);font-size:12px}
+.sfp-pulse-item:hover{border-color:var(--primary)}
+.sfp-pulse-symbol{font-weight:800}.sfp-pulse-price{font-family:'JetBrains Mono',monospace;font-weight:700}
+.sfp-pulse-positive{color:var(--green)}.sfp-pulse-negative{color:var(--red)}
+.sfp-pulse-alert{border-color:var(--red);animation:sfp-pulse-flash 1.5s ease-in-out infinite}
+@keyframes sfp-pulse-flash{50%{box-shadow:0 0 12px rgba(255,90,101,.35)}}
+.sfp-pulse-time{font-size:10px;color:var(--muted);flex-shrink:0}
+@media(max-width:600px){.sfp-market-pulse{padding:6px 8px}.sfp-pulse-item{padding:6px 8px;font-size:11px}}
+
+/* Market Pulse alignment v2: clean, consistent, full-width row below sector ticker */
+.sfp-market-pulse{width:100%;min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;align-items:stretch;gap:10px;padding:9px 16px;background:var(--sidebar-bg);border-bottom:1px solid var(--border);overflow:visible}
+.sfp-market-pulse .sfp-pulse-item{min-width:0;min-height:48px;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;column-gap:10px;row-gap:2px;padding:9px 12px;text-align:center;white-space:normal;border-radius:9px;font-size:12px}
+.sfp-market-pulse .sfp-pulse-symbol{font-size:11px;letter-spacing:.025em;white-space:nowrap}
+.sfp-market-pulse .sfp-pulse-price{white-space:nowrap;font-size:12px}
+.sfp-market-pulse .sfp-pulse-time{display:flex;align-items:center;justify-content:flex-end;text-align:right;max-width:160px;line-height:1.4}
+@media(max-width:1250px){.sfp-market-pulse{grid-template-columns:repeat(4,minmax(0,1fr))}.sfp-market-pulse .sfp-pulse-time{grid-column:1/-1;justify-content:center;max-width:none}}
+@media(max-width:760px){.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow-x:auto;scrollbar-width:thin}.sfp-market-pulse .sfp-pulse-item{min-width:180px;min-height:43px;flex-shrink:0;padding:7px 10px}.sfp-market-pulse .sfp-pulse-time{min-width:115px;flex-shrink:0;text-align:left;justify-content:flex-start}}
+.sfp-pulse-chart-icon{flex-shrink:0;color:var(--primary);opacity:.92;vertical-align:middle;transition:transform .2s ease}
+.sfp-pulse-item:hover .sfp-pulse-chart-icon{transform:translateY(-2px);opacity:1}
 </style>
 </head>
 <body>
@@ -761,6 +796,8 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
       <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
     </div>
+    <!-- Dedicated Market Pulse row, below the existing sector ticker -->
+    <div class="sfp-market-pulse" id="sfpMarketPulse" aria-label="Market indices and crude oil prices"><span class="sfp-pulse-time">Loading market prices…</span></div>
 
     <main>
       <!-- ================= SCREENER VIEW ================= -->
@@ -850,10 +887,10 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="switchTab('scr')" aria-label="Back to Live Screener">← Back to Screener</button></div>
           <p style="font-size:.76rem;margin-bottom:16px">Only market + actual sector index + stock trend aligned, confirmed VWAP retests. Previous day and daily EMA levels are informational.</p>
           <div class="toolbar" style="gap:10px">
-            <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks()"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
+            <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks(true)"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
             <label>Direction <select class="universe-dropdown" style="width:auto" id="pb-direction" onchange="renderPullbacks()"><option value="All">All</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option></select></label>
             <label>Momentum <select class="universe-dropdown" style="width:auto" id="pb-momentum" onchange="renderPullbacks()"><option value="All">All Momentum</option><option value="Strong">Strong</option><option value="Moderate">Moderate</option></select></label>
-            <button class="filter-btn" onclick="fetchPullbacks()">↻ Refresh</button>
+            <button class="filter-btn" onclick="fetchPullbacks(true)">↻ Refresh</button>
           </div>
           <div id="pb-status" style="font-size:.78rem;margin-bottom:10px;color:var(--muted)">Waiting for scan...</div>
           <div class="table-container" style="min-height:300px;max-height:calc(100vh - 350px)">
@@ -1105,7 +1142,49 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       GODREJPROP:'godrejproperties.com', DLF:'dlf.in', LODHA:'lodhagroup.com',
       LT:'larsentoubro.com', BEL:'bel-india.in', HAL:'hal-india.co.in',
       GRASIM:'grasim.com', PIDILITIND:'pidilite.com', BRITANNIA:'britannia.co.in',
-      NESTLEIND:'nestle.in', DABUR:'dabur.com', TATACONSUM:'tataconsumer.com'
+      NESTLEIND:'nestle.in', DABUR:'dabur.com', TATACONSUM:'tataconsumer.com',
+      // Additional sector heatmap mappings; unmapped stocks keep the safe initials fallback.
+      MAXHEALTH:'maxhealthcare.in', PPLPHARMA:'piramalpharma.com',
+      FORTIS:'fortishealthcare.com', MANKIND:'mankindpharma.com',
+      ALKEM:'alkemlabs.com', GLENMARK:'glenmarkpharma.com',
+      LUPIN:'lupin.com', TORNTPHARM:'torrentpharma.com',
+      BIOCON:'biocon.com', AUROPHARMA:'aurobindo.com',
+      ZYDUSLIFE:'zyduslife.com', LAURUSLABS:'lauruslabs.com',
+      ABB:'new.abb.com', ASTRAL:'astralltd.com', BDL:'bdl-india.in',
+      COFORGE:'coforge.com', OFSS:'oracle.com', MPHASIS:'mphasis.com',
+      KPITTECH:'kpit.com', CAMS:'camsonline.com', CDSL:'cdslindia.com',
+      BSE:'bseindia.com', MCX:'mcxindia.com', IRFC:'irfc.co.in',
+      RVNL:'rvnl.org', JIOFIN:'jfs.in', ANGELONE:'angelone.in',
+      NYKAA:'nykaa.com', VBL:'varunbeverages.com',
+      MARICO:'marico.com', COLPAL:'colgatepalmolive.co.in',
+      JUBLFOOD:'jublfood.com', GODREJCP:'godrejcp.com',
+      APOLLOHOSP:'apollohospitals.com', AUBANK:'aubank.in',
+      FEDERALBNK:'federalbank.co.in', IDFCFIRSTB:'idfcfirstbank.com',
+      UNIONBANK:'unionbankofindia.co.in', YESBANK:'yesbank.in',
+      RBLBANK:'rblbank.com', BANDHANBNK:'bandhanbank.com',
+      BANKINDIA:'bankofindia.co.in', INDIANB:'indianbank.in',
+      MUTHOOTFIN:'muthootfinance.com', MANAPPURAM:'manappuram.com',
+      LTF:'ltfinance.com', RECLTD:'recindia.nic.in', PFC:'pfcindia.com',
+      SHRIRAMFIN:'shriramfinance.in', CHOLAFIN:'cholamandalam.com',
+      POLICYBZR:'policybazaar.com', PAYTM:'paytm.com',
+      KFINTECH:'kfintech.com', HDFCAMC:'hdfcfund.com',
+      ICICIPRULI:'iciciprulife.com', ICICIGI:'icicilombard.com',
+      MOTHERSON:'motherson.com', TVSMOTOR:'tvsmotor.com',
+      BALKRISIND:'bkt-tires.com', BOSCHLTD:'bosch.in',
+      ASHOKLEY:'ashokleyland.com', BAJAJ_AUTO:'bajajauto.com',
+      M_AND_M:'mahindra.com', 'M&M':'mahindra.com',
+      'BAJAJ AUTO':'bajajauto.com',
+      UNOMINDA:'unominda.com', TIINDIA:'tiiindia.com',
+      SIEMENS:'siemens.com', HAVELLS:'havells.com',
+      VOLTAS:'voltas.com', POLYCAB:'polycab.com',
+      KEI:'kei-ind.com', DIXON:'dixoninfo.com',
+      CUMMINSIND:'cummins.com', MAZDOCK:'mazagondock.in',
+      COCHINSHIP:'cochinshipyard.in', SOLARINDS:'solargroup.com',
+      INDHOTEL:'ihcltata.com', CONCOR:'concorindia.co.in',
+      DELHIVERY:'delhivery.com', NAUKRI:'infoedge.in',
+      INDUSTOWER:'industowers.com', IDEA:'myvi.in',
+      PAGEIND:'jockey.in', SWIGGY:'swiggy.com',
+      ATHER:'atherenergy.com', SAGILITY:'sagilityhealth.com'
     });
 
     function getStockLogoUrl(symbol) {
@@ -1161,7 +1240,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           container.innerHTML = json.data.map(s => `
             <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: var(--glass-border);">
               <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
+                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
                 <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
             </div>
               <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
@@ -1196,17 +1275,17 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 
     let pbData=[],pbPolling=null;
     function openPullbackScanner(){switchTab('pullback');fetchPullbacks();}
-    async function fetchPullbacks(){
+    async function fetchPullbacks(force=false){
       if(pbPolling){clearTimeout(pbPolling);pbPolling=null;}
       const tf=document.getElementById('pb-tf').value;
       const status=document.getElementById('pb-status');
       status.textContent='Scanning  '+tf+'-minute candles and sector indices...';
       try{
-        const response=await fetch('/api/pullback-scanner?tf='+tf+'&_t='+Date.now(),{cache:'no-store'});
+        const response=await fetch('/api/pullback-scanner?tf='+tf+(force?'&refresh=1':'')+'&_t='+Date.now(),{cache:'no-store'});
         const result=await response.json();
         if(!response.ok||result.status!=='success')throw new Error(result.message||'Scanner unavailable');
         pbData=result.data||[];
-        status.textContent=result.done?(result.message||('Scan complete • '+pbData.length+' qualified stocks')):('Scanning • '+result.completed+' checked • '+pbData.length+' qualified');
+        status.textContent=result.done?(result.message?('Scan error: '+result.message):('Scan complete • '+result.completed+' checked • '+pbData.length+' qualified')):((result.stage||'Scanning')+' • '+result.completed+(result.total?' / '+result.total:'')+' checked • '+pbData.length+' qualified');
         renderPullbacks();
         if(!result.done&&currentTab==='pullback')pbPolling=setTimeout(fetchPullbacks,3500);
       }catch(e){status.textContent='Scan error: '+e.message;}
@@ -1344,8 +1423,8 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     }
 
     function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
     }
 
     function toggleSort(col) {
@@ -1383,7 +1462,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
             <td style="text-align: center;"><button class="watchlist-btn ${isStarred ? 'starred' : ''}" onclick="toggleWatchlist('${s.symbol}')">${isStarred ? '★' : '☆'}</button></td>
             <td>
               <span class="live-pulse-dot" style="background-color: ${s.pricePct >= 0 ? 'var(--green)' : 'var(--red)'};"></span>
-              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>
+              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
               ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
               <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
             </td>
@@ -1413,7 +1492,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       tbody.innerHTML = watchStocks.map(s => `
         <tr>
           <td style="text-align: center;"><button class="watchlist-btn starred" onclick="toggleWatchlist('${s.symbol}')">★</button></td>
-          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
+          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
           <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
           <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
           <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
@@ -1776,7 +1855,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 
       tbody.innerHTML = filteredZones.map(z => `
         <tr>
-          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a><div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
+          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a>${sfpNewsBadge(z.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
           <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
           <td style="font-weight:700;">${z.pattern}</td>
           <td>₹${Number(z.ltp || 0).toFixed(2)}</td>
@@ -1834,6 +1913,173 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     function closeRRCalculator() {
       document.getElementById('rr-calculator-modal').style.display = 'none';
     }
-  </script>
+
+    // Refresh visible stock news automatically every 5 seconds.
+    const sfpNewsStates = new Map();
+    const sfpNewsLatest = new Map();
+    let sfpNewsTimer = null;
+    let sfpNewsBusy = false;
+    let sfpNewsCursor = 0;
+    function sfpNewsBadge(symbol) {
+      const safe = String(symbol || '').toUpperCase();
+      return sfpNewsStates.get(safe) === true
+        ? `<button type="button" class="sfp-news-badge" data-news-symbol="${safe}" onclick="openStockNews('${safe}')">📰 NEWS</button>` : '';
+    }
+    function sfpScheduleNewsCheck() {
+      if (!sfpNewsTimer) sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 350);
+    }
+    async function sfpFetchNewsStatuses() {
+      sfpNewsTimer = null;
+      if (sfpNewsBusy || document.hidden) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
+      sfpEnsureChartLinks();
+      const links = [...document.querySelectorAll('a.stock-link')];
+      const symbolsAll = [...new Set(links.map(a => {
+        const m = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+        return m ? m[1].toUpperCase() : null;
+      }).filter(Boolean))];
+      if (!symbolsAll.length) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
+      // Rotate batches so large 200+ stock universes do not overload the API.
+      const symbols = Array.from({length:Math.min(30,symbolsAll.length)}, (_,i) => symbolsAll[(sfpNewsCursor+i)%symbolsAll.length]);
+      sfpNewsCursor = (sfpNewsCursor + symbols.length) % symbolsAll.length;
+      sfpNewsBusy = true;
+      try {
+        const response = await fetch('/api/stock-news-status?symbols=' + encodeURIComponent(symbols.join(',')), {credentials:'same-origin',cache:'no-store'});
+        if (!response.ok) throw new Error('Upstox news API HTTP ' + response.status);
+        const data = await response.json();
+        for (const [symbol, value] of Object.entries(data.hasNews || {})) {
+          const prior = sfpNewsLatest.get(symbol);
+          const latest = data.latest?.[symbol] || null;
+          sfpNewsStates.set(symbol, value === true);
+          sfpNewsLatest.set(symbol, latest);
+          links.forEach(a => {
+            const match = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+            if (!match || match[1].toUpperCase() !== symbol) return;
+            const badge = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]') || null;
+            if (!value && badge) badge.remove();
+            if (value && !badge) (a.nextElementSibling?.classList.contains('sfp-chart-link') ? a.nextElementSibling : a).insertAdjacentHTML('afterend', sfpNewsBadge(symbol));
+            if (value && prior && latest && latest !== prior) {
+              const current = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]');
+              if (current?.classList.contains('sfp-news-badge')) {
+                current.classList.add('sfp-news-new');
+                current.title = 'New headline detected';
+              }
+            }
+          });
+        }
+      } catch (err) { console.warn('Stock news refresh:', err.message); }
+      finally { sfpNewsBusy = false; sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); }
+    }
+    // Company-name click opens company-only news; the chart icon keeps TradingView access.
+    document.addEventListener('click', function(event) {
+      const link = event.target.closest('a.stock-link');
+      if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const match = (link.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+      if (!match) return;
+      event.preventDefault();
+      openStockNews(match[1].toUpperCase());
+    });
+    function sfpEnsureChartLinks() {
+      document.querySelectorAll('a.stock-link').forEach(link => {
+        if (link.nextElementSibling?.classList.contains('sfp-chart-link')) return;
+        if (link.parentElement?.querySelector('a.sfp-chart-link[data-for="' + link.textContent.trim() + '"]')) return;
+        const chart = document.createElement('a');
+        chart.className = 'sfp-chart-link';
+        chart.dataset.for = link.textContent.trim();
+        chart.href = link.href;
+        chart.target = '_blank';
+        chart.rel = 'noopener noreferrer';
+        chart.textContent = '↗';
+        chart.title = 'Open TradingView chart';
+        chart.setAttribute('aria-label', 'Open ' + link.textContent.trim() + ' TradingView chart');
+        link.insertAdjacentElement('afterend', chart);
+      });
+    }
+    function closeStockNews() { document.getElementById('sfp-news-overlay').style.display = 'none'; }
+    async function openStockNews(symbol) {
+      const overlay = document.getElementById('sfp-news-overlay');
+      const content = document.getElementById('sfp-news-content');
+      document.getElementById('sfp-news-title').textContent = symbol + ' · Latest News';
+      overlay.style.display = 'flex';
+      content.textContent = 'Loading latest headlines...';
+      try {
+        const response = await fetch('/api/stock-news?symbol=' + encodeURIComponent(symbol), {credentials:'same-origin',cache:'no-store'});
+        if (!response.ok) throw new Error('News service temporarily unavailable');
+        const data = await response.json();
+        content.replaceChildren();
+        if (!data.news?.length) { content.textContent = 'No recent news found for this stock.'; return; }
+        // Always show the most recently published company news first.
+        const newestFirst = [...data.news].sort((a, b) => {
+          const timestamp = item => {
+            const numeric = Number(item.publishedTime);
+            if (Number.isFinite(numeric) && numeric > 0) return numeric;
+            const parsed = Date.parse(item.publishedAt || '');
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          return timestamp(b) - timestamp(a);
+        });
+        for (const [index, item] of newestFirst.entries()) {
+          const a = document.createElement('a');
+          a.className = 'sfp-news-item'; a.href = item.url;
+          a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.append(document.createTextNode((index === 0 ? 'LATEST · ' : '') + item.title));
+          const meta = document.createElement('span'); meta.className = 'sfp-news-meta';
+          const when = item.publishedAt ? new Date(item.publishedAt).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : '';
+          meta.textContent = [item.source, when].filter(Boolean).join(' · ');
+          a.append(meta); content.append(a);
+        }
+      } catch(e) { content.textContent = 'Unable to load news right now. Please try again later.'; }
+    }
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeStockNews(); });
+
+    const sfpNewsObserver = new MutationObserver(() => sfpScheduleNewsCheck());
+    window.addEventListener('DOMContentLoaded', () => {
+      sfpEnsureChartLinks();
+      for (const id of ['tbody','watchlist-tbody','zones-tbody','top-gainers-list','top-losers-list','pb-tbody']) {
+        const el = document.getElementById(id);
+        if (el) sfpNewsObserver.observe(el, {childList:true,subtree:false});
+      }
+      sfpScheduleNewsCheck();
+    });
+  
+    // Market pulse is independent of the sector ticker and scans.
+    let sfpMarketPulseBusy = false;
+    const sfpPulseEscape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function sfpFetchMarketPulse() {
+      if (sfpMarketPulseBusy || document.hidden) return;
+      sfpMarketPulseBusy = true;
+      try {
+        const response = await fetch('/api/market-pulse', {cache:'no-store'});
+        if (!response.ok) throw new Error('Market feed unavailable');
+        const payload = await response.json();
+        if (payload.status !== 'success') throw new Error('Market feed unavailable');
+        const target = document.getElementById('sfpMarketPulse');
+        if (!target) return;
+        const cards = (payload.data || []).map(item => {
+          const hasPrice = Number.isFinite(Number(item.price)) && item.price !== null;
+          const pct = item.percent == null ? '' : `${Number(item.percent) >= 0 ? '+' : ''}${Number(item.percent).toFixed(2)}%`;
+          const cls = Number(item.change) >= 0 ? 'sfp-pulse-positive' : 'sfp-pulse-negative';
+          const price = hasPrice ? `${item.currency === 'USD/bbl' ? '$' : '₹'}${Number(item.price).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}` : 'Unavailable';
+          const chart = 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(item.chart || 'NSE:NIFTY');
+          const alertText = item.alert ? ` ⚠ ${sfpPulseEscape(item.alertText)}` : '';
+          return `<a class="sfp-pulse-item ${item.alert?'sfp-pulse-alert':''}" href="${chart}" target="_blank" rel="noopener noreferrer" title="Open chart" aria-label="Open ${sfpPulseEscape(item.symbol)} chart"><span class="sfp-pulse-symbol">${sfpPulseEscape(item.symbol)}</span>${/^(NIFTY 50|NIFTY BANK|BANK ?NIFTY|SENSEX)$/i.test(String(item.symbol || "").trim()) ? `<svg class="sfp-pulse-chart-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>` : ""}<span class="sfp-pulse-price">${price}</span><span class="${cls}">${pct}</span>${alertText}</a>`;
+        }).join('');
+        const time = payload.asOf ? new Date(payload.asOf).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+        target.innerHTML = cards + `<span class="sfp-pulse-time">Checked ${sfpPulseEscape(time)} • 5s • Brent indicative</span>`;
+      } catch (e) {
+        const target = document.getElementById('sfpMarketPulse');
+        if (target && !target.querySelector('a')) target.textContent = 'Market feed unavailable — checking again…';
+      } finally { sfpMarketPulseBusy = false; }
+    }
+    sfpFetchMarketPulse();
+    setInterval(sfpFetchMarketPulse, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sfpFetchMarketPulse(); });
+
+</script>
+<div id="sfp-news-overlay" class="sfp-news-overlay" role="presentation" onclick="if(event.target===this)closeStockNews()">
+  <section class="sfp-news-dialog" role="dialog" aria-modal="true" aria-labelledby="sfp-news-title">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px"><h3 id="sfp-news-title">Stock News</h3><button type="button" class="filter-btn" onclick="closeStockNews()" aria-label="Close news">✕</button></div>
+    <div id="sfp-news-content" aria-live="polite">Loading news...</div>
+  </section>
+</div>
 </body>
 </html>

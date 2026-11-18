@@ -1,4 +1,5 @@
 import os
+import re
 import secrets
 import json
 import hmac
@@ -158,9 +159,20 @@ def current_user():
         return None
     return user
 
+def is_admin(user):
+    """Admin access requires a validated device login and configured account."""
+    if user is None:
+        return False
+    admin_email = os.getenv('STOCKFINDER_ADMIN_EMAIL', '').strip().lower()
+    return bool(admin_email and user.email.strip().lower() == admin_email)
+
+
 def active_subscription(user):
     if not user:
         return False
+    # Personal administrator has lifetime access, without creating a fake paid subscription.
+    if is_admin(user):
+        return True
 
     # Opt-in development bypass: only for requests originating from and addressed
     # to the local machine. Never enable LOCAL_DEV_SUBSCRIPTION on a hosted service.
@@ -665,7 +677,7 @@ def has_strong_exit_confirmation(candles, legout_idx, bias):
 
 
 def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct=None):
-    """Strict RBR/DBR/RBD/DBD: exactly 1-2 contiguous compact base candles."""
+    """RBR/DBR/RBD/DBD: 1-2 compact bases; >=70% impulse bodies; leg-out > leg-in."""
     zones = []
     if not candles or len(candles) < 2 or current_ltp <= 0:
         return zones
@@ -718,12 +730,14 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
 
     def compact(j, leg_body):
         v = m[j]
-        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.30*leg_body)
+        # A compact base is a small-bodied candle; 40% of the incoming
+        # impulse accommodates small bases without accepting broad candles.
+        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.40*leg_body)
 
     # Iterate each leg-in once, count the FULL contiguous base sequence.
     for legin_idx in range(len(candles)-2):
         legin = m[legin_idx]
-        if not legin or not (0.80 <= legin['ratio'] <= 1.0):
+        if not legin or legin['ratio'] < 0.70:
             continue
         first_base = legin_idx+1
         if not compact(first_base, legin['body']):
@@ -735,9 +749,9 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         if num_bases not in (1, 2) or legout_idx >= len(candles):
             continue
         legout = m[legout_idx]
-        if not legout or not (0.80 <= legout['ratio'] <= 1.0):
+        if not legout or legout['ratio'] < 0.70:
             continue
-        if legout['body'] < 0.85 * legin['body']:
+        if legout['body'] <= legin['body']:
             continue
         base = m[first_base:legout_idx]
         base_high = max(c['h'] for c in base)
@@ -786,16 +800,17 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 break
             if touched and not inside_previous:
                 test_count += 1
+                if test_count >= 2:
+                    break  # Second independent touch: permanently exclude this zone
             inside_previous = touched
             # Keep counting retests; tested zones remain eligible.
-        if violated:
+        if violated or test_count > 1:
             continue
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
-        if test_count > 1:
-            continue
+        # Retested zones remain visible; status records the number of retest events.
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
         status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
@@ -807,7 +822,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
             'status': status, 'testCount': test_count, 'distancePct': distance_pct,
             'multiplier': round(legout['body']/max(legin['body'], 0.01), 2),
-            'strongZone': has_strong_exit_confirmation(candles, legout_idx, bias),
+            'strongZone': True,  # Both impulses passed >=70% and leg-out > leg-in
+            'followupConfirmed': has_strong_exit_confirmation(candles, legout_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
             'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
             'timeframe': tf.upper(), 'baseCandles': num_bases,
@@ -822,7 +838,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
     # This is a separate conservative candidate path, not a hardcoded stock fix.
     for exit_idx in range(2, len(m)):
         out = m[exit_idx]
-        if not out or out['ratio'] < 0.80:
+        if not out or out['ratio'] < 0.70:
             continue
         direction = 'DEMAND' if out['c'] > out['o'] else 'SUPPLY'
         for count in (1, 2):
@@ -832,10 +848,13 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 continue
             base = m[start:exit_idx]
             incoming = m[incoming_idx]
-            if not incoming or incoming['ratio'] < 0.80 or any(v is None for v in base):
+            # Reject a hidden third contiguous doji/base candle.
+            if incoming_idx > 0 and m[incoming_idx - 1] and compact(incoming_idx - 1, incoming['body']) and compact(incoming_idx, incoming['body']):
+                continue
+            if not incoming or incoming['ratio'] < 0.70 or out['body'] <= incoming['body'] or any(v is None for v in base):
                 continue
             # All base candles must be compact relative to the departing body.
-            if any(v['ratio'] > 0.30 or v['body'] > 0.30 * incoming['body'] for v in base):
+            if any(v['ratio'] > 0.30 or v['body'] > 0.40 * incoming['body'] for v in base):
                 continue
             base_high = max(v['h'] for v in base)
             base_low = min(v['l'] for v in base)
@@ -872,13 +891,13 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                     break
                 if touched and not inside_previous:
                     test_count += 1
+                    if test_count >= 2:
+                        break  # Second independent touch: permanently exclude this zone
                 inside_previous = touched
-            if violated or (direction == 'DEMAND' and current_ltp < distal) or (direction == 'SUPPLY' and current_ltp > distal):
+            if violated or test_count > 1 or (direction == 'DEMAND' and current_ltp < distal) or (direction == 'SUPPLY' and current_ltp > distal):
                 continue
-            # Do not create the same zone twice when both 1 and 2 bases fit.
-            # Prefer the shorter, nearest departure base when it is valid.
-            if test_count > 1:
-                continue
+            # Retain distinct formations; deduplication below uses candle identity and band.
+            # Retested zones remain visible; status records the number of retest events.
             in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
             status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
             zones.append({
@@ -891,7 +910,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 'status': status, 'testCount': test_count,
                 'distancePct': round(abs(current_ltp-proximal)/current_ltp*100, 2),
                 'multiplier': round(out['body']/max(incoming['body'], 0.01), 2),
-                'strongZone': has_strong_exit_confirmation(candles, exit_idx, direction),
+                'strongZone': True,
+                'followupConfirmed': has_strong_exit_confirmation(candles, exit_idx, direction),
                 'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
                 'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
                 'timeframe': tf.upper(), 'baseCandles': count,
@@ -903,17 +923,16 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             break
 
     # Base-free reversal patterns: DR / RD (two adjacent completed candles).
-    # Leg-in body must be >=65% of leg-out body; leg-out is a strong >=75% body candle.
+    # Both impulse bodies >=70% of range; leg-out body strictly larger than leg-in.
     # These are separate from RBR/DBR/RBD/DBD; they have ZERO base candles.
     for incoming_idx in range(len(m) - 1):
         outgoing_idx = incoming_idx + 1
         incoming, outgoing = m[incoming_idx], m[outgoing_idx]
         if not incoming or not outgoing:
             continue
-        if not (0.80 <= incoming['ratio'] <= 1.0 and
-                0.80 <= outgoing['ratio'] <= 1.0 and
-                incoming['body'] >= 0.65 * outgoing['body'] and
-                outgoing['body'] >= incoming['body']):
+        if not (incoming['ratio'] >= 0.70 and
+                outgoing['ratio'] >= 0.70 and
+                outgoing['body'] > incoming['body']):
             continue
         if incoming['c'] < incoming['o'] and outgoing['c'] > outgoing['o']:
             bias, pattern = 'DEMAND', 'Drop-Rally'
@@ -951,16 +970,17 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
                 break
             if touched and not inside_previous:
                 test_count += 1
+                if test_count >= 2:
+                    break  # Second independent touch: permanently exclude this zone
             inside_previous = touched
             # Keep counting retests; tested zones remain eligible.
-        if violated:
+        if violated or test_count > 1:
             continue
         if bias == 'DEMAND' and current_ltp < distal:
             continue
         if bias == 'SUPPLY' and current_ltp > distal:
             continue
-        if test_count > 1:
-            continue
+        # Retested zones remain visible; status records the number of retest events.
         in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
         status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
         zones.append({
@@ -972,7 +992,8 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
             'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
             'status': status, 'testCount': test_count, 'distancePct': distance_pct,
             'multiplier': round(outgoing['body']/max(incoming['body'], 0.01), 2),
-            'strongZone': has_strong_exit_confirmation(candles, outgoing_idx, bias),
+            'strongZone': True,
+            'followupConfirmed': has_strong_exit_confirmation(candles, outgoing_idx, bias),
             'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
             'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
             'timeframe': tf.upper(), 'baseCandles': 0,
@@ -1751,9 +1772,31 @@ def prevent_auth_page_caching(response):
 
 @app.before_request
 def protect_market_apis():
-    if request.path.startswith('/api/') and not request.path.startswith('/api/payment/'):
-        if not active_subscription(current_user()):
-            return jsonify({'status':'error','message':'Active subscription required'}), 403
+    path = request.path
+
+    if not path.startswith('/api/') or path.startswith('/api/payment/'):
+        return None
+
+    # Allow diagnostics only for local development, never on Render.
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+
+    is_local_dev = (
+        os.getenv("LOCAL_DEV_SUBSCRIPTION", "0") == "1"
+        and request.remote_addr in {"127.0.0.1", "::1"}
+        and request.host.split(":")[0].strip("[]").lower() in local_hosts
+    )
+
+    if is_local_dev and path in {
+        "/api/zone-regression",
+        "/api/zone-debug"
+    }:
+        return None
+
+    if not active_subscription(current_user()):
+        return jsonify({
+            "status": "error",
+            "message": "Active subscription required"
+        }), 403
 
 @app.route('/checkout')
 def checkout():
@@ -1932,7 +1975,7 @@ def get_smart_orb():
     except Exception:
         return jsonify({"status": "success", "data": []})
 
-ZONE_ALGORITHM_VERSION = 'v15_strict_80_30_max1'
+ZONE_ALGORITHM_VERSION = 'v20_stop_at_second_touch'
 
 ZONE_SCAN_LOCKS = {}
 ZONE_SCAN_LOCKS_GUARD = threading.Lock()
@@ -2123,9 +2166,11 @@ def zone_screener():
         cached = cache.get(tf)
         age = time.time() - cache['last_updated'].get(tf, 0)
     if cached is not None and age < ZONE_JOB_TTL and not force_refresh:
+        cached = [z for z in cached if int(z.get('testCount', 0) or 0) <= 1]
         return jsonify(status='success', data=cached, done=True, completed=len(target_universe), total=len(target_universe), source='memory')
     persisted, updated_at = _stored_zone_snapshot(univ_key, tf)
     if persisted is not None and not force_refresh:
+        persisted = [z for z in persisted if int(z.get('testCount', 0) or 0) <= 1]
         stale = not updated_at or (datetime.utcnow()-updated_at).total_seconds() >= HISTORY_CACHE_SECONDS
         if stale:
             _begin_zone_job(univ_key, tf, target_universe)
@@ -2137,7 +2182,7 @@ def zone_screener():
     with ZONE_JOBS_LOCK:
         job = ZONE_JOBS.get(key)
         if job:
-            return jsonify(status='success', data=list(job['data']), done=job['done'], completed=job['completed'], total=job['total'], message=job.get('error'), source='scan')
+            return jsonify(status='success', data=[z for z in job['data'] if int(z.get('testCount', 0) or 0) <= 1], done=job['done'], completed=job['completed'], total=job['total'], message=job.get('error'), source='scan')
     return jsonify(status='error', data=[], done=True, message='Scan could not start'), 503
 
 @app.route('/api/zone-debug', methods=['GET'])
@@ -2182,6 +2227,45 @@ def zone_debug():
                                    'note':'Candidate only; check base, departure, retests and invalidation'})
         except (ValueError,TypeError,IndexError):
             continue
+    # Inspect every 1-2-base formation near a supplied reference, including rejected ones.
+    # No reference price is ever used by the scanner to create or retain zones.
+    rejection_trace = []
+    for legin_idx in range(len(ordered) - 2):
+        for base_count in (1, 2):
+            exit_idx = legin_idx + base_count + 1
+            if exit_idx >= len(ordered):
+                continue
+            trio = ordered[legin_idx:exit_idx + 1]
+            try:
+                def describe(x):
+                    o,h,l,c = map(float, x[1:5]); span = h-l
+                    return dict(date=str(x[0]), open=o, high=h, low=l, close=c,
+                                body=round(abs(c-o), 4), bodyPct=round(100*abs(c-o)/span,2) if span>0 else 0)
+                legin = describe(trio[0]); legout = describe(trio[-1]); bases = [describe(x) for x in trio[1:-1]]
+                if legout['close'] <= legout['open']:
+                    continue  # This reference trace focuses on demand formations.
+                prox = max(max(x['open'],x['close']) for x in bases)
+                dist = min(x['low'] for x in bases)
+                reasons = []
+                if legin['bodyPct'] < 70: reasons.append('LEG_IN_BODY_BELOW_70')
+                if legout['bodyPct'] < 70: reasons.append('LEG_OUT_BODY_BELOW_70')
+                if legout['body'] <= legin['body']: reasons.append('LEG_OUT_NOT_LARGER')
+                if any(x['bodyPct'] > 30 or x['body'] > 0.40*legin['body'] for x in bases):
+                    reasons.append('BASE_NOT_COMPACT')
+                if legout['close'] <= max(x['high'] for x in bases): reasons.append('NO_BASE_BREAKOUT_CLOSE')
+                if max(x['high'] for x in bases)-dist > max(legin['body'],legout['body']):
+                    reasons.append('BASE_RANGE_TOO_WIDE')
+                rejection_trace.append(dict(proximal=round(prox,2),distal=round(dist,2),
+                                            legIn=legin,bases=bases,legOut=legout,
+                                            rejectionReasons=reasons or ['CHECK_RETEST_OR_OTHER_FILTERS']))
+            except (ValueError, TypeError, IndexError, ZeroDivisionError):
+                continue
+    try:
+        ref_value = float(request.args.get('reference',''))
+        rejection_trace.sort(key=lambda x: min(abs(x['proximal']-ref_value),abs(x['distal']-ref_value)))
+    except ValueError:
+        rejection_trace.sort(key=lambda x: x['legOut']['date'], reverse=True)
+    rejection_trace = rejection_trace[:25]
     reference = request.args.get('reference', '').strip()
     reference_analysis = None
     if reference:
@@ -2194,49 +2278,203 @@ def zone_debug():
     return jsonify(status='success',referenceAnalysis=reference_analysis,symbol=symbol,timeframe=tf,ltp=ltp,
                    candleCount=len(ordered),firstCandle=str(ordered[0][0]),
                    lastCandle=str(ordered[-1][0]),confirmedZones=zones,
-                   recentCandles=ordered[-26:],historicalCandidates=candidates[-100:],
+                   recentCandles=ordered[-26:],historicalCandidates=candidates[-100:],rejectionTrace=rejection_trace,
                    note='Candidates are not confirmed zones. No levels are hardcoded.')
+
+def _zone_v19_audit(candles, tf, expected_proximal=None, expected_distal=None):
+    """Read-only formation audit; references rank results but NEVER affect detection."""
+    ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+    now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+    if tf == 'month':
+        ordered = [c for c in ordered if (pd.to_datetime(c[0]).year, pd.to_datetime(c[0]).month) < (now_ist.year, now_ist.month)]
+    elif tf == 'week':
+        monday = now_ist.date() - timedelta(days=now_ist.weekday())
+        ordered = [c for c in ordered if pd.to_datetime(c[0]).date() < monday]
+    def detail(c):
+        o,h,l,cl = map(float, c[1:5])
+        span=h-l
+        return dict(date=str(c[0]), open=o, high=h, low=l, close=cl,
+                    body=round(abs(cl-o),4), bodyPct=round(100*abs(cl-o)/span,2) if span>0 else 0,
+                    valid=span>0 and l<=min(o,cl)<=max(o,cl)<=h)
+    rows=[detail(c) for c in ordered]
+    findings=[]
+    for i in range(len(rows)-2):
+        for n in (1,2):
+            j=i+n+1
+            if j>=len(rows): continue
+            incoming=rows[i]; bases=rows[i+1:j]; outgoing=rows[j]
+            if outgoing['close']<=outgoing['open']: continue
+            proximal=max(max(b['open'],b['close']) for b in bases)
+            distal=min(b['low'] for b in bases)
+            reasons=[]
+            if not incoming['valid'] or not outgoing['valid'] or not all(b['valid'] for b in bases): reasons.append('INVALID_OHLC')
+            if incoming['bodyPct']<70: reasons.append('LEG_IN_BODY_BELOW_70')
+            if outgoing['bodyPct']<70: reasons.append('LEG_OUT_BODY_BELOW_70')
+            if outgoing['body']<=incoming['body']: reasons.append('LEG_OUT_NOT_LARGER')
+            if any(b['bodyPct']>30 or b['body']>0.4*incoming['body'] for b in bases): reasons.append('BASE_NOT_COMPACT')
+            if i>0 and rows[i]['bodyPct']<=30 and rows[i-1]['bodyPct']<=30: reasons.append('POSSIBLE_EXTENDED_BASE_BEFORE_LEGIN')
+            if n==2 and i+3<len(rows) and rows[i+1]['bodyPct']<=30 and rows[i+2]['bodyPct']<=30 and rows[i+3]['bodyPct']<=30: reasons.append('MORE_THAN_TWO_BASES')
+            base_high=max(b['high'] for b in bases)
+            if outgoing['close']<=base_high: reasons.append('NO_BASE_BREAKOUT_CLOSE')
+            if base_high-distal>max(incoming['body'],outgoing['body']): reasons.append('BASE_RANGE_TOO_WIDE')
+            if base_high-distal>0.70*outgoing['body']: reasons.append('IMPULSE_ORIGIN_BASE_TOO_WIDE')
+            if outgoing['body']<1.30*(base_high-distal): reasons.append('IMPULSE_ORIGIN_DEPARTURE_TOO_SMALL')
+            touched_count=0; was_touching=False; invalidated_at=None
+            for later in rows[j+1:]:
+                if later['close']<distal:
+                    invalidated_at=later['date']; reasons.append('INVALIDATED_CLOSE_BELOW_DISTAL'); break
+                touched=later['low']<=proximal and later['high']>=distal
+                if touched and not was_touching: touched_count+=1
+                was_touching=touched
+            findings.append(dict(pattern='Rally-Base-Rally' if incoming['close']>incoming['open'] else 'Drop-Base-Rally',
+                proximal=round(proximal,2),distal=round(distal,2),baseCandles=n,
+                legIn=incoming,base=bases,legOut=outgoing,rejectionReasons=reasons,
+                testCount=touched_count,invalidatedAt=invalidated_at))
+    if expected_proximal is not None and expected_distal is not None:
+        findings.sort(key=lambda x: abs(x['proximal']-expected_proximal)+abs(x['distal']-expected_distal))
+    else:
+        findings.sort(key=lambda x: x['legOut']['date'], reverse=True)
+    return dict(completedCandles=len(rows),nearestCandidates=findings[:12],
+                note='Audit only; reasons describe candidate constraints, not proof of a valid zone. Reference prices only sort audit output.')
 
 @app.route('/api/zone-regression', methods=['GET'])
 def zone_regression():
-    """Live diagnostics for both reference formations; no prices are hardcoded into detection."""
+    """Live diagnostics for reference formations."""
     user = current_user()
+
     if not user:
-        return jsonify(status='error', message='Login required'), 401
-    if not active_subscription(user):
-        return jsonify(status='error', message='Active subscription required'), 403
+        return jsonify(
+            status='error',
+            message='Login required'
+        ), 401
+
+    # Allow regression testing on localhost only.
+    local_hosts = {'localhost', '127.0.0.1', '::1'}
+    is_local = (
+        os.getenv('LOCAL_DEV_SUBSCRIPTION', '0') == '1'
+        and request.remote_addr in {'127.0.0.1', '::1'}
+        and request.host.split(':')[0].strip('[]').lower() in local_hosts
+    )
+
+    if not is_local and not active_subscription(user):
+        return jsonify(
+            status='error',
+            message='Active subscription required'
+        ), 403
+
     _, universe = get_active_universe_list('FO')
     by_symbol = {item['symbol']: item for item in universe}
-    cases = [('COCHINSHIP', 'week', 1106.10, 1016.20),
-             ('INDHOTEL', 'month', 438.35, 416.90)]
+
+    cases = [
+        ('COCHINSHIP', 'week', 1106.10, 1016.20),
+        ('INDHOTEL', 'month', 438.35, 416.90),
+        ('INDHOTEL', 'week', None, None)
+    ]
+
     report = []
+
     for symbol, tf, expected_proximal, expected_distal in cases:
         item = by_symbol.get(symbol)
+
         if not item:
-            report.append(dict(symbol=symbol, timeframe=tf, error='Missing from FO universe'))
+            report.append(dict(
+                symbol=symbol,
+                timeframe=tf,
+                error='Missing from FO universe'
+            ))
             continue
+
         try:
             candles = fetch_historical_candles(item['isin'], tf)
+
             if not candles:
-                report.append(dict(symbol=symbol, timeframe=tf, error='No candles available'))
+                report.append(dict(
+                    symbol=symbol,
+                    timeframe=tf,
+                    error='No candles available'
+                ))
                 continue
-            ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+
+            ordered = sorted(
+                (c for c in candles if len(c) >= 5),
+                key=lambda c: str(c[0])
+            )
+
             ltp = float(ordered[-1][4])
-            zones = scan_four_institutional_zones(ordered, ltp, symbol, tf)
-            matches = [z for z in zones if z['bias'] == 'DEMAND' and
-                       abs(z['proximal']-expected_proximal) <= max(2.0, expected_proximal*0.01) and
-                       abs(z['distal']-expected_distal) <= max(2.0, expected_distal*0.01)]
-            nearest = sorted((z for z in zones if z['bias'] == 'DEMAND'),
-                             key=lambda z: abs(z['proximal']-expected_proximal)+abs(z['distal']-expected_distal))[:5]
-            report.append(dict(symbol=symbol, timeframe=tf, candles=len(ordered),
-                               firstCandle=str(ordered[0][0]), lastCandle=str(ordered[-1][0]),
-                               reference=dict(proximal=expected_proximal, distal=expected_distal),
-                               referenceMatched=bool(matches), matches=matches,
-                               nearestDemandZones=nearest, totalZones=len(zones)))
+
+            zones = scan_four_institutional_zones(
+                ordered, ltp, symbol, tf
+            )
+
+            if expected_proximal is None:
+                matches = [
+                    z for z in zones
+                    if z['bias'] == 'DEMAND'
+                    and z['pattern'] in (
+                        'Drop-Base-Rally',
+                        'Rally-Base-Rally'
+                    )
+                ]
+                nearest = matches[-12:]
+            else:
+                matches = [
+                    z for z in zones
+                    if z['bias'] == 'DEMAND'
+                    and abs(z['proximal'] - expected_proximal)
+                    <= max(2.0, expected_proximal * 0.01)
+                    and abs(z['distal'] - expected_distal)
+                    <= max(2.0, expected_distal * 0.01)
+                ]
+
+                nearest = sorted(
+                    (z for z in zones if z['bias'] == 'DEMAND'),
+                    key=lambda z:
+                    abs(z['proximal'] - expected_proximal)
+                    + abs(z['distal'] - expected_distal)
+                )[:5]
+
+            audit = _zone_v19_audit(ordered, tf, expected_proximal, expected_distal)
+            report.append(dict(
+                audit=audit,
+                symbol=symbol,
+                timeframe=tf,
+                candles=len(ordered),
+                firstCandle=str(ordered[0][0]),
+                lastCandle=str(ordered[-1][0]),
+                reference=dict(
+                    proximal=expected_proximal,
+                    distal=expected_distal
+                ),
+                referenceMatched=(
+                    bool(matches)
+                    if expected_proximal is not None else None
+                ),
+                patternCounts={
+                    p: sum(z['pattern'] == p for z in zones)
+                    for p in (
+                        'Drop-Base-Rally',
+                        'Rally-Base-Rally'
+                    )
+                },
+                matches=matches,
+                nearestDemandZones=nearest,
+                totalZones=len(zones)
+            ))
+
         except Exception as exc:
-            report.append(dict(symbol=symbol, timeframe=tf, error=type(exc).__name__ + ': ' + str(exc)[:160]))
-    return jsonify(status='success', algorithmVersion=ZONE_ALGORITHM_VERSION,
-                   results=report, note='Reference prices used only to test matches; never to generate zones.')
+            report.append(dict(
+                symbol=symbol,
+                timeframe=tf,
+                error=type(exc).__name__ + ': ' + str(exc)[:160]
+            ))
+
+    return jsonify(
+        status='success',
+        algorithmVersion=ZONE_ALGORITHM_VERSION,
+        auditVersion='v19_diagnostic',
+        results=report,
+        note='Reference prices used only to test matches; never to generate zones.'
+    )
 
 @app.route('/api/zone-cache-status', methods=['GET'])
 def zone_cache_status():
@@ -2505,6 +2743,112 @@ def pullback_scanner():
                        done=job['done'],message=job['message'],timeframe=tf,diagnostics=job.get('diagnostics',{}))
 
 
+
+# ================= STOCK NEWS (UPSTOX API) =================
+# 5-second cache is shared between logged-in visitors in this Flask process.
+STOCK_NEWS_CACHE = {}
+STOCK_NEWS_LOCK = threading.RLock()
+STOCK_NEWS_TTL = 5
+
+def _news_instrument_key(symbol):
+    record = ALL_NSE_EQ_MAP.get(symbol) or {}
+    return record.get("inst_key") or (FO_INSTRUMENT_MAP.get(symbol) if "FO_INSTRUMENT_MAP" in globals() else None)
+
+def _upstox_news_batch(symbols):
+    keys = {symbol: _news_instrument_key(symbol) for symbol in symbols}
+    keys = {symbol: key for symbol, key in keys.items() if isinstance(key, str) and key.startswith("NSE_EQ|")}
+    if not keys:
+        return {symbol: [] for symbol in symbols}
+    token = os.getenv("UPSTOX_ANALYTICS_TOKEN", "").strip() or UPSTOX_ACCESS_TOKEN
+    response = HTTP_SESSION.get("https://api.upstox.com/v2/news", params={
+        "category": "instrument_keys", "instrument_keys": ",".join(dict.fromkeys(keys.values())),
+        "page_number": 1, "page_size": 100
+    }, headers={"Accept":"application/json", "Authorization":"Bearer " + token}, timeout=(4, 12))
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") != "success" or not isinstance(payload.get("data"), dict):
+        raise ValueError("Upstox news returned an invalid response")
+    result = {}
+    for symbol in symbols:
+        raw = payload["data"].get(keys.get(symbol), [])
+        items = []
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            # Reject items explicitly tagged to a different listed company.
+            tagged = item.get("instrument_key") or item.get("instrumentKey")
+            if tagged and tagged != keys.get(symbol):
+                continue
+            tagged_list = item.get("instrument_keys")
+            if isinstance(tagged_list, list) and tagged_list and keys.get(symbol) not in tagged_list:
+                continue
+            url = item.get("article_link", "")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            published_ms = item.get("published_time")
+            try:
+                published = datetime.fromtimestamp(int(published_ms) / 1000, tz=timezone.utc).isoformat()
+            except (ValueError, TypeError, OverflowError):
+                published = None
+            items.append({"title": str(item.get("heading") or ""), "url": url,
+                          "source": "Upstox News", "summary": str(item.get("summary") or ""),
+                          "publishedAt": published, "publishedTime": published_ms})
+        items.sort(key=lambda x: x.get("publishedTime") or 0, reverse=True)
+        result[symbol] = items[:20]
+    return result
+
+def _news_cached_batch(symbols):
+    now = time.monotonic()
+    with STOCK_NEWS_LOCK:
+        missing = [symbol for symbol in symbols if symbol not in STOCK_NEWS_CACHE or
+                   now - STOCK_NEWS_CACHE[symbol]["time"] >= STOCK_NEWS_TTL]
+    # A request may contain up to 30 instruments (Upstox limit).
+    if missing:
+        fresh = _upstox_news_batch(missing)
+        with STOCK_NEWS_LOCK:
+            for symbol in missing:
+                STOCK_NEWS_CACHE[symbol] = {"time": time.monotonic(), "news": fresh.get(symbol, [])}
+    with STOCK_NEWS_LOCK:
+        return {symbol: list(STOCK_NEWS_CACHE.get(symbol, {}).get("news", [])) for symbol in symbols}
+
+@app.route("/api/stock-news-status", methods=["GET"])
+def stock_news_status():
+    user = current_user()
+    if not user:
+        return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user):
+        return jsonify(status="error", message="Active subscription required"), 403
+    raw = request.args.get("symbols", "")
+    symbols = list(dict.fromkeys(x.strip().upper() for x in raw.split(",") if x.strip()))
+    if not symbols or len(symbols) > 30 or any(not re.fullmatch(r"[A-Z0-9&.-]{1,24}", x) for x in symbols):
+        return jsonify(status="error", message="Supply 1-30 valid symbols"), 400
+    try:
+        news = _news_cached_batch(symbols)
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Upstox news status error: %s", exc)
+        return jsonify(status="unavailable", message="Upstox news API unavailable"), 503
+    return jsonify(status="success", provider="Upstox", pollSeconds=5,
+                   hasNews={s: bool(news[s]) for s in symbols},
+                   latest={s: (news[s][0].get("publishedAt") if news[s] else None) for s in symbols})
+
+@app.route("/api/stock-news", methods=["GET"])
+def stock_news():
+    user = current_user()
+    if not user:
+        return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user):
+        return jsonify(status="error", message="Active subscription required"), 403
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9&.-]{1,24}", symbol):
+        return jsonify(status="error", message="Invalid symbol"), 400
+    try:
+        items = _news_cached_batch([symbol])[symbol]
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Upstox news error for %s: %s", symbol, exc)
+        return jsonify(status="unavailable", message="Upstox news API unavailable", news=[]), 503
+    return jsonify(status="success", provider="Upstox", symbol=symbol,
+                   count=len(items), news=items)
+
 @app.route("/api/screener", methods=["GET"])
 def screener():
     filter_val, search_val, univ_type = request.args.get("filter", "ALL"), request.args.get("search", "").strip().lower(), request.args.get("universe", "FO").upper()
@@ -2541,6 +2885,90 @@ def get_sectors():
     summary = [{"sector": sec, "avgChange": round(val["total_pct"] / val["stocks"], 2) if val["stocks"] > 0 else 0.0, "stocksCount": val["stocks"], "advances": val["advances"], "declines": val["declines"], "totalVolume": val["total_vol"]} for sec, val in sec_map.items()]
     summary.sort(key=lambda x: x["avgChange"], reverse=True)
     return jsonify({"status": "success", "universe": univ_type, "data": summary, "marketBreadth": {"totalVolume": total_vol, "advances": total_adv, "declines": total_dec}})
+
+
+# Market pulse: Upstox index quotes and optional Brent feed.
+# Brent uses an unofficial delayed/indicative Yahoo Finance futures endpoint; not an exchange live feed.
+_MARKET_PULSE_CACHE = {"at": 0.0, "payload": None}
+_BRENT_OBSERVATIONS = []
+
+@app.route('/api/market-pulse', methods=['GET'])
+def market_pulse():
+    if not current_user():
+        return jsonify({"status": "error", "message": "Login required"}), 401
+    if not active_subscription(current_user()):
+        return jsonify({"status": "error", "message": "Active subscription required"}), 403
+    now = time.time()
+    if _MARKET_PULSE_CACHE['payload'] is not None and now - _MARKET_PULSE_CACHE['at'] < 5:
+        return jsonify(_MARKET_PULSE_CACHE['payload'])
+    index_keys = ["NSE_INDEX|Nifty 50", "NSE_INDEX|Nifty Bank", "BSE_INDEX|SENSEX"]
+    names = ["NIFTY 50", "BANK NIFTY", "SENSEX"]
+    charts = ["NSE:NIFTY", "NSE:BANKNIFTY", "BSE:SENSEX"]
+    result = []
+    try:
+        r = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+            headers={'Accept':'application/json','Authorization':f'Bearer {UPSTOX_ACCESS_TOKEN}'},
+            params={'instrument_key':','.join(index_keys)}, timeout=4)
+        r.raise_for_status()
+        data = r.json().get('data') or {}
+        for key, name, chart in zip(index_keys, names, charts):
+            quote = data.get(key) or data.get(key.replace('|', ':'))
+            if not quote:
+                # Upstox can key quote responses by trading symbol.
+                quote = next((v for v in data.values() if isinstance(v,dict) and v.get('instrument_token') == key), None)
+            if not quote: continue
+            ltp = float(quote.get('last_price') or 0)
+            if ltp <= 0: continue
+            change = float(quote.get('net_change') or 0)
+            prev = float(quote.get('prev_close') or ltp-change)
+            result.append({'symbol':name,'price':round(ltp,2),'change':round(change,2),
+                'percent':round(100*change/prev,2) if prev else None,
+                'chart':chart,'currency':'INR','source':'Upstox'})
+    except Exception as exc:
+        app.logger.warning('Market pulse indices unavailable: %s', str(exc)[:180])
+
+    brent = {'symbol':'BRENT CRUDE','price':None,'change':None,'percent':None,
+             'chart':'TVC:UKOIL','currency':'USD/bbl','source':'Yahoo Finance (indicative)',
+             'alert':False,'alertText':'','available':False}
+    try:
+        import os as _os
+        # Optional provider override; JSON fields: price, change, percent.
+        custom_url = _os.getenv('BRENT_QUOTE_URL', '').strip()
+        if custom_url and not custom_url.startswith('https://'):
+            raise ValueError('BRENT_QUOTE_URL must use HTTPS')
+        if custom_url:
+            j = HTTP_SESSION.get(custom_url, timeout=4).json()
+            q = j.get('data',j)
+            brent['price'] = float(q['price'])
+            brent['change'] = float(q.get('change',0))
+            brent['percent'] = float(q.get('percent',0))
+            brent['source'] = 'Configured Brent provider'
+        else:
+            j = HTTP_SESSION.get('https://query1.finance.yahoo.com/v8/finance/chart/BZ=F',
+                params={'interval':'1m','range':'1d'},
+                headers={'User-Agent':'Mozilla/5.0'},timeout=4).json()
+            meta = j['chart']['result'][0]['meta']
+            price = float(meta['regularMarketPrice'])
+            previous = float(meta.get('chartPreviousClose') or meta.get('previousClose') or price)
+            brent['price'] = price
+            brent['change'] = round(price-previous,2)
+            brent['percent'] = round((price-previous)*100/previous,2) if previous else None
+        brent['available'] = True
+        _BRENT_OBSERVATIONS.append((now,brent['price']))
+        _BRENT_OBSERVATIONS[:] = [(t,p) for t,p in _BRENT_OBSERVATIONS if now-t <= 300]
+        if len(_BRENT_OBSERVATIONS) > 1:
+            base = _BRENT_OBSERVATIONS[0][1]
+            move = (brent['price']-base)/base*100 if base else 0
+            if abs(move) >= 1.0:
+                brent['alert'] = True
+                brent['alertText'] = f"Brent {'surged' if move>0 else 'fell'} {abs(move):.2f}% in last 5 min"
+    except Exception as exc:
+        app.logger.info('Brent quote unavailable: %s', str(exc)[:160])
+    result.append(brent)
+    payload={'status':'success','data':result,'asOf':datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(),
+             'refreshSeconds':5}
+    _MARKET_PULSE_CACHE.update(at=now,payload=payload)
+    return jsonify(payload)
 
 @app.route("/api/ticker-bar", methods=["GET"])
 def ticker_bar():

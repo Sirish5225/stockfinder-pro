@@ -848,6 +848,42 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 
 
 #sfp-pane-movers .sfpm-dual-stock .stock-link{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+
+/* StockFinder Pro mobile readability fix — final override */
+@media(max-width:700px){
+ html{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}
+ body{font-size:16px!important}
+ .main-wrapper main{padding:14px 12px 26px!important}
+ .panel,body.sfp-compact .panel{padding:16px!important;margin-bottom:14px!important}
+ .panel h3{font-size:17px!important}
+ .panel p,.toolbar label,.toolbar span{font-size:14px!important}
+ .toolbar,body.sfp-compact .toolbar{padding:14px!important;gap:12px!important}
+ .filter-btn,body.sfp-compact .filter-btn{font-size:14px!important;min-height:46px!important;padding:11px 14px!important}
+ .toolbar select,.toolbar input,.universe-dropdown,#view-pullback .toolbar select.universe-dropdown{font-size:16px!important;min-height:46px!important}
+ .search-box,body.sfp-compact .search-box{font-size:16px!important;min-height:48px!important}
+ .bottom-nav{min-height:72px!important;padding:7px 4px max(8px,env(safe-area-inset-bottom,0px))!important}
+ .bottom-nav .bnav-btn{font-size:11px!important;line-height:1.25!important;min-height:56px!important;gap:5px!important}
+ .bottom-nav .bnav-btn .icon{font-size:23px!important}
+ .main-wrapper{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
+ .kpi-title{font-size:12px!important}.kpi-val,body.sfp-compact .kpi-val{font-size:23px!important}
+ .movers-panel,body.sfp-compact .movers-panel{max-height:310px!important}
+ .movers-list-scroll{max-height:240px!important}.movers-row{font-size:14px!important;min-height:44px}
+ .table-container,body.sfp-compact .table-container{max-height:62dvh!important;overflow-x:auto!important}
+ .table-container table,body.sfp-compact .table-container table{min-width:760px!important;font-size:14px!important}
+ .table-container th,.table-container td,body.sfp-compact .table-container th,body.sfp-compact .table-container td{padding:14px 12px!important;font-size:13px!important}
+ .stock-link{font-size:15px!important;text-decoration:underline;text-underline-offset:3px}
+ #view-zones > .panel > div:first-child > div:last-child > select{font-size:15px!important;min-height:48px!important}
+ #zones-search{font-size:16px!important;min-height:48px!important}
+ .sector-treemap-grid .treemap-tile,body.sfp-compact .sector-treemap-grid .treemap-tile{min-height:118px!important;padding:13px 8px!important}
+ .sector-treemap-grid .treemap-tile .tile-name{font-size:13px!important}
+ .sector-treemap-grid .treemap-tile .tile-change{font-size:15px!important}
+ .barchart-label{font-size:13px!important;width:100px!important;min-width:100px!important}
+ .barchart-val{font-size:13px!important}
+ #view-pullback .toolbar label{font-size:15px!important}
+ .sfp-pullback-back{font-size:14px!important;min-height:46px!important}
+ .sidebar .nav-btn{font-size:16px!important;min-height:52px!important}
+}
+
 </style>
 <style>
 /* Compact Obsidian Gold alignment */

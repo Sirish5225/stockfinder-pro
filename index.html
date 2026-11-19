@@ -748,6 +748,188 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 @media(max-width:760px){.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow-x:auto;scrollbar-width:thin}.sfp-market-pulse .sfp-pulse-item{min-width:180px;min-height:43px;flex-shrink:0;padding:7px 10px}.sfp-market-pulse .sfp-pulse-time{min-width:115px;flex-shrink:0;text-align:left;justify-content:flex-start}}
 .sfp-pulse-chart-icon{flex-shrink:0;color:var(--primary);opacity:.92;vertical-align:middle;transition:transform .2s ease}
 .sfp-pulse-item:hover .sfp-pulse-chart-icon{transform:translateY(-2px);opacity:1}
+
+/* STOCKFINDER PRO V3 — separate workspaces, no stacked dashboard */
+.sfp-main-tabs{display:flex;align-items:center;gap:6px;padding:9px 16px;overflow-x:auto;flex-shrink:0;background:#0b121e;border-bottom:1px solid rgba(233,182,91,.15);scrollbar-width:thin;white-space:nowrap}
+.sfp-main-tab{flex-shrink:0;display:inline-flex;align-items:center;gap:7px;padding:10px 15px;background:transparent;color:#a3b1c3;border:1px solid transparent;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;transition:background .2s,border-color .2s,color .2s,transform .2s}
+.sfp-main-tab:hover{color:#f4d29b;background:rgba(233,182,91,.07);transform:translateY(-1px)}
+.sfp-main-tab.is-active{color:#f1c77d;background:rgba(233,182,91,.12);border-color:rgba(233,182,91,.33);box-shadow:inset 0 -2px rgba(233,182,91,.6)}
+#view-scr{display:block!important}
+#view-scr[style*="display: none"],#view-scr[style*="display:none"]{display:none!important}
+#view-scr .sfp-workspace[hidden]{display:none!important}
+#view-scr .sfp-workspace:not([hidden]){display:flex!important;flex-direction:column;gap:16px;min-width:0;animation:sfp-pane-in .28s ease both}
+#view-scr .sfp-workspace > *{margin-top:0!important;margin-bottom:0!important;min-width:0}
+.sfp-page-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 0 3px;border-bottom:1px solid rgba(233,182,91,.12);padding-bottom:15px}
+.sfp-page-kicker{font:700 10px 'JetBrains Mono',monospace;letter-spacing:1.6px;color:#d9ad65}
+.sfp-page-head h2{color:var(--strong-text);font-size:clamp(20px,2vw,27px);letter-spacing:-.7px;margin:5px 0}
+.sfp-page-head p{font-size:12px;color:var(--muted);line-height:1.5}
+.sfp-live-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;border:1px solid var(--border);padding:9px 11px;border-radius:100px;white-space:nowrap}
+.sfp-live-pill i{width:7px;height:7px;border-radius:50%;background:#e9b65b;box-shadow:0 0 8px #e9b65b66}
+#sfp-pane-overview .sfp-intelligence{width:100%}
+#sfp-pane-overview .kpi-grid{width:100%}
+#sfp-pane-stocks .toolbar{width:100%}
+#sfp-pane-stocks #table-wrapper{width:100%;min-height:calc(100vh - 355px)!important;max-height:calc(100vh - 355px)!important}
+#sfp-pane-movers .movers-grid{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+#sfp-pane-movers .movers-panel{max-height:calc(100vh - 330px)!important;min-height:300px!important}
+#sfp-pane-movers .movers-list-scroll{max-height:none!important}
+@keyframes sfp-pane-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.sfp-main-tabs{padding:8px 10px;gap:4px}.sfp-main-tab{padding:9px 11px;font-size:11px}.sfp-page-head{align-items:flex-start}.sfp-page-head p{max-width:270px}#sfp-pane-movers .movers-grid{grid-template-columns:1fr!important}#sfp-pane-stocks #table-wrapper{min-height:55vh!important;max-height:60vh!important}}
+@media(prefers-reduced-motion:reduce){#view-scr .sfp-workspace:not([hidden]){animation:none!important}.sfp-main-tab{transition:none!important}}
+
+
+/* StockFinder Pro — Institutional Market Movers */
+#sfp-pane-movers .sfpm-board{border:1px solid #26354a;border-radius:16px;background:linear-gradient(160deg,#111c2b,#0b131e);overflow:hidden;min-height:460px;box-shadow:0 16px 45px #0002}
+#sfp-pane-movers .sfpm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid #253448}
+#sfp-pane-movers .sfpm-tabs{display:flex;gap:6px;flex-wrap:wrap}
+#sfp-pane-movers .sfpm-tab{border:1px solid #29394c;border-radius:9px;padding:10px 14px;background:#142234;color:#aebfd2;cursor:pointer;font-weight:650;font-size:12px;transition:background .2s,border-color .2s,color .2s}
+#sfp-pane-movers .sfpm-tab.is-active{background:#342a19;color:#f4c676;border-color:#9b7534}
+#sfp-pane-movers .sfpm-tab span{opacity:.72;margin-left:4px}
+#sfp-pane-movers .sfpm-actions{display:flex;align-items:center;gap:12px;color:#8197ad;font-size:11px}
+#sfp-pane-movers #sfpm-search{min-width:170px;background:#0b1420;color:#f1f5f9;border:1px solid #2b3b50;border-radius:8px;padding:10px 12px;outline:none}
+#sfp-pane-movers #sfpm-search:focus{border-color:#d9a64c}
+#sfp-pane-movers .sfpm-table-wrap{overflow:auto;max-height:calc(100vh - 330px);min-height:320px}
+#sfp-pane-movers .sfpm-table{width:100%;min-width:680px;border-collapse:collapse;table-layout:fixed}
+#sfp-pane-movers .sfpm-table th{position:sticky;top:0;z-index:2;background:#111d2b;color:#8298b0;padding:15px 18px;text-align:left;font-size:10px;letter-spacing:.08em;border-bottom:1px solid #2a3b50}
+#sfp-pane-movers .sfpm-table th:first-child{width:31%}#sfp-pane-movers .sfpm-table th:last-child{text-align:right}
+#sfp-pane-movers .sfpm-table td{padding:15px 18px;border-bottom:1px solid #223144;color:#cbd6e3;font-size:13px}
+#sfp-pane-movers .sfpm-row{transition:background .2s}#sfp-pane-movers .sfpm-row:hover{background:#192a3d}
+#sfp-pane-movers .sfpm-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#sfp-pane-movers .sfpm-name .stock-link{color:#eff5fb;font-size:13px}
+#sfp-pane-movers .sfpm-table small{display:block;color:#8ca1b8;font-size:11px;margin-top:5px}
+#sfp-pane-movers .sfpm-num{font-variant-numeric:tabular-nums;white-space:nowrap}
+#sfp-pane-movers .sfpm-volume{color:#b5c6d8;font-size:12px}
+#sfp-pane-movers .sfpm-move-track{width:100%;max-width:135px;height:5px;border-radius:9px;background:#2a3b4e;overflow:hidden}
+#sfp-pane-movers .sfpm-move-fill{height:100%;background:#39d8a3;border-radius:9px;transition:width .55s ease}
+#sfp-pane-movers .sfpm-falling .sfpm-move-fill{background:#fb7185}
+#sfp-pane-movers .sfpm-table .sfpm-change{text-align:right;font-size:14px;font-weight:750;color:#39d8a3}
+#sfp-pane-movers .sfpm-table .sfpm-falling .sfpm-change{color:#fb7185}
+#sfp-pane-movers .sfpm-table .sfpm-empty{text-align:center;padding:60px 18px;color:#8ca1b8}
+#sfp-pane-movers .sfpm-foot{padding:13px 18px;color:#7e92a9;font-size:11px;border-top:1px solid #26354a}
+@media(max-width:800px){#sfp-pane-movers .sfpm-toolbar{align-items:stretch}#sfp-pane-movers .sfpm-actions{width:100%;justify-content:space-between}#sfp-pane-movers .sfpm-table-wrap{max-height:65vh}}
+@media(prefers-reduced-motion:reduce){#sfp-pane-movers .sfpm-row,#sfp-pane-movers .sfpm-move-fill{transition:none}}
+
+
+/* Single navigation source: left sidebar (mobile: hamburger drawer). */
+.bottom-nav{display:none!important}
+@media(max-width:1024px){.main-wrapper{padding-bottom:0!important}}
+
+/* Market Command v6 — compact institutional alignment, not a giant hero banner */
+.sfp-command .vfx-head{padding:14px 18px!important}.sfp-command .vfx-head h3{font-size:19px!important}
+.sfp-index-trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:#2a3849;border-bottom:1px solid #2a3849}
+.sfp-index-cell{background:#101b29;padding:13px 18px;font-size:11px;color:#a5b5c7;display:flex;align-items:center;justify-content:space-between;gap:8px}.sfp-index-cell strong{font-size:17px;color:#cbd5e1;font-family:'JetBrains Mono',monospace}.sfp-index-cell.is-up strong{color:#36d7a1}.sfp-index-cell.is-down strong{color:#fa7386}
+.sfp-command .sfp-align-stage{min-height:180px!important}.sfp-align-content{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:27px 24px 38px}.sfp-align-content .vfx-direction{font-size:clamp(21px,2.3vw,31px)!important;margin:10px 0!important}.sfp-align-content .vfx-stage-sub{font-size:11px!important}.sfp-align-steps{display:flex;gap:7px;flex:0 0 auto}.sfp-align-steps>div{background:#0b1522dd;border:1px solid #32445a;padding:12px 13px;min-width:115px;border-radius:8px}.sfp-align-steps small{display:block;color:#90a4bb;font-size:9px;letter-spacing:.6px;margin-bottom:7px}.sfp-align-steps strong{font-size:12px;color:#f2f6fb}.sfp-command .vfx-corner-label{display:none!important}
+.sfp-leader-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:#28394c}.sfp-leader{padding:18px 20px;background:#0e1927;min-width:0;border-top:2px solid transparent}.sfp-leader-up{border-top-color:#29c995}.sfp-leader-down{border-top-color:#f16a80}.sfp-leader-title{font-size:10px;letter-spacing:.8px;font-weight:800;color:#37d6a3;display:flex;justify-content:space-between;gap:8px}.sfp-leader-down .sfp-leader-title{color:#fb758a}.sfp-leader-title span{font-size:9px;color:#a2b5ca;letter-spacing:0;font-weight:600}.sfp-leader-sector{font-size:22px;font-weight:800;color:#f0f4fa;margin-top:11px}.sfp-leader-stock{font-size:15px;font-weight:700;color:#dce6f3;margin-top:5px}.sfp-leader-meta{font-size:11px;color:#9cb0c6;margin-top:5px}.sfp-evidence{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px}.sfp-evidence-chip{border:1px solid #314357;border-radius:5px;background:#152234;color:#b4c5d8;font-size:10px;padding:6px 7px}.sfp-evidence-chip b{color:#e1ebf6}.sfp-command-foot{padding:10px 17px;border-top:1px solid #2b394b;display:flex;justify-content:space-between;gap:10px;color:#8ca1b8;font-size:10px}.sfp-hidden-compat{display:none!important}
+@media(max-width:1050px){.sfp-align-content{flex-direction:column;align-items:stretch}.sfp-align-steps{flex-wrap:wrap}.sfp-align-steps>div{flex:1}}
+@media(max-width:650px){.sfp-index-trio{grid-template-columns:1fr}.sfp-index-cell{padding:9px 13px}.sfp-leader-grid{grid-template-columns:1fr}.sfp-align-content{padding:22px 14px 38px}.sfp-align-steps>div{min-width:90px}.sfp-command-foot{flex-direction:column}}
+
+
+/* Two side-by-side Market Movers panels; page scrolling only */
+#sfp-pane-movers .sfpm-dual-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+#sfp-pane-movers .sfpm-side{min-width:0;border:1px solid #28384b;border-radius:13px;background:#101b29;overflow:hidden}
+#sfp-pane-movers .sfpm-side-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #29394a;font-size:14px;color:#e7f0fa}
+#sfp-pane-movers .sfpm-up .sfpm-side-head strong{color:#43d9a7}#sfp-pane-movers .sfpm-down .sfpm-side-head strong{color:#ff788e}
+#sfp-pane-movers .sfpm-side-head span{font-size:11px;color:#9aafc6}
+#sfp-pane-movers .sfpm-dual-table{width:100%;table-layout:fixed;border-collapse:collapse;white-space:normal}
+#sfp-pane-movers .sfpm-dual-table th{position:static;background:#142132;padding:10px 9px;font-size:10px;letter-spacing:.04em;color:#8ea4bc}
+#sfp-pane-movers .sfpm-dual-table th:nth-child(1){width:37%}#sfp-pane-movers .sfpm-dual-table th:nth-child(2){width:25%}#sfp-pane-movers .sfpm-dual-table th:nth-child(3){width:16%}#sfp-pane-movers .sfpm-dual-table th:nth-child(4){width:22%;text-align:right}
+#sfp-pane-movers .sfpm-dual-table td{padding:9px 9px;border-bottom:1px solid #253346;font-size:12px;color:#d1deeb}
+#sfp-pane-movers .sfpm-dual-table tr:last-child td{border-bottom:none}
+#sfp-pane-movers .sfpm-dual-table tr:hover td{background:#192b3d}
+#sfp-pane-movers .sfpm-dual-stock{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}
+#sfp-pane-movers .sfpm-dual-stock .stock-link{font-size:12px;overflow-wrap:anywhere}
+#sfp-pane-movers .sfpm-dual-table small{display:block;font-size:10px;color:#8ea3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sfp-pane-movers .sfpm-dual-table .sfpm-num{font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+#sfp-pane-movers .sfpm-dual-table .sfpm-dual-change{text-align:right;font-weight:750;font-size:12px}
+#sfp-pane-movers .sfpm-up .sfpm-dual-change{color:#42d6a3}#sfp-pane-movers .sfpm-down .sfpm-dual-change{color:#ff788e}
+#sfp-pane-movers .sfpm-dual-table .sfpm-empty{text-align:center;padding:28px 10px;color:#8ea3b8}
+#sfp-pane-movers .sfpm-dual-note{padding:12px 4px;color:#8095aa;font-size:11px}
+@media(max-width:1050px){#sfp-pane-movers .sfpm-dual-grid{grid-template-columns:1fr}}
+@media(max-width:600px){#sfp-pane-movers .sfpm-dual-table td{padding:9px 6px}#sfp-pane-movers .sfpm-dual-table th{padding:9px 6px}#sfp-pane-movers .sfpm-dual-stock .stock-link{font-size:11px}}
+
+
+#sfp-pane-movers .sfpm-dual-stock .stock-link{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+</style>
+<style>
+/* Compact Obsidian Gold alignment */
+#view-scr .sfp-intelligence{margin:0 0 14px!important;padding:16px!important;border:1px solid rgba(243,156,18,.26)!important;min-height:0!important}
+.sfp-intel-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:13px}.sfp-intel-head h3{color:var(--strong-text);font-size:18px!important;margin:4px 0}.sfp-intel-head p,.sfp-intel-head>span{font-size:11px;color:var(--muted)}.sfp-eyebrow{color:var(--primary);font-size:10px;font-weight:800;letter-spacing:1.4px}.sfp-intel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.sfp-intel-tile{background:rgba(19,31,43,.75);border:1px solid var(--border);border-radius:11px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:7px}.sfp-intel-tile>span{color:var(--muted);font-size:11px}.sfp-intel-tile strong{color:var(--strong-text);font-size:17px;overflow-wrap:anywhere}.sfp-intel-tile small{color:var(--text);font-size:11px}.sfp-intel-note{margin-top:11px;color:var(--muted);font-size:11px}
+#view-scr .movers-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}#view-scr .movers-panel{max-height:200px!important;min-height:100px!important}#view-scr .toolbar{flex-direction:row!important;align-items:center!important}#view-scr .toolbar .filter-wrapper{flex:1 1 620px!important;width:auto!important}#view-scr .toolbar .search-wrapper{flex:0 1 230px;width:230px!important}#view-scr .toolbar .search-box{font-size:12px!important;min-height:36px!important}
+@media(max-width:900px){.sfp-intel-grid{grid-template-columns:1fr}#view-scr .movers-grid{grid-template-columns:1fr!important}#view-scr .toolbar{flex-direction:column!important}#view-scr .toolbar .filter-wrapper{flex:0 0 auto!important;width:100%!important}#view-scr .toolbar .search-wrapper{width:100%!important;flex:0 0 auto!important}.sfp-intel-head{align-items:flex-start;flex-direction:column}}
+</style>
+<style>
+
+/* STOCKFINDER PRO — AURORA GOLD V2: unified layout, motion & hierarchy */
+:root{--sf2-gold:#e9b65b;--sf2-border:rgba(232,183,91,.16);--sf2-surface:#111a28;--sf2-deep:#080e18;--sf2-muted:#8e9cb0}
+body{background:radial-gradient(ellipse 70% 45% at 80% -10%,rgba(181,121,31,.105),transparent),#080d16!important}
+.main-wrapper{min-width:0!important}
+.main-wrapper main{padding:20px clamp(14px,2.2vw,34px) 36px!important;scrollbar-gutter:stable;scroll-behavior:smooth}
+.sidebar{background:#0a101b!important;border-right:1px solid var(--sf2-border)!important;box-shadow:8px 0 30px rgba(0,0,0,.16)!important}
+.sidebar-nav{gap:5px!important}.sidebar .nav-btn{border-radius:10px!important;min-height:43px;transition:background .2s,border-color .2s,transform .2s!important}.sidebar .nav-btn:hover{transform:translateX(3px)}
+.market-ticker-container{height:42px!important;min-height:42px!important;background:#0b121d!important;box-shadow:none!important}
+.sfp-market-pulse{background:#0c1421!important;border-bottom:1px solid var(--sf2-border)!important;gap:8px!important;padding:8px 16px!important}
+.sfp-market-pulse .sfp-pulse-item{background:#131e2c!important;border:1px solid var(--sf2-border)!important;border-radius:10px!important;min-height:46px!important;transition:background .2s,transform .2s!important}
+.sfp-market-pulse .sfp-pulse-item:hover{transform:translateY(-2px);background:#1b2a3c!important}
+#view-scr{display:flex!important;flex-direction:column!important;gap:14px!important;min-width:0!important}
+#view-scr > *{min-width:0!important;margin-top:0!important;margin-bottom:0!important}
+#view-scr > .sfp-intelligence{order:0!important}
+#view-scr > .kpi-grid{order:1!important}
+#view-scr > .toolbar{order:2!important}
+#view-scr > .table-container{order:3!important}
+#view-scr > .movers-grid{order:4!important}
+#view-scr > :not(.sfp-intelligence):not(.kpi-grid):not(.toolbar):not(.table-container):not(.movers-grid){order:5}
+#view-scr .sfp-intelligence{padding:20px!important;background:linear-gradient(135deg,rgba(23,35,51,.98),rgba(12,20,32,.98))!important;border:1px solid rgba(232,183,91,.26)!important;border-radius:17px!important;box-shadow:0 14px 40px rgba(0,0,0,.16)!important}
+#view-scr .sfp-intel-head{margin-bottom:17px!important;gap:12px!important}
+#view-scr .sfp-intel-head h3{font-size:clamp(17px,1.6vw,22px)!important;letter-spacing:-.025em}
+#view-scr .sfp-intel-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important}
+#view-scr .sfp-intel-tile{min-width:0!important;min-height:104px!important;border:1px solid rgba(232,183,91,.13)!important;border-radius:12px!important;background:linear-gradient(140deg,#172436,#101a29)!important;padding:16px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:8px!important;transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease!important}
+#view-scr .sfp-intel-tile:hover{transform:translateY(-3px);border-color:rgba(232,183,91,.48)!important;box-shadow:0 12px 24px rgba(0,0,0,.23)!important}
+#view-scr .sfp-intel-tile strong{font-size:clamp(15px,1.3vw,20px)!important;line-height:1.2;overflow-wrap:anywhere}
+#view-scr .sfp-intel-tile small{line-height:1.45!important}
+#view-scr .sfp-intel-note{margin-top:13px!important;padding-top:12px!important;border-top:1px solid rgba(232,183,91,.12)}
+#view-scr .kpi-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important}
+#view-scr .kpi-card{min-height:95px!important;padding:16px!important;background:#121e2d!important;border:1px solid var(--sf2-border)!important;border-radius:13px!important;box-shadow:none!important;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s!important}
+#view-scr .kpi-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sf2-gold);opacity:.55}
+#view-scr .kpi-card:hover{transform:translateY(-3px)!important;border-color:rgba(232,183,91,.4)!important;box-shadow:0 10px 25px rgba(0,0,0,.2)!important}
+#view-scr .kpi-val{font-size:clamp(21px,2vw,28px)!important;line-height:1.25!important}
+#view-scr .toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(185px,245px)!important;align-items:center!important;gap:12px!important;background:#101a29!important;border:1px solid var(--sf2-border)!important;padding:12px!important;border-radius:13px!important;box-shadow:none!important}
+#view-scr .toolbar .filter-wrapper{display:flex!important;flex:initial!important;width:100%!important;min-width:0!important;flex-wrap:wrap!important;overflow:visible!important;gap:7px!important}
+#view-scr .toolbar .filter-btn{min-height:35px!important;padding:8px 11px!important;font-size:11px!important;line-height:1.2!important;white-space:nowrap!important}
+#view-scr .toolbar .search-wrapper{width:100%!important;min-width:0!important;flex:initial!important}
+#view-scr .toolbar .search-box{height:39px!important;min-height:39px!important;width:100%!important;background:#0b1420!important}
+#view-scr #table-wrapper{max-height:58vh!important;min-height:240px!important;overflow:auto!important;background:#0e1725!important;border:1px solid var(--sf2-border)!important;border-radius:14px!important;box-shadow:none!important}
+#view-scr #table-wrapper table{min-width:960px!important}
+#view-scr #table-wrapper th{background:#172235!important;color:#aebad0!important;font-size:10px!important;letter-spacing:.04em;padding:13px 12px!important;border-bottom:1px solid rgba(232,183,91,.2)!important}
+#view-scr #table-wrapper td{padding:12px!important;border-bottom:1px solid rgba(255,255,255,.055)!important;font-size:12px!important}
+#view-scr #table-wrapper tbody tr:hover td{background:rgba(232,183,91,.055)!important}
+#view-scr .movers-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
+#view-scr .movers-panel{height:auto!important;min-height:150px!important;max-height:250px!important;padding:15px!important;background:#111c2a!important;border:1px solid var(--sf2-border)!important;border-radius:13px!important;box-shadow:none!important}
+#view-scr .movers-list-scroll{max-height:180px!important;overflow-y:auto!important}
+.panel,.toolbar,.table-container{border-radius:14px}
+@keyframes sf2-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+#view-scr > .sfp-intelligence,#view-scr > .kpi-grid,#view-scr > .toolbar,#view-scr > .table-container,#view-scr > .movers-grid{animation:sf2-rise .55s both cubic-bezier(.2,.7,.2,1)}
+#view-scr > .kpi-grid{animation-delay:.07s}#view-scr > .toolbar{animation-delay:.13s}#view-scr > .table-container{animation-delay:.19s}#view-scr > .movers-grid{animation-delay:.25s}
+@keyframes sf2-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+#view-scr .scanner-loading-wrapper{padding:32px 14px!important;min-height:150px!important}
+#view-scr .radar-container{border-radius:999px!important;width:62px!important;height:5px!important;border:0!important;background:linear-gradient(90deg,transparent,rgba(233,182,91,.4),#f4d99c,rgba(233,182,91,.4),transparent)!important;background-size:200% 100%!important;animation:sf2-shimmer 1.7s linear infinite!important;box-shadow:0 0 14px rgba(233,182,91,.2)!important}
+#view-scr .radar-beam,#view-scr .radar-core{display:none!important}
+@media(max-width:1150px){#view-scr .toolbar{grid-template-columns:1fr!important}#view-scr .toolbar .filter-wrapper{flex-wrap:nowrap!important;overflow-x:auto!important;padding-bottom:4px!important}#view-scr .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:760px){.main-wrapper main{padding:11px 10px 24px!important}#view-scr{gap:10px!important}#view-scr .sfp-intelligence{padding:14px!important}#view-scr .sfp-intel-grid{grid-template-columns:1fr!important;gap:8px!important}#view-scr .sfp-intel-tile{min-height:70px!important;padding:12px!important;gap:4px!important}#view-scr .sfp-intel-head{flex-direction:column!important;align-items:flex-start!important}#view-scr .kpi-grid{gap:8px!important}#view-scr .kpi-card{min-height:80px!important;padding:12px!important}#view-scr .movers-grid{grid-template-columns:1fr!important}#view-scr .toolbar{display:flex!important;flex-direction:column!important;align-items:stretch!important}#view-scr .toolbar .filter-wrapper{flex-wrap:nowrap!important;overflow-x:auto!important}#view-scr .toolbar .filter-btn{flex-shrink:0!important}#view-scr #table-wrapper{max-height:55vh!important}#view-scr #table-wrapper table{min-width:920px!important}}
+@media(prefers-reduced-motion:reduce){#view-scr > *,#view-scr .radar-container{animation:none!important}#view-scr .kpi-card,#view-scr .sfp-intel-tile,.sidebar .nav-btn{transition:none!important;transform:none!important}}
+
+
+/* Institutional VFX Terminal — scoped to Market Intelligence only */
+#view-scr .sfp-vfx-terminal{padding:0!important;overflow:hidden;background:#0a111b!important;border:1px solid #263446!important;border-radius:15px!important;box-shadow:0 14px 35px rgba(0,0,0,.2)!important}
+.sfp-vfx-terminal .vfx-head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:20px 22px 16px;border-bottom:1px solid #233044}
+.vfx-kicker{font:700 10px/1.4 inherit;letter-spacing:1.7px;color:#d6ae6d;display:flex;align-items:center;gap:8px}.vfx-status-dot{width:7px;height:7px;border-radius:50%;background:#66778b;display:inline-block}.vfx-status-dot.is-ready{background:#39d9a2;box-shadow:0 0 12px rgba(57,217,162,.35)}
+.sfp-vfx-terminal .vfx-head h3{font-size:21px!important;letter-spacing:-.4px!important;color:#e9f0f8!important;margin:7px 0 4px!important}.vfx-head h3 em{font-size:9px;font-style:normal;font-weight:700;letter-spacing:1px;color:#8da1b8;border:1px solid #33445b;border-radius:4px;padding:4px 6px;vertical-align:middle;margin-left:8px}.vfx-head p{font-size:11px;color:#9aadc3}.vfx-head-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}.vfx-head-right>span{color:#98a9bb;font-size:11px}.vfx-head-right button{cursor:pointer;background:#1a2839;color:#d8e5f3;border:1px solid #384c63;border-radius:6px;padding:7px 10px;font-size:10px;font-weight:700;letter-spacing:.6px}
+.vfx-stage{position:relative;min-height:265px;overflow:hidden;background:radial-gradient(ellipse at 75% 45%,rgba(41,69,95,.19),transparent 55%),linear-gradient(115deg,#0c1624,#0a111b);isolation:isolate;transition:background .5s}
+.vfx-stage[data-direction="up"]{background:radial-gradient(ellipse at 80% 45%,rgba(23,110,83,.16),transparent 60%),linear-gradient(115deg,#0c1624,#0a111b)}.vfx-stage[data-direction="down"]{background:radial-gradient(ellipse at 80% 45%,rgba(133,42,62,.15),transparent 60%),linear-gradient(115deg,#0c1624,#0a111b)}
+#vfx-canvas,.vfx-stage-grid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.vfx-stage-grid{opacity:.25;background-image:linear-gradient(#263a50 1px,transparent 1px),linear-gradient(90deg,#263a50 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(90deg,transparent 0%,#000 65%)}
+.vfx-stage-copy{position:relative;z-index:1;padding:47px 26px 55px;max-width:72%;pointer-events:none}.vfx-overline{font-size:10px;font-weight:700;letter-spacing:1.6px;color:#91a6bd}.vfx-direction{font-size:clamp(24px,3.2vw,40px);font-weight:800;line-height:1.18;letter-spacing:-1.2px;color:#edf3fa;margin:12px 0 4px}.vfx-stage[data-direction="up"] .vfx-direction,.vfx-stage[data-direction="up"] .vfx-change{color:#36d5a0}.vfx-stage[data-direction="down"] .vfx-direction,.vfx-stage[data-direction="down"] .vfx-change{color:#fb7a8e}.vfx-stage[data-direction="flat"] .vfx-direction,.vfx-stage[data-direction="flat"] .vfx-change{color:#e5ba73}.vfx-change{font-size:20px;font-weight:700;color:#b5c6d9;font-variant-numeric:tabular-nums}.vfx-stage-sub{font-size:11px;color:#a9bbcf;margin-top:8px}.vfx-corner-label{position:absolute;right:22px;top:23px;z-index:1;font-size:10px;letter-spacing:1px;color:#a9bdd1;border:1px solid #34475d;padding:7px 10px;background:rgba(10,17,27,.65)}.vfx-stage-foot{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;gap:12px;padding:12px 24px;border-top:1px solid #243449;font-size:9px;letter-spacing:.8px;color:#8196ad;z-index:1}
+.vfx-data-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid #253448}.vfx-data-cell{padding:18px 18px;min-width:0;border-right:1px solid #253448;display:flex;flex-direction:column;gap:8px}.vfx-data-cell:last-child{border-right:0}.vfx-data-cell>span{font-size:10px;color:#90a4bc;letter-spacing:.9px;font-weight:700}.vfx-data-cell strong{font-size:clamp(14px,1.3vw,19px);color:#eef3f9;overflow-wrap:anywhere}.vfx-data-cell small{font-size:10px;color:#91a6bd;line-height:1.4}.vfx-breadth-track{display:flex;height:5px;background:#253448;overflow:hidden}.vfx-breadth-track>div{width:0;transition:width .8s cubic-bezier(.2,.7,.2,1)}#vfx-advance-bar{background:#2dd5a0}#vfx-flat-bar{background:#c5a15e}#vfx-decline-bar{background:#f16d84}.vfx-footer{display:flex;justify-content:space-between;gap:15px;padding:12px 20px;font-size:10px;color:#859ab1;line-height:1.5}
+@media(max-width:1050px){.vfx-data-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.vfx-data-cell:nth-child(2){border-right:0}.vfx-data-cell:nth-child(-n+2){border-bottom:1px solid #253448}}
+@media(max-width:600px){.sfp-vfx-terminal .vfx-head{padding:16px;align-items:flex-start;flex-direction:column}.vfx-head h3 em{display:none}.vfx-head-right{width:100%;justify-content:space-between}.vfx-stage{min-height:275px}.vfx-stage-copy{padding:65px 16px 55px;max-width:100%}.vfx-direction{font-size:28px}.vfx-corner-label{top:13px;right:13px;font-size:8px}.vfx-stage-foot{padding:10px 14px;font-size:8px}.vfx-data-cell{padding:13px 12px}.vfx-data-cell strong{font-size:14px}.vfx-footer{flex-direction:column;gap:3px}}
+@media(prefers-reduced-motion:reduce){.vfx-breadth-track>div,.vfx-stage{transition:none!important}}
 </style>
 </head>
 <body>
@@ -757,10 +939,13 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   <aside class="sidebar" id="app-sidebar">
     <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<em>Pro</em><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
     <div class="sidebar-nav">
-      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
-      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
-      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
-      <button class="nav-btn" id="btn-watchlist" onclick="switchTab('watchlist')"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
+      <button class="nav-btn" onclick="sfpNavigate('overview')" data-sfp-side="overview"><span style="font-size:1.1rem;">◈</span> Market Overview</button>
+      <button class="nav-btn active" id="btn-scr" onclick="sfpNavigate('stocks')" data-sfp-side="stocks"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
+      <button class="nav-btn" onclick="sfpNavigate('movers')" data-sfp-side="movers"><span style="font-size:1.1rem;">↗</span> Market Movers</button>
+      <button class="nav-btn" data-sfp-side="pullback" onclick="sfpNavigate('pullback')"><span style="font-size:1.1rem;">⌁</span> Pullback Scanner</button>
+      <button class="nav-btn" id="btn-sec" onclick="sfpNavigate('sec')" data-sfp-side="sec"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
+      <button class="nav-btn" id="btn-zones" onclick="sfpNavigate('zones')" data-sfp-side="zones"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
+      <button class="nav-btn" id="btn-watchlist" onclick="sfpNavigate('watchlist')" data-sfp-side="watchlist"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
     </div>
     <div style="margin-top: auto;">
         <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
@@ -802,36 +987,20 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     <main>
       <!-- ================= SCREENER VIEW ================= -->
       <div id="view-scr">
-        <div class="panel" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 1px solid var(--border);">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="font-size: 1.8rem;">⚡</div>
-            <div>
-              <h3 style="font-size: 0.9rem; color: var(--strong-text); text-transform: uppercase;">Overall Market Pulse Meter</h3>
-              <p style="font-size: 0.7rem; color: var(--muted);">Real-time sentiment score based on breadth & momentum.</p>
-            </div>
+        <div class="sfp-workspace" id="sfp-pane-overview" hidden>
+          <div class="sfp-page-head"><div><span class="sfp-page-kicker">MARKET / OVERVIEW</span><h2>Market Overview</h2><p>Market direction, sector participation and activity summary</p></div></div>
+        <section class="sfp-intelligence sfp-vfx-terminal panel sfp-command" id="sfp-vfx-terminal" aria-label="Market Alignment Intelligence">
+          <header class="vfx-head"><div><span class="vfx-kicker"><i class="vfx-status-dot" id="vfx-dot"></i> MARKET INTELLIGENCE / LIVE ALIGNMENT</span><h3>Market Command <em>DATA DRIVEN</em></h3><p>Index direction → strongest sector → strongest qualifying stock. No sector heatmap duplication.</p></div><div class="vfx-head-right"><span id="sfp-intel-updated">Awaiting data</span></div></header>
+          <div class="sfp-index-trio" id="sfp-index-trio" aria-label="Index trends"><div class="sfp-index-cell">NIFTY 50<strong>Awaiting feed</strong></div><div class="sfp-index-cell">BANK NIFTY<strong>Awaiting feed</strong></div><div class="sfp-index-cell">SENSEX<strong>Awaiting feed</strong></div></div>
+          <div class="vfx-stage sfp-align-stage" id="vfx-stage" data-direction="unknown">
+            <canvas id="vfx-canvas" aria-hidden="true"></canvas><div class="vfx-stage-grid" aria-hidden="true"></div>
+            <div class="sfp-align-content"><div><span class="vfx-overline">MARKET ALIGNMENT · INDEX / BREADTH / LEADERSHIP</span><div class="vfx-direction" id="sfp-market-trend">Awaiting market data</div><div class="vfx-stage-sub" id="sfp-market-detail">Market state needs valid index and stock quotes</div></div><div class="sfp-align-steps" aria-label="Alignment layers"><div><small>01 · INDICES</small><strong id="sfp-align-indices">—</strong></div><div><small>02 · PARTICIPATION</small><strong id="sfp-align-breadth">—</strong></div><div><small>03 · LEADERSHIP</small><strong id="sfp-align-leadership">—</strong></div></div></div>
+            <div class="vfx-corner-label" id="vfx-market-state">FEED PENDING</div><div class="vfx-stage-foot"><span id="vfx-source">AWAITING VERIFIED DATA</span><span id="vfx-nifty-change">—</span></div>
           </div>
-
-          <div style="display: flex; align-items: center; gap: 20px; flex: 1; max-width: 500px; justify-content: flex-end;">
-            <div style="flex: 1; text-align: right;">
-              <div id="pulse-status-text" class="mono" style="font-weight: 700; font-size: 0.85rem; color: var(--green);">BULLISH (68/100)</div>
-              <div style="font-size: 0.65rem; color: var(--muted);" id="pulse-desc">Strong buying momentum across sectors</div>
-            </div>
-            <div style="width: 140px; background: var(--bar-track); height: 10px; border-radius: 99px; overflow: hidden; position: relative; border: var(--glass-border);">
-              <div id="pulse-meter-bar" style="width: 68%; height: 100%; background: linear-gradient(90deg, var(--red), var(--primary), var(--green)); border-radius: 99px; transition: width 0.5s ease;"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" style="margin-bottom: 1.5rem; border: 1px solid var(--primary);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-            <h3 style="font-size: 1rem; color: var(--primary);">⚡ High-probability setup </h3>
-            <button class="filter-btn" id="smart-orb-refresh-btn" onclick="fetchSmartORBSignals(true)" style="font-size: 0.65rem;">🔄 Refresh</button>
-          </div>
-          <div id="smart-orb-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div style="color: var(--muted); font-size: 0.8rem;">Scanning market sentiments & 9:20 AM breakouts...</div>
-          </div>
-        </div>
-
+          <div class="sfp-leader-grid"><article class="sfp-leader sfp-leader-up"><div class="sfp-leader-title">↗ UPSIDE LEADERSHIP <span id="sfp-up-confirm">Pending</span></div><div class="sfp-leader-sector" id="sfp-up-sector">Awaiting sector data</div><div class="sfp-leader-stock" id="sfp-up-stock">—</div><div class="sfp-leader-meta" id="sfp-up-meta">No verified confirmation yet</div><div class="sfp-evidence" id="sfp-up-evidence"></div></article><article class="sfp-leader sfp-leader-down"><div class="sfp-leader-title">↘ DOWNSIDE LEADERSHIP <span id="sfp-down-confirm">Pending</span></div><div class="sfp-leader-sector" id="sfp-down-sector">Awaiting sector data</div><div class="sfp-leader-stock" id="sfp-down-stock">—</div><div class="sfp-leader-meta" id="sfp-down-meta">No verified confirmation yet</div><div class="sfp-evidence" id="sfp-down-evidence"></div></article></div>
+          <div class="sfp-command-foot"><span id="sfp-feed-status">Live quotes required. Missing technical feeds are marked unavailable.</span><span>ADX · VWAP · ORDER FLOW: displayed only when real readings are supplied</span></div>
+          <div class="sfp-hidden-compat" aria-hidden="true"><span id="sfp-stock-trend"></span><span id="sfp-stock-detail"></span><span id="vfx-breadth"></span><span id="vfx-breadth-label"></span><span id="vfx-pressure"></span><span id="vfx-pressure-detail"></span><span id="vfx-alignment"></span><span id="vfx-alignment-detail"></span><span id="sfp-market-trend-compat"></span><span id="vfx-advance-bar"></span><span id="vfx-flat-bar"></span><span id="vfx-decline-bar"></span></div>
+        </section>
         <div class="kpi-grid">
           <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val" id="k-lb">--</div></div>
           <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val" id="k-sb">--</div></div>
@@ -839,15 +1008,23 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val" id="k-lu">--</div></div>
         </div>
 
-        <div class="movers-grid">
-          <div class="movers-panel"><div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div><div class="movers-list-scroll" id="top-gainers-list"><div style="text-align:center; padding:1rem; color:var(--muted);">Loading...</div></div></div>
-          <div class="movers-panel"><div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div><div class="movers-list-scroll" id="top-losers-list"><div style="text-align:center; padding:1rem; color:var(--muted);">Loading...</div></div></div>
         </div>
+        <div class="sfp-workspace" id="sfp-pane-movers" hidden>
+          <div class="sfp-page-head"><div><span class="sfp-page-kicker">MARKET / MOVERS</span><h2>Market Movers</h2><p>Rising and falling stocks, separated from the live screener</p></div></div>
+        <section class="sfpm-dual-grid" aria-label="Market Movers">
+          <div class="sfpm-side sfpm-up"><div class="sfpm-side-head"><strong>↗ Top 20 Rising Stocks</strong><span id="sfpm-up-count">—</span></div>
+            <table class="sfpm-dual-table"><thead><tr><th>Stock / Sector</th><th>LTP</th><th>Volume</th><th>Change</th></tr></thead><tbody id="sfpm-up-rows"><tr><td colspan="4" class="sfpm-empty">Waiting for market feed…</td></tr></tbody></table></div>
+          <div class="sfpm-side sfpm-down"><div class="sfpm-side-head"><strong>↘ Top 20 Falling Stocks</strong><span id="sfpm-down-count">—</span></div>
+            <table class="sfpm-dual-table"><thead><tr><th>Stock / Sector</th><th>LTP</th><th>Volume</th><th>Change</th></tr></thead><tbody id="sfpm-down-rows"><tr><td colspan="4" class="sfpm-empty">Waiting for market feed…</td></tr></tbody></table></div>
+        </section>
+        <div class="sfpm-dual-note">Top 20 in each direction · Live screener feed · Volume activity only when supplied · No trade signals</div>
 
+        </div>
+        <div class="sfp-workspace" id="sfp-pane-stocks">
+          <div class="sfp-page-head"><div><span class="sfp-page-kicker">SCREENER / LIVE STOCKS</span><h2>Live Stock Screener</h2><p>Filters and market observations in one focused workspace</p></div><span class="sfp-live-pill"><i></i> Data as available</span></div>
         <div class="toolbar">
           <div class="filter-wrapper" id="screener-filters">
-            <button class="filter-btn active" id="flt-all-btn" onclick="setFilter('ALL', this)">ALL</button>
-            <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
+            <button class="filter-btn active" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
             <button class="filter-btn" onclick="openPullbackScanner()">📈 PULLBACK SCANNER</button>
             <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
             <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
@@ -870,7 +1047,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
                 <th onclick="toggleSort('buildup')">Buildup ↕</th>
                 <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
                 <th>PRICE TREND</th>
-                <th>R:R ACTION</th>
+                <th>MARKET OBSERVATION</th>
               </tr>
             </thead>
             <tbody id="tbody">
@@ -878,23 +1055,25 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
             </tbody>
           </table>
         </div>
+        </div>
       </div>
 
 
       <!-- PULLBACK SCANNER VIEW -->
       <div id="view-pullback" style="display:none">
         <div class="panel">
-          <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="switchTab('scr')" aria-label="Back to Live Screener">← Back to Screener</button></div>
-          <p style="font-size:.76rem;margin-bottom:16px">Only market + actual sector index + stock trend aligned, confirmed VWAP retests. Previous day and daily EMA levels are informational.</p>
+          <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="sfpNavigate('stocks')" aria-label="Back to Live Screener">← Back to Screener</button></div>
+          <p style="font-size:.76rem;margin-bottom:16px">5-minute and 15-minute Swing / Candle Pullbacks. EMA 9/20 trend required; VWAP and sector alignment are optional confirmations. Completed candles only.</p>
           <div class="toolbar" style="gap:10px">
             <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks(true)"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
+            <label>Setup <select class="universe-dropdown" style="width:auto" id="pb-pattern" onchange="renderPullbacks()"><option value="All">Both Types</option><option value="Swing Pullback">Swing Pullback</option><option value="Candle Pullback">Candle Pullback</option></select></label>
             <label>Direction <select class="universe-dropdown" style="width:auto" id="pb-direction" onchange="renderPullbacks()"><option value="All">All</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option></select></label>
             <label>Momentum <select class="universe-dropdown" style="width:auto" id="pb-momentum" onchange="renderPullbacks()"><option value="All">All Momentum</option><option value="Strong">Strong</option><option value="Moderate">Moderate</option></select></label>
             <button class="filter-btn" onclick="fetchPullbacks(true)">↻ Refresh</button>
           </div>
           <div id="pb-status" style="font-size:.78rem;margin-bottom:10px;color:var(--muted)">Waiting for scan...</div>
           <div class="table-container" style="min-height:300px;max-height:calc(100vh - 350px)">
-            <table><thead><tr><th>Stock</th><th>Signal</th><th>Pullback IST</th><th>Momentum</th><th>Sector</th><th>VWAP</th><th>Daily EMA20</th><th>Previous Day High</th><th>Previous Day Low</th></tr></thead>
+            <table><thead><tr><th>Stock</th><th>Type</th><th>Signal</th><th>Pullback IST</th><th>Momentum</th><th>Trigger ₹</th><th>Sector</th><th>Alignment</th><th>VWAP</th></tr></thead>
             <tbody id="pb-tbody"><tr><td colspan="9">Open scanner to load results</td></tr></tbody></table>
           </div>
         </div>
@@ -1028,7 +1207,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 
     <!-- Mobile Bottom Navigation Bar -->
     <nav class="bottom-nav">
-      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')"><span class="icon">📊</span><span>Screener</span></button>
+      <button class="bnav-btn active" id="bnav-scr" onclick="sfpNavigate('stocks')"><span class="icon">📊</span><span>Screener</span></button>
       <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
       <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
       <button class="bnav-btn" id="bnav-watchlist" onclick="switchTab('watchlist')"><span class="icon">⭐</span><span>Watchlist</span></button>
@@ -1101,7 +1280,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
   </div>
 
   <script>
-    let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
+    let currentTab = 'scr', currentFilter = 'VOL_SHOCKER', currentUniverse = 'FO', currentZoneTF = 'day';
     let marketStocks = [], sectorsData = [], rawZonesData = [];
     let watchlistSymbols = new Set();
     let selectedHeatmapSector = null;
@@ -1293,27 +1472,61 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     function renderPullbacks(){
       const dir=document.getElementById('pb-direction').value;
       const momentum=document.getElementById('pb-momentum').value;
-      const list=pbData.filter(x=>(dir==='All'||x.direction===dir)&&(momentum==='All'||x.momentum===momentum));
+      const pattern=document.getElementById('pb-pattern').value;
+      const list=pbData.filter(x=>(dir==='All'||x.direction===dir)&&(momentum==='All'||x.momentum===momentum)&&(pattern==='All'||x.pattern===pattern));
       const esc=x=>String(x??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       document.getElementById('pb-tbody').innerHTML=list.length?list.map(x=>`<tr>
         <td><a class="stock-link" target="_blank" rel="noopener" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(x.symbol)}">${esc(x.symbol)}</a></td>
+        <td>${esc(x.pattern)}</td>
         <td><span class="badge ${x.direction==='Bullish'?'badge-green':'badge-red'}">${esc(x.direction)} ${esc(x.state)}</span></td>
         <td>${esc(x.time)}</td><td>${esc(x.momentum)}</td>
-        <td>${esc(x.sector)} (${esc(x.sectorChange)}%)</td>
-        <td>${esc(x.vwap)}</td><td>₹${esc(x.dailyEma20)} · ${esc(x.emaReaction)}</td>
-        <td>₹${esc(x.pdh)} · ${esc(x.pdhStatus)}</td><td>₹${esc(x.pdl)} · ${esc(x.pdlStatus)}</td>
+        <td>₹${esc(x.triggerPrice)}</td>
+        <td>${esc(x.sector)}</td><td>${esc(x.alignment)}</td><td>${esc(x.vwap)}</td>
       </tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:2rem">No qualified pullbacks yet (or scan in progress).</td></tr>';
     }
 
+    function sfpHighlightSidebar(tab) {
+      const normalized = tab === 'scr' ? 'stocks' : tab;
+      document.querySelectorAll('.sidebar-nav [data-sfp-side]').forEach(btn => {
+        const active = btn.dataset.sfpSide === normalized;
+        btn.classList.toggle('active', active);
+        if (active) btn.setAttribute('aria-current', 'page');
+        else btn.removeAttribute('aria-current');
+      });
+    }
+    function sfpNavigate(tab) {
+      if (['overview','stocks','movers'].includes(tab)) {
+        switchTab('scr');
+        document.querySelectorAll('#view-scr .sfp-workspace').forEach(p => {
+          p.hidden = p.id !== 'sfp-pane-' + tab;
+        });
+      } else if (tab === 'pullback') {
+        if (typeof openPullbackScanner === 'function') openPullbackScanner();
+        else switchTab('pullback');
+      } else {
+        switchTab(tab);
+      }
+      document.querySelectorAll('.sfp-main-tab').forEach(btn => {
+        const active = btn.dataset.sfpTab === tab;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-current', active ? 'page' : 'false');
+      });
+      sfpHighlightSidebar(tab);
+      const main = document.querySelector('.main-wrapper main');
+      if (main) main.scrollTop = 0;
+    }
     function switchTab(tab) {
       currentTab = tab;
+      if (typeof sfpHighlightSidebar === "function") sfpHighlightSidebar(tab);
+      document.querySelectorAll('.sfp-main-tab').forEach(btn => btn.classList.toggle('is-active', btn.dataset.sfpTab === (tab === 'scr' ? 'stocks' : tab)));
       ['scr', 'sec', 'zones', 'watchlist', 'pullback'].forEach(t => {
         const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
         if(btn) btn.classList.toggle('active', t === tab);
         if(bnav) bnav.classList.toggle('active', t === tab);
         if(view) { view.style.display = t === tab ? 'block' : 'none'; if (t === tab) { view.classList.remove('sf-view-enter'); void view.offsetWidth; view.classList.add('sf-view-enter'); } }
       });
-      if (tab === 'sec') { sfShowTabTransition('sec'); setTimeout(() => { if (currentTab === 'sec') renderSectors(); }, 650); }
+      if (tab === 'sec') { sfShowTabTransition('sec'); setTimeout(() => { sfpUpdateIntelligence();
+        if (currentTab === 'sec') renderSectors(); }, 650); }
       if (tab === 'watchlist') { sfShowTabTransition('watchlist'); setTimeout(() => { if (currentTab === 'watchlist') renderWatchlistTable(); }, 650); }
       if (tab === 'zones') fetchZones(currentZoneTF, document.getElementById(`tf-btn-${currentZoneTF}`));
     }
@@ -1326,7 +1539,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       try { localStorage.setItem('sfp_compact_view', c ? '1' : '0'); } catch(e) {}
     }
     function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
-    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
+    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 60000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
     function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
 
     async function switchUniverse(type) {
@@ -1364,15 +1577,17 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
         ]);
         if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
         const d1 = await res1.json(), d2 = await res2.json();
+        if (d1.status !== 'success') { const status=document.getElementById('sfp-feed-status'); if(status) status.textContent = d1.message || 'Market data temporarily unavailable. Retry shortly.'; }
         if (d1.status === 'success') {
           sfDataEverLoaded = true;
           marketStocks = d1.data || [];
           document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
-          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
+          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable(); sfpUpdateIntelligence();
           if (currentTab === 'watchlist') renderWatchlistTable();
         }
         if (d2.status === 'success') {
           sectorsData = d2.data || [];
+          sfpUpdateIntelligence();
           if (d2.marketBreadth) {
             document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
             document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
@@ -1381,10 +1596,11 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           }
         }
         if (currentTab === 'sec') renderSectors();
-      } catch(e) {}
+      } catch(e) { const status=document.getElementById('sfp-feed-status'); if(status) status.textContent='Unable to refresh stock data. Existing values may be stale.'; }
     }
 
     function updateMarketPulseMeter(breadth, stocks) {
+      if (!document.getElementById("pulse-status-text")) return;
       if (!breadth || !stocks || stocks.length === 0) return;
       const adv = breadth.advances || 0;
       const dec = breadth.declines || 0;
@@ -1422,9 +1638,27 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       document.getElementById('k-lu').innerText = c['Long Unwinding'];
     }
 
+    function sfpRenderMoverRows() { /* Compatibility: movers render via renderMovers */ }
     function renderMovers(g, l) {
-      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
-      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      const safe = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const money = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '₹' + Number(v).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+      const renderSide = (items, direction, id) => {
+        const list = (Array.isArray(items) ? items : []).filter(s => s && Number.isFinite(Number(s.pricePct)) && (direction === 'up' ? Number(s.pricePct) > 0 : Number(s.pricePct) < 0))
+          .sort((a,b) => direction === 'up' ? Number(b.pricePct)-Number(a.pricePct) : Number(a.pricePct)-Number(b.pricePct)).slice(0,20);
+        const tbody = document.getElementById(id);
+        if (!tbody) return;
+        tbody.innerHTML = list.length ? list.map(s => {
+          const symbol = String(s.symbol || '').toUpperCase().replace(/[^A-Z0-9_.-]/g,'');
+          const pct = Number(s.pricePct);
+          const mult = Number(s.volMultiplier);
+          const volume = Number.isFinite(mult) && mult > 0 ? mult.toFixed(1) + '×' : '—';
+          return `<tr><td><div class="sfpm-dual-stock"><a class="stock-link" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(symbol)}" target="_blank" rel="noopener noreferrer">${safe(symbol)}</a>${typeof sfpNewsBadge === 'function' ? sfpNewsBadge(symbol) : ''}</div><small>${safe(s.sector || 'Sector unavailable')}</small></td><td class="sfpm-num">${money(s.ltp)}</td><td class="sfpm-num">${volume}</td><td class="sfpm-num sfpm-dual-change">${pct>0?'+':''}${pct.toFixed(2)}%</td></tr>`;
+        }).join('') : `<tr><td colspan="4" class="sfpm-empty">No ${direction === 'up' ? 'rising' : 'falling'} stocks in current feed</td></tr>`;
+        const count = document.getElementById(direction === 'up' ? 'sfpm-up-count' : 'sfpm-down-count');
+        if (count) count.textContent = list.length + ' stocks';
+      };
+      renderSide(g, 'up', 'sfpm-up-rows');
+      renderSide(l, 'down', 'sfpm-down-rows');
     }
 
     function toggleSort(col) {
@@ -1469,7 +1703,7 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
             <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
             <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
             <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
-            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
+            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct != null && Number.isFinite(Number(s.oiPct)) ? (s.oiPct > 0 ? '+' : '') + Number(s.oiPct).toFixed(2) + '%' : (s.oi != null ? 'OI '+Number(s.oi).toLocaleString('en-IN') : '—')}</td>
             <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : 'badge-blue'}">${s.buildup || 'CASH'}</span></td>
             <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
             <td><canvas class="sparkline-canvas" width="90" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas></td>
@@ -1973,6 +2207,8 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
     document.addEventListener('click', function(event) {
       const link = event.target.closest('a.stock-link');
       if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      // Market Movers stock names must open their TradingView charts, not the news popup.
+      if (link.closest('#sfp-pane-movers')) return;
       const match = (link.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
       if (!match) return;
       event.preventDefault();
@@ -2041,6 +2277,104 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
       sfpScheduleNewsCheck();
     });
   
+
+    // Institutional VFX: motion is tied only to actual NIFTY session % change and
+    // screener breadth. This is an abstract data-reactive visualization, NOT a price chart.
+    const sfpVfx = {pct:null, breadth:null, active:true, raf:0, lastFrame:0, phase:0};
+    function sfpUpdateIntelligence() {
+      const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
+      const indices=window.sfpLastIndices||[];
+      const names=['NIFTY 50','BANK NIFTY','SENSEX'];
+      const found=names.map(name=>indices.find(x=>x.symbol===name&&x.available!==false&&Number.isFinite(Number(x.percent))&&x.price!=null));
+      const sign=x=>x>0.15?1:x< -0.15?-1:0;
+      const fmt=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
+      const trio=document.getElementById('sfp-index-trio');
+      if(trio) [...trio.children].forEach((el,i)=>{const q=found[i],p=q?Number(q.percent):null;el.className='sfp-index-cell '+(p===null?'is-missing':sign(p)>0?'is-up':sign(p)<0?'is-down':'is-flat');el.replaceChildren(document.createTextNode(names[i]));const strong=document.createElement('strong');strong.textContent=p===null?'Feed unavailable':fmt(p);el.append(strong);});
+      const validIdx=found.filter(Boolean).map(x=>Number(x.percent));
+      const idxDir=validIdx.length>=2?(validIdx.reduce((a,b)=>a+sign(b),0)>=2?1:validIdx.reduce((a,b)=>a+sign(b),0)<=-2?-1:0):0;
+      const stocks=typeof marketStocks!=='undefined'&&Array.isArray(marketStocks)?marketStocks:[];
+      const valid=stocks.filter(x=>x.sector&&Number.isFinite(Number(x.pricePct))&&x.pricePct!==null&&x.pricePct!==undefined);
+      const up=valid.filter(x=>Number(x.pricePct)>0).length,down=valid.filter(x=>Number(x.pricePct)<0).length;
+      const breadthDir=valid.length>=10?(up/valid.length>.58?1:down/valid.length>.58?-1:0):0;
+      const marketDir=idxDir&&breadthDir&&idxDir===breadthDir?idxDir:0;
+      const direction=marketDir===1?'Broad Upward Alignment':marketDir===-1?'Broad Downward Alignment':validIdx.length<2||valid.length<10?'Insufficient Market Data':'Mixed Market Alignment';
+      put('sfp-market-trend',direction);put('sfp-market-detail',validIdx.length+' of 3 indices available · '+valid.length+' stocks observed · '+up+' rising / '+down+' falling');
+      put('sfp-align-indices',idxDir===1?'Upward':idxDir===-1?'Downward':validIdx.length<2?'Unavailable':'Mixed');
+      put('sfp-align-breadth',breadthDir===1?'Broadly Rising':breadthDir===-1?'Broadly Falling':valid.length<10?'Unavailable':'Mixed');
+      put('vfx-market-state',marketDir===1?'UPSIDE ALIGNMENT':marketDir===-1?'DOWNSIDE ALIGNMENT':'MIXED / PENDING');
+      put('vfx-nifty-change',found[0]?('NIFTY '+fmt(Number(found[0].percent))):'NIFTY unavailable');
+      put('vfx-source',validIdx.length>=2?'VERIFIED INDEX SESSION QUOTES':'INDEX FEED INCOMPLETE');
+      const stage=document.getElementById('vfx-stage');if(stage)stage.dataset.direction=marketDir===1?'up':marketDir===-1?'down':'flat';
+      const dot=document.getElementById('vfx-dot');if(dot)dot.classList.toggle('is-ready',validIdx.length>=2&&valid.length>=10);
+      sfpVfx.pct=validIdx.length>=2&&valid.length>=10?(marketDir||0)*Math.min(2,Math.abs(validIdx.reduce((a,b)=>a+b,0)/validIdx.length)):null;
+      sfpVfx.breadth=valid.length?(up-down)/valid.length:null;
+      const grouped=new Map();for(const x of valid){const k=x.sector; if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(x);}
+      const ranked=[...grouped].filter(([k,v])=>v.length>=2).map(([name,arr])=>({name,arr,avg:arr.reduce((n,x)=>n+Number(x.pricePct),0)/arr.length,up:arr.filter(x=>Number(x.pricePct)>0).length/arr.length,down:arr.filter(x=>Number(x.pricePct)<0).length/arr.length}));
+      const leadUp=ranked.filter(x=>x.avg>0&&x.up>=.6).sort((a,b)=>b.avg-a.avg)[0];
+      const leadDown=ranked.filter(x=>x.avg<0&&x.down>=.6).sort((a,b)=>a.avg-b.avg)[0];
+      const evidence=(x,dir)=>{
+        const p=Number(x.pricePct);const oi=Number(x.oiPct);const oiOK=x.oiVerified===true&&x.oiPct!==null&&Number.isFinite(oi);
+        const oiSupport=oiOK&&oi>0&&Math.sign(p)===dir;
+        return [['TREND',dir*p>0?'Aligned':'Mixed'],['VOLUME',Number.isFinite(Number(x.volMultiplier))?'×'+Number(x.volMultiplier).toFixed(1):'Unavailable'],['OI',oiOK?(oiSupport?'Supporting '+fmt(oi):'Not confirming '+fmt(oi)):'Unavailable'],['ADX','Unavailable'],['VWAP','Unavailable'],['ORDER FLOW','Unavailable']];
+      };
+      const show=(dir,leader)=>{
+        const prefix=dir===1?'sfp-up-':'sfp-down-';
+        if(!leader){put(prefix+'sector','No qualifying sector');put(prefix+'stock','—');put(prefix+'meta','Awaiting sector breadth and stock movement');put(prefix+'confirm','Unconfirmed');document.getElementById(prefix+'evidence').replaceChildren();return;}
+        const top=leader.arr.filter(x=>dir*Number(x.pricePct)>0).sort((a,b)=>dir*(Number(b.pricePct)-Number(a.pricePct)))[0];
+        put(prefix+'sector',leader.name);put(prefix+'stock',top.symbol+' · '+fmt(Number(top.pricePct)));
+        put(prefix+'meta','Sector average '+fmt(leader.avg)+' · '+Math.round((dir===1?leader.up:leader.down)*100)+'% participating');
+        put(prefix+'confirm',marketDir===dir?'Market aligned':marketDir===-dir?'Against market':'Sector-led');
+        const target=document.getElementById(prefix+'evidence');target.replaceChildren();for(const [label,value] of evidence(top,dir)){const chip=document.createElement('span');chip.className='sfp-evidence-chip';const bold=document.createElement('b');bold.textContent=label;chip.append(bold,document.createTextNode(' '+value));target.append(chip);}
+      };
+      show(1,leadUp);show(-1,leadDown);
+      put('sfp-align-leadership',marketDir===1?(leadUp?leadUp.name:'Unavailable'):marketDir===-1?(leadDown?leadDown.name:'Unavailable'):'Mixed / Sector-led');
+      put('sfp-feed-status',validIdx.length<2||!valid.length?'Market data incomplete. No simulated confirmations.':'Sector leaders use real price changes and breadth. Technical readings show Unavailable unless verified.');
+      if(validIdx.length||valid.length)put('sfp-intel-updated','Observed '+new Date().toLocaleTimeString('en-IN',{hour12:false}));
+    }
+    function sfpVfxDraw(t){
+      const canvas=document.getElementById('vfx-canvas'), stage=document.getElementById('vfx-stage');
+      if(!canvas||!stage)return;
+      const visible=stage.getClientRects().length>0&&!document.hidden;
+      const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if(!visible||sfpVfx.pct===null){
+        const ctx=canvas.getContext('2d');if(ctx)ctx.clearRect(0,0,canvas.width,canvas.height);
+        sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);return;
+      }
+      if(t-sfpVfx.lastFrame<32){sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);return;}
+      sfpVfx.lastFrame=t;
+      const r=stage.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,1.6);
+      const w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(r.height*dpr));
+      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+      const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);
+      const pct=sfpVfx.pct, amp=Math.min(Math.abs(pct)/2.5,1);
+      const rising=pct>0.15,falling=pct< -0.15;
+      const rgb=rising?'46,213,154':falling?'247,98,119':'225,177,93';
+      const direction=rising?-1:falling?1:0;
+      const time=t*.00027;
+      // Abstract strands: amplitude and tint are data-driven; time is decorative motion only.
+      for(let j=0;j<7;j++){
+        const y0=h*(.26+j*.092);
+        const alpha=.05+j*.018;
+        ctx.beginPath();
+        for(let x=0;x<=w;x+=5*dpr){
+          const u=x/w;
+          const wave=Math.sin(u*12+time*(direction||.2)*3+j*.64)*amp*16*dpr;
+          const bend=(u-.5)*direction*amp*38*dpr;
+          const y=y0+wave+bend;
+          if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+        }
+        ctx.strokeStyle=`rgba(${rgb},${alpha})`;ctx.lineWidth=(j===3?2:1)*dpr;ctx.stroke();
+      }
+      const sweep=((t*.028*dpr)%(w+200*dpr))-100*dpr;
+      const gradient=ctx.createLinearGradient(sweep-90*dpr,0,sweep+90*dpr,0);
+      gradient.addColorStop(0,'rgba(255,255,255,0)');gradient.addColorStop(.5,`rgba(${rgb},${.025+amp*.045})`);gradient.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=gradient;ctx.fillRect(sweep-90*dpr,0,180*dpr,h);
+      sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);
+    }
+    window.addEventListener('DOMContentLoaded',()=>{
+      if(!sfpVfx.raf)sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);
+    });
+
     // Market pulse is independent of the sector ticker and scans.
     let sfpMarketPulseBusy = false;
     const sfpPulseEscape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2054,8 +2388,9 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
         if (payload.status !== 'success') throw new Error('Market feed unavailable');
         const target = document.getElementById('sfpMarketPulse');
         if (!target) return;
-        const cards = (payload.data || []).map(item => {
-          const hasPrice = Number.isFinite(Number(item.price)) && item.price !== null;
+        const quotes = payload.data || [];
+        const cards = quotes.map(item => {
+          const hasPrice = item.price !== null && item.price !== undefined && Number.isFinite(Number(item.price));
           const pct = item.percent == null ? '' : `${Number(item.percent) >= 0 ? '+' : ''}${Number(item.percent).toFixed(2)}%`;
           const cls = Number(item.change) >= 0 ? 'sfp-pulse-positive' : 'sfp-pulse-negative';
           const price = hasPrice ? `${item.currency === 'USD/bbl' ? '$' : '₹'}${Number(item.price).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}` : 'Unavailable';
@@ -2064,14 +2399,15 @@ body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
           return `<a class="sfp-pulse-item ${item.alert?'sfp-pulse-alert':''}" href="${chart}" target="_blank" rel="noopener noreferrer" title="Open chart" aria-label="Open ${sfpPulseEscape(item.symbol)} chart"><span class="sfp-pulse-symbol">${sfpPulseEscape(item.symbol)}</span>${/^(NIFTY 50|NIFTY BANK|BANK ?NIFTY|SENSEX)$/i.test(String(item.symbol || "").trim()) ? `<svg class="sfp-pulse-chart-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>` : ""}<span class="sfp-pulse-price">${price}</span><span class="${cls}">${pct}</span>${alertText}</a>`;
         }).join('');
         const time = payload.asOf ? new Date(payload.asOf).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
-        target.innerHTML = cards + `<span class="sfp-pulse-time">Checked ${sfpPulseEscape(time)} • 5s • Brent indicative</span>`;
+        target.innerHTML = cards + `<span class="sfp-pulse-time">Checked ${sfpPulseEscape(time)} • 60s refresh • Brent indicative</span>`;
+        window.sfpLastIndices = quotes; sfpUpdateIntelligence();
       } catch (e) {
         const target = document.getElementById('sfpMarketPulse');
         if (target && !target.querySelector('a')) target.textContent = 'Market feed unavailable — checking again…';
       } finally { sfpMarketPulseBusy = false; }
     }
     sfpFetchMarketPulse();
-    setInterval(sfpFetchMarketPulse, 5000);
+    setInterval(sfpFetchMarketPulse, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) sfpFetchMarketPulse(); });
 
 </script>

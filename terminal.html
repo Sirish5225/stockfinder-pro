@@ -1,0 +1,2085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />  
+  <title>Stock Finder Pro - Elite Institutional Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <script>
+    const savedTheme = localStorage.getItem('theme');
+    if (['light','ocean','amoled'].includes(savedTheme)) document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
+
+  <style>
+    :root {
+      --bg: #030508; --panel: rgba(13, 18, 27, 0.82); --border: rgba(243, 156, 18, 0.18);
+      --text: #94a3b8; --muted: #64748b; --green: #2ecc71; --red: #e74c3c; --primary: #f39c12;
+      --sidebar-bg: rgba(6, 9, 15, 0.95); --ticker-bg: #030508; --th-bg: rgba(13, 18, 27, 0.95);
+      --hover-bg: rgba(243, 156, 18, 0.06); --bar-bg: rgba(0, 0, 0, 0.3); --bar-track: #161a23;
+      --strong-text: #ffffff; --input-bg: rgba(0, 0, 0, 0.55);
+      --glass-shadow: 0 30px 60px rgba(0,0,0,0.85);
+      --glass-border: 1px solid rgba(243, 156, 18, 0.18);
+    }
+    [data-theme="light"] {
+      --bg: #f3f4f6; --card: rgba(255, 255, 255, 0.85); --border: rgba(0, 0, 0, 0.1);
+      --text: #374151; --muted: #6b7280; --green: #059669; --red: #dc2626; --primary: #d97706;
+      --sidebar-bg: rgba(255, 255, 255, 0.95); --ticker-bg: #ffffff; --th-bg: rgba(243, 244, 246, 0.95);
+      --hover-bg: rgba(0, 0, 0, 0.04); --bar-bg: rgba(255, 255, 255, 0.6); --bar-track: #e5e7eb;
+      --strong-text: #111827; --input-bg: rgba(255, 255, 255, 0.5);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+      --glass-border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    [data-theme="ocean"] { --bg:#061e32;--panel:#0d2d47;--sidebar-bg:#061a2b;--ticker-bg:#061a2b;--th-bg:#0c2c45;--primary:#44c9ff;--border:#216389;--hover-bg:#123c5b;--strong-text:#edfaff;--text:#b5d5e8;--input-bg:#0a2a43;--glass-border:1px solid #216389; }
+    [data-theme="amoled"] { --bg:#000;--panel:#090909;--sidebar-bg:#000;--ticker-bg:#000;--th-bg:#080808;--primary:#ffb342;--border:#303030;--hover-bg:#171717;--strong-text:#fff;--text:#c4c4c4;--input-bg:#0b0b0b;--glass-border:1px solid #303030; }
+    [data-theme="ocean"] body {background:#061e32!important;}
+    [data-theme="amoled"] body {background:#000!important;}
+    [data-theme="ocean"] .sidebar,[data-theme="ocean"] .panel,[data-theme="ocean"] .toolbar,[data-theme="ocean"] .table-container {background:#0d2d47!important;border-color:#216389!important;}
+    [data-theme="amoled"] .sidebar,[data-theme="amoled"] .panel,[data-theme="amoled"] .toolbar,[data-theme="amoled"] .table-container {background:#090909!important;border-color:#303030!important;}
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
+    
+    body {
+      background: radial-gradient(circle at 50% 0%, #161a23 0%, #080b11 50%, #030508 100%);
+      color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s;
+      position: relative;
+    }
+    body::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background-image: linear-gradient(to right, rgba(243, 156, 18, 0.035) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(243, 156, 18, 0.035) 1px, transparent 1px);
+      background-size: 50px 50px; z-index: -2; pointer-events: none;
+    }
+
+    .mono, td, th, .kpi-val, .ticker-price, .ticker-change, .badge, .treemap-tile, .barchart-val { font-family: 'JetBrains Mono', monospace !important; }
+
+    .panel, .kpi-card, .movers-panel, .toolbar, .table-container, .sidebar {
+      background: var(--panel); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: var(--glass-border); box-shadow: var(--glass-shadow);
+    }
+
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
+
+    /* Desktop Sidebar */
+    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s ease; background: var(--sidebar-bg); }
+    .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
+    .brand { font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); font-family: 'JetBrains Mono', monospace; }
+    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; animation: pulseDot 2s infinite; }
+    @keyframes pulseDot { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
+
+    .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
+    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
+    .nav-btn.active { background: rgba(243, 156, 18, 0.12); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
+    
+    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
+    .sidebar-overlay.show { display: block; }
+
+    .universe-dropdown { width: 100%; background: var(--input-bg); color: var(--strong-text); border: var(--glass-border); padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f39c12' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
+    .universe-dropdown option { background-color: #080b11; color: var(--strong-text); padding: 10px; }
+
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: var(--glass-border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
+    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: rgba(243, 156, 18, 0.2); border-color: var(--primary); }
+    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); }
+
+    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; min-width: 0; }
+    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
+
+    /* --- TERMINAL TICKER SCROLLER STYLES --- */
+    .market-ticker-container {
+      width: 100%; height: 40px; background: rgba(3, 5, 8, 0.9) !important; border-bottom: var(--glass-border);
+      display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; backdrop-filter: blur(12px); box-shadow: var(--glass-shadow);
+    }
+    .hamburger-btn, .theme-btn { background: transparent; border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: var(--glass-border); flex-shrink: 0; }
+    .theme-btn { border-left: var(--glass-border); border-right: none; }
+    
+    .ticker-wrapper {
+      flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative;
+      mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+    }
+    .market-ticker-track { display: inline-flex; animation: scrollTicker 45s linear infinite; white-space: nowrap; will-change: transform; }
+    .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
+    .ticker-item { display: inline-flex; align-items: center; padding: 0 20px; border-right: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.72rem; gap: 6px; }
+    .ticker-symbol { color: var(--muted); font-weight: 700; text-transform: uppercase; }
+    .ticker-price { color: var(--strong-text); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .ticker-change.positive { color: var(--green); font-weight: 600; }
+    .ticker-change.negative { color: var(--red); font-weight: 600; }
+    @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .kpi-card { border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
+    .kpi-card:hover { border-color: var(--primary) !important; transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
+    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
+    .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
+
+    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+    .movers-panel { border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
+    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: var(--glass-border); padding-bottom: 8px; }
+    .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: var(--glass-border); font-size: 0.8rem; transition: background 0.2s; }
+    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
+
+    .panel { border-radius: 12px; padding: 1.5rem; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-radius: 12px; padding: 1rem; }
+    .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
+    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: var(--glass-border); cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+    .filter-btn:hover { border-color: var(--primary); color: var(--strong-text); }
+    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
+    
+    .search-box { background: var(--input-bg); border: var(--glass-border); color: var(--strong-text); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; transition: border-color 0.2s; }
+    .search-box:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.15); }
+
+    .table-container { border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
+    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: var(--glass-border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
+    th:hover { color: var(--primary); }
+    td { padding: 0.9rem 1rem; border-bottom: var(--glass-border); transition: background 0.2s; }
+    tr:hover td { background: var(--hover-bg); }
+    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
+    .stock-link:hover { color: var(--primary); }
+
+    .watchlist-btn { background: transparent; border: none; cursor: pointer; font-size: 1.1rem; margin-right: 6px; transition: transform 0.2s; }
+    .watchlist-btn:hover { transform: scale(1.2); }
+    .watchlist-btn.starred { color: #f39c12; text-shadow: 0 0 8px rgba(243, 156, 18, 0.6); }
+
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
+    .badge-green { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .badge-red { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid rgba(255, 23, 68, 0.3); }
+    .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-yellow { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .badge-demand { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid var(--green); }
+    .badge-supply { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid var(--red); }
+    .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
+    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: var(--glass-border); }
+    .val-up { color: var(--green); font-weight: 600; }
+    .val-down { color: var(--red); font-weight: 600; }
+
+    /* --- INNOVATIVE INSTITUTIONAL SCANNER RADAR LOADING ANIMATION --- */
+    .scanner-loading-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem 1rem;
+      gap: 16px;
+      text-align: center;
+    }
+    .radar-container {
+      width: 60px;
+      height: 60px;
+      border: 2px solid rgba(243, 156, 18, 0.2);
+      border-radius: 50%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(243, 156, 18, 0.15);
+    }
+    .radar-beam {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      position: absolute;
+      background: conic-gradient(from 0deg at 50% 50%, rgba(243, 156, 18, 0.4) 0deg, transparent 60deg, transparent 360deg);
+      animation: spinRadar 1.8s linear infinite;
+    }
+    .radar-core {
+      width: 14px;
+      height: 14px;
+      background: var(--primary);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--primary);
+      animation: pulseCore 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes spinRadar {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulseCore {
+      0% { transform: scale(0.8); opacity: 0.6; }
+      100% { transform: scale(1.2); opacity: 1; }
+    }
+    .scanner-loading-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 10px rgba(243, 156, 18, 0.3);
+    }
+    .scanner-loading-sub {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Mobile Bottom Navigation Bar */
+    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: var(--glass-border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; backdrop-filter: blur(16px); }
+    .bnav-btn { background: transparent; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase; }
+    .bnav-btn.active { color: var(--primary); }
+    .bnav-btn .icon { font-size: 1.2rem; }
+
+    .sector-side-by-side { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.5rem; align-items: start; }
+    @media(max-width: 1200px) { .sector-side-by-side { grid-template-columns: 1fr; } }
+    .sec-section-title { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+
+    .sector-treemap-grid { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+    .treemap-tile { border-radius: 8px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; cursor: pointer; transition: transform 0.15s ease; border: 1px solid rgba(255,255,255,0.12); text-decoration: none; min-height: 95px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    .treemap-tile:hover { transform: scale(1.02); filter: brightness(1.15); z-index: 10; border-color: #fff; }
+    .tile-logo { width: 26px; height: 26px; border-radius: 50%; background: #ffffff; padding: 2px; object-fit: contain; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
+    .tile-logo-badge { width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
+    .tile-logo-shell {position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin-bottom:5px;flex-shrink:0}
+    .tile-logo-shell .tile-logo-badge {width:32px;height:32px;margin:0}
+    .tile-logo-shell .tile-logo {position:absolute;inset:0;width:36px;height:36px;border-radius:9px;background:#fff;padding:4px;margin:0;opacity:0;transition:opacity .18s ease}
+    .tile-logo-shell .tile-logo.tile-logo-ready {opacity:1}
+    @media(max-width:600px){.tile-logo-shell{width:30px;height:30px}.tile-logo-shell .tile-logo{width:30px;height:30px}}
+    .tile-name { font-weight: 800; font-size: 0.78rem; color: #ffffff; letter-spacing: 0.3px; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .tile-change { font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
+
+    .ranking-list-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .barchart-row { display: flex; align-items: center; font-size: 0.78rem; border-radius: 8px; padding: 8px 12px; width: 100%; background: var(--input-bg); border: var(--glass-border); transition: all 0.2s ease; cursor: pointer; }
+    .barchart-row:hover { background: var(--hover-bg); border-color: var(--primary); transform: translateX(4px); }
+    .barchart-row.selected { background: rgba(243, 156, 18, 0.15); border: 1px solid var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
+    .barchart-label { width: 130px; min-width: 130px; flex-shrink: 0; text-align: left; padding-right: 8px; font-weight: 600; color: var(--strong-text); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .barchart-track { flex: 1; height: 16px; position: relative; display: flex; align-items: center; margin-right: 8px; }
+    .barchart-bar-wrapper { flex: 1; height: 10px; position: relative; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
+    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); z-index: 1; }
+    .barchart-bar { position: absolute; height: 10px; top: 0; border-radius: 2px; z-index: 2; }
+    .barchart-bar.pos { left: 50%; background-color: var(--green); }
+    .barchart-bar.neg { right: 50%; background-color: var(--red); }
+    .barchart-val { width: 55px; min-width: 55px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); flex-shrink: 0; }
+
+    @media(max-width: 1024px) {
+      body { height: 100vh; overflow: hidden; width: 100%; position: relative; display: flex; flex-direction: row; }
+      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
+      .sidebar.open { transform: translateX(0); }
+      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
+      .main-wrapper { height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; width: 100%; }
+      main { padding: 0.8rem; overflow-y: auto; flex: 1; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+      .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+    }
+
+/* StockFinder Pro — Obsidian Gold balanced motion */
+:root { --panel:rgba(13,18,27,.88); --gold-glow:rgba(243,156,18,.18); }
+body { background:radial-gradient(ellipse at 85% 8%,rgba(171,105,16,.10),transparent 42%),radial-gradient(ellipse at 15% 85%,rgba(115,76,20,.055),transparent 48%),#05080d; }
+body::before { background-image:linear-gradient(to right,rgba(243,156,18,.025) 1px,transparent 1px),linear-gradient(to bottom,rgba(243,156,18,.025) 1px,transparent 1px);background-size:48px 48px;animation:sf-grid-drift 32s linear infinite; }
+@keyframes sf-grid-drift { to {background-position:48px 48px;} }
+body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(420px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(243,156,18,.075),transparent 75%);opacity:.8;transition:opacity .3s;}
+.sidebar,.main-wrapper {position:relative;z-index:1;}
+.panel,.toolbar,.kpi-card,.movers-panel,.table-container {transition:border-color .25s ease,box-shadow .25s ease,transform .25s ease;}
+.panel:hover,.toolbar:hover {border-color:rgba(243,156,18,.27);}
+.kpi-card:hover {box-shadow:0 10px 30px rgba(0,0,0,.32),0 0 18px rgba(243,156,18,.08);}
+.sf-view-enter {animation:sf-view-in .32s cubic-bezier(.2,.7,.2,1) both;}
+@keyframes sf-view-in {from {opacity:.25;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+.sf-skeleton {position:relative;overflow:hidden;background:linear-gradient(90deg,rgba(110,120,135,.10) 0%,rgba(243,156,18,.13) 48%,rgba(110,120,135,.10) 100%);background-size:220% 100%;animation:sf-shimmer 1.45s ease-in-out infinite;border-radius:5px;}
+@keyframes sf-shimmer {from{background-position:200% 0}to{background-position:-200% 0}}
+.sf-loading {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px 14px;min-height:220px;text-align:center;}
+.sf-loader-heading {font-size:.85rem;font-weight:700;color:var(--strong-text);letter-spacing:.02em;}
+.sf-loader-caption {font-size:.72rem;color:var(--muted);margin-top:5px;}
+.sf-line-track {width:min(260px,80%);height:2px;background:rgba(243,156,18,.13);border-radius:8px;position:relative;overflow:hidden;}
+.sf-line-track::after {content:"";position:absolute;inset:0 auto 0 0;width:35%;border-radius:8px;background:linear-gradient(90deg,transparent,#e6a13a,#ffe1a2,#e6a13a,transparent);box-shadow:0 0 8px rgba(243,156,18,.38);animation:sf-line-slide 1.6s ease-in-out infinite;}
+@keyframes sf-line-slide {from{transform:translateX(-110%)}to{transform:translateX(300%)}}
+.sf-zone-mark {display:flex;gap:5px;align-items:flex-end;height:34px;}
+.sf-zone-mark i {display:block;width:5px;height:var(--h);border-radius:2px;background:var(--c);opacity:.65;animation:sf-candle-wave 1.2s ease-in-out infinite;animation-delay:var(--d);}
+@keyframes sf-candle-wave {50%{opacity:1;transform:translateY(-4px)} }
+.sf-sector-loader {display:grid;grid-template-columns:repeat(5,22px);gap:5px;justify-content:center;}
+.sf-sector-loader i {height:18px;border-radius:3px;background:rgba(243,156,18,.15);animation:sf-tile 1.5s ease-in-out infinite;animation-delay:calc(var(--i)*.10s);}
+@keyframes sf-tile {50%{background:rgba(243,156,18,.55);transform:scale(.94)}}
+.sf-table-skeleton {padding:12px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+.sf-table-skeleton .sf-skeleton {height:12px;}
+@media(max-width:700px){body::after{display:none}.sf-table-skeleton{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.sf-loading{min-height:180px;padding:26px 8px}.sf-sector-loader{grid-template-columns:repeat(5,18px)}}
+@media(prefers-reduced-motion:reduce){body::before,.sf-view-enter,.sf-skeleton,.sf-line-track::after,.sf-zone-mark i,.sf-sector-loader i{animation:none!important} .panel,.toolbar,.kpi-card{transition:none!important}}
+[data-theme="light"] body {background:#f3f4f6;}
+[data-theme="light"] body::after {opacity:.35;}
+
+  .sf-tab-transition{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:var(--bg,#090d14);background:color-mix(in srgb,var(--bg,#090d14) 96%,transparent);animation:sf-tab-reveal .8s ease forwards;pointer-events:none;}
+#view-sec,#view-watchlist{position:relative;min-height:220px;}
+@keyframes sf-tab-reveal{0%,65%{opacity:1}100%{opacity:0}}
+
+/* === StockFinder Pro: unified Trading Terminal theme (landing/login palette) === */
+:root:not([data-theme="light"]){
+ --bg:#070d12;--panel:#101b23;--border:#26343e;--text:#c3d0d8;
+ --muted:#93a5b1;--green:#20cf83;--red:#ff5a65;--primary:#f6aa2a;
+ --sidebar-bg:#081017;--ticker-bg:#081017;--th-bg:#14232c;
+ --hover-bg:rgba(246,170,42,.065);--bar-bg:#101b23;--bar-track:#26343e;
+ --strong-text:#eef4f7;--input-bg:#0a141b;
+ --glass-shadow:0 12px 36px rgba(0,0,0,.25);
+ --glass-border:1px solid #26343e;
+}
+:root:not([data-theme="light"]) body{
+ background:radial-gradient(ellipse at 85% 5%,rgba(19,54,46,.52),transparent 43%),#070d12;
+}
+:root:not([data-theme="light"]) body::before{
+ background-image:linear-gradient(to right,rgba(71,110,115,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(71,110,115,.035) 1px,transparent 1px);
+ background-size:52px 52px;animation:none;
+}
+:root:not([data-theme="light"]) body::after{
+ background:radial-gradient(460px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(32,207,131,.043),transparent 75%);
+}
+:root:not([data-theme="light"]) .sidebar{background:#081017;border-right:1px solid #26343e;box-shadow:none;}
+:root:not([data-theme="light"]) .brand{color:#eef4f7;font-family:'Plus Jakarta Sans',sans-serif;letter-spacing:-.65px;text-shadow:none;}
+:root:not([data-theme="light"]) .brand .dot{background:#20cf83;box-shadow:0 0 0 4px rgba(32,207,131,.09);}
+:root:not([data-theme="light"]) .panel,
+:root:not([data-theme="light"]) .kpi-card,
+:root:not([data-theme="light"]) .movers-panel,
+:root:not([data-theme="light"]) .toolbar,
+:root:not([data-theme="light"]) .table-container{
+ background:linear-gradient(145deg,#14212a,#0c151c);border:1px solid #26343e;
+ box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+:root:not([data-theme="light"]) .panel:hover,
+:root:not([data-theme="light"]) .toolbar:hover{border-color:#40515c;}
+:root:not([data-theme="light"]) .kpi-card:hover{border-color:#a06b21!important;box-shadow:0 12px 28px #0005;}
+:root:not([data-theme="light"]) .nav-btn.active{
+ background:rgba(246,170,42,.11);color:#ffc45c;border:1px solid #8c642b;
+ box-shadow:inset 3px 0 0 #f6aa2a;
+}
+:root:not([data-theme="light"]) .filter-btn.active{
+ background:#463417;color:#ffbf53;border:1px solid #9a681b;box-shadow:none;
+}
+:root:not([data-theme="light"]) .filter-btn:hover,
+:root:not([data-theme="light"]) .search-box:focus{box-shadow:none;border-color:#b88131;}
+:root:not([data-theme="light"]) .ticker-item{border-right:1px solid #26343e;}
+:root:not([data-theme="light"]) .sf-line-track{background:#3d321f;}
+:root:not([data-theme="light"]) .sf-line-track::after{background:linear-gradient(90deg,transparent,#f6aa2a,#ffdc8a,transparent);box-shadow:none;}
+:root:not([data-theme="light"]) .sf-skeleton{background:linear-gradient(90deg,#182630,#30404b,#182630);background-size:220% 100%;}
+:root:not([data-theme="light"]) .sf-tab-transition{background:#070d12;}
+:root:not([data-theme="light"]) input,
+:root:not([data-theme="light"]) select{accent-color:#f6aa2a;}
+@media(max-width:700px){:root:not([data-theme="light"]) .sidebar{background:#081017;}}
+
+
+
+    /* Premium, low-saturation heatmap: keep market direction readable without solid neon fills. */
+    .sector-treemap-grid .treemap-tile {
+      position:relative; overflow:hidden; min-height:102px; gap:5px;
+      border:1px solid var(--border); border-radius:10px;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 4px 12px rgba(0,0,0,.12);
+      transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-positive {
+      background:linear-gradient(155deg,#16372f 0%,#10251f 60%,#0e1d1b 100%);
+      border-color:rgba(48,183,135,.30);
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-negative {
+      background:linear-gradient(155deg,#40252e 0%,#2b1c25 60%,#1e1920 100%);
+      border-color:rgba(219,107,121,.30);
+    }
+    .sector-treemap-grid .treemap-tile::before {
+      content:"";position:absolute;inset:0 auto 0 0;width:3px;
+      background:var(--heat-accent);opacity:.9;
+    }
+    .sector-treemap-grid .heatmap-positive {--heat-accent:#36c79a;}
+    .sector-treemap-grid .heatmap-negative {--heat-accent:#f17c8a;}
+    .sector-treemap-grid .treemap-tile .tile-name {color:#edf5f4;text-shadow:none;}
+    .sector-treemap-grid .treemap-tile .tile-change {color:var(--heat-accent);font-weight:800;}
+    .sector-treemap-grid .treemap-tile:hover {
+      transform:translateY(-3px);filter:none;border-color:var(--heat-accent);
+      box-shadow:0 9px 24px rgba(0,0,0,.30),0 0 0 1px var(--heat-accent);
+    }
+    [data-theme="light"] .sector-treemap-grid .heatmap-positive {background:linear-gradient(145deg,#e8f7ef,#d9f0e6);border-color:#a5d8c0;--heat-accent:#087e57;}
+    [data-theme="light"] .sector-treemap-grid .heatmap-negative {background:linear-gradient(145deg,#fff0f1,#f9e0e4);border-color:#e9b4bc;--heat-accent:#b7354b;}
+    [data-theme="light"] .sector-treemap-grid .treemap-tile .tile-name {color:#18262b;}
+    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile{transition:none}.sector-treemap-grid .treemap-tile:hover{transform:none}}
+
+
+    /* Dynamic strongest bullish/bearish movers: animated travelling neon border. */
+    .sector-treemap-grid .treemap-tile.heatmap-momentum {
+      isolation:isolate; overflow:hidden; border:2px solid var(--heat-accent);
+      box-shadow:0 0 13px var(--heat-glow),0 0 26px var(--heat-glow),inset 0 0 13px var(--heat-glow);
+    }
+    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--heat-accent:#3fffc0;--heat-glow:rgba(22,235,146,.24);}
+    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--heat-accent:#ff627b;--heat-glow:rgba(255,48,86,.25);}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum::before {
+      content:"";position:absolute;inset:-70%;width:auto;height:auto;
+      background:conic-gradient(from 0deg,transparent 0deg,transparent 230deg,var(--heat-accent) 286deg,#ffffff 307deg,var(--heat-accent) 327deg,transparent 355deg);
+      opacity:.85;animation:sfp-momentum-border-spin 3s linear infinite;z-index:0;
+    }
+    .sector-treemap-grid .treemap-tile.heatmap-momentum::after {
+      content:"";position:absolute;inset:2px;border-radius:7px;
+      background:linear-gradient(155deg,var(--momentum-bg1),var(--momentum-bg2));z-index:0;pointer-events:none;
+    }
+    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--momentum-bg1:#075c42;--momentum-bg2:#10362d;}
+    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--momentum-bg1:#842436;--momentum-bg2:#451e2b;}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum > * {position:relative;z-index:1;}
+    .sector-treemap-grid .treemap-tile.heatmap-momentum:hover {box-shadow:0 0 19px var(--heat-glow),0 0 35px var(--heat-glow);}
+    @keyframes sfp-momentum-border-spin {to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile.heatmap-momentum::before{animation:none}}
+
+/* About Sector Heatmap */
+.sfp-heatmap-info-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem}
+.sfp-heatmap-info-item{padding:1rem;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.018)}
+.sfp-heatmap-info-item strong{display:block;color:var(--strong-text);font-size:.8rem;margin-bottom:.4rem}
+.sfp-heatmap-info-item p{color:var(--muted);font-size:.76rem;line-height:1.65;margin:0}
+@media(max-width:780px){.sfp-heatmap-info-grid{grid-template-columns:1fr}}
+
+/* Light theme repair: full variable parity and high-contrast controls */
+:root[data-theme="light"] {
+  color-scheme:light;
+  --bg:#f4f7fb;--panel:#ffffff;--card:#ffffff;--border:#dbe3ec;
+  --text:#334155;--muted:#64748b;--green:#07835b;--red:#c52d43;
+  --primary:#a7640a;--sidebar-bg:#ffffff;--ticker-bg:#ffffff;
+  --th-bg:#eef3f8;--hover-bg:#edf4fb;--bar-bg:#f1f5f9;
+  --bar-track:#e2e8f0;--strong-text:#142235;--input-bg:#ffffff;
+  --glass-shadow:0 5px 20px rgba(29,50,78,.065);
+  --glass-border:1px solid #dbe3ec;
+}
+:root[data-theme="light"] body {background:#f4f7fb;color:var(--text)}
+:root[data-theme="light"] body::before {background-image:linear-gradient(to right,rgba(100,116,139,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(100,116,139,.035) 1px,transparent 1px)}
+:root[data-theme="light"] body::after {opacity:.08}
+:root[data-theme="light"] .sidebar {background:#fff;border-right:1px solid #dbe3ec;box-shadow:2px 0 16px rgba(25,45,70,.04)}
+:root[data-theme="light"] .brand {color:#142235;text-shadow:none}
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .kpi-card,
+:root[data-theme="light"] .movers-panel,
+:root[data-theme="light"] .toolbar,
+:root[data-theme="light"] .table-container {background:#fff;border:1px solid #dbe3ec;box-shadow:0 4px 16px rgba(25,45,70,.05)}
+:root[data-theme="light"] .market-ticker-container {background:#fff!important;border-bottom:1px solid #dbe3ec;box-shadow:none}
+:root[data-theme="light"] .ticker-item {border-right:1px solid #e2e8f0}
+:root[data-theme="light"] .hamburger-btn,
+:root[data-theme="light"] .theme-btn {color:#1e293b;border-color:#dbe3ec}
+:root[data-theme="light"] .nav-btn.active,
+:root[data-theme="light"] .filter-btn.active {background:#fff4e2;border-color:#e8c38d;color:#92590b;box-shadow:none}
+:root[data-theme="light"] .nav-btn:hover,
+:root[data-theme="light"] .filter-btn:hover {background:#f1f5f9}
+:root[data-theme="light"] .universe-dropdown,
+:root[data-theme="light"] .search-box,
+:root[data-theme="light"] .filter-btn,
+:root[data-theme="light"] input,
+:root[data-theme="light"] select {background-color:#fff;color:#142235;border-color:#cbd5e1}
+:root[data-theme="light"] .universe-dropdown option {background:#fff;color:#142235}
+:root[data-theme="light"] .bottom-nav {background:#fff;border-top:1px solid #dbe3ec}
+:root[data-theme="light"] .barchart-bar-wrapper {background:#edf2f7}
+:root[data-theme="light"] .badge-muted {background:#f1f5f9}
+:root[data-theme="light"] .sf-tab-transition {background:#f4f7fb}
+:root[data-theme="light"] .sf-skeleton {background:linear-gradient(90deg,#e5ebf2,#f8fafc,#e5ebf2);background-size:220% 100%}
+:root[data-theme="light"] .sf-line-track {background:#f3e4cc}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-positive {--momentum-bg1:#d8f3e7;--momentum-bg2:#ecfaf3;--heat-accent:#07835b;--heat-glow:rgba(7,131,91,.18)}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-negative {--momentum-bg1:#ffe1e5;--momentum-bg2:#fff1f3;--heat-accent:#c52d43;--heat-glow:rgba(197,45,67,.18)}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-name {color:#142235}
+:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-change {color:var(--heat-accent)}
+
+
+    /* Compact view: applied to the whole terminal, not only table wrappers. */
+    body.sfp-compact main {padding:.85rem 1.1rem}
+    body.sfp-compact .toolbar {padding:.6rem .75rem;margin-bottom:.75rem;gap:.5rem}
+    body.sfp-compact .panel {padding:.9rem}
+    body.sfp-compact .kpi-grid {gap:.55rem;margin-bottom:.8rem}
+    body.sfp-compact .kpi-card {padding:.65rem .8rem}
+    body.sfp-compact .kpi-val {font-size:1.3rem}
+    body.sfp-compact .movers-grid {gap:.7rem;margin-bottom:.8rem}
+    body.sfp-compact .movers-panel {height:245px;padding:.7rem}
+    body.sfp-compact .movers-row {padding:.25rem .35rem;font-size:.73rem}
+    body.sfp-compact .table-container {min-height:260px;max-height:calc(100vh - 300px)}
+    body.sfp-compact table {font-size:.74rem}
+    body.sfp-compact th {padding:.52rem .65rem;font-size:.65rem}
+    body.sfp-compact td {padding:.42rem .65rem}
+    body.sfp-compact .filter-btn {padding:.35rem .6rem;font-size:.69rem}
+    body.sfp-compact .search-box {padding:.42rem .6rem}
+    body.sfp-compact .sector-side-by-side {gap:.8rem}
+    body.sfp-compact .sector-treemap-grid {gap:4px}
+    body.sfp-compact .treemap-tile {min-height:72px;padding:7px 5px;border-radius:6px}
+    body.sfp-compact .tile-logo-shell {width:25px;height:25px;margin-bottom:2px}
+    body.sfp-compact .tile-logo-shell .tile-logo {width:25px;height:25px}
+    body.sfp-compact .tile-logo-shell .tile-logo-badge {width:23px;height:23px;font-size:.48rem}
+    body.sfp-compact .tile-name {font-size:.67rem}
+    body.sfp-compact .tile-change {font-size:.7rem}
+    body.sfp-compact .sfp-heatmap-info-item {padding:.65rem}
+    @media(max-width:700px){body.sfp-compact main{padding:.65rem}body.sfp-compact .panel{padding:.7rem}}
+
+
+/* StockFinder Pro: mobile and tablet responsive polish */
+@media (max-width:1024px) {
+  html,body {width:100%;max-width:100%;overscroll-behavior-x:none}
+  .main-wrapper {min-width:0!important;max-width:100vw;height:100dvh!important;padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))!important}
+  .sidebar {position:fixed!important;z-index:1100!important;height:100dvh!important;max-height:100dvh;overflow-y:auto;transform:translateX(-105%);margin-left:0!important;opacity:1!important;pointer-events:auto!important}
+  .sidebar.open {transform:translateX(0)!important}
+  .sidebar-overlay.show {z-index:1050!important}
+  .bottom-nav {z-index:900!important;padding-bottom:env(safe-area-inset-bottom,0px);min-height:58px}
+  .main-wrapper main {min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .table-container {max-width:100%;overflow-x:auto!important;-webkit-overflow-scrolling:touch;min-height:0;max-height:min(65dvh,650px)}
+  .table-container table {min-width:680px}
+  .panel,.toolbar,.movers-panel,.kpi-card {min-width:0;max-width:100%}
+  .sector-side-by-side {grid-template-columns:minmax(0,1fr)!important}
+  .sector-treemap-grid {min-width:0}
+  .sector-treemap-grid .treemap-tile {min-width:0;flex-basis:calc(33.333% - 6px)!important;box-sizing:border-box}
+  .bottom-nav .bnav-btn {min-width:0;flex:1;touch-action:manipulation}
+}
+@media (max-width:600px) {
+  .main-wrapper main {padding:10px!important}
+  .panel {padding:12px!important;margin-bottom:12px!important}
+  .toolbar {padding:10px!important;gap:8px!important}
+  .kpi-grid {grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+  .movers-grid {grid-template-columns:minmax(0,1fr)!important}
+  .market-ticker-container {height:44px;min-height:44px}
+  .hamburger-btn,.theme-btn {min-width:44px;padding:0 11px}
+  .ticker-item {padding:0 12px;font-size:11px}
+  .sector-treemap-grid {gap:7px!important}
+  .sector-treemap-grid .treemap-tile {flex:1 1 calc(50% - 7px)!important;min-height:105px;padding:10px 5px!important}
+  .sector-treemap-grid .treemap-tile .tile-name {font-size:11px;max-width:100%}
+  .sector-treemap-grid .treemap-tile .tile-change {font-size:12px}
+  .barchart-label {width:95px;min-width:95px;font-size:11px}
+  .barchart-val {width:48px;min-width:48px;font-size:11px}
+  .bottom-nav {padding-left:3px;padding-right:3px}
+  .bottom-nav .bnav-btn {padding:6px 2px;font-size:10px}
+  .bottom-nav .bnav-btn .icon {font-size:18px}
+  #rr-calculator-modal .panel {width:min(440px,calc(100vw - 24px))!important;max-height:85dvh;overflow-y:auto}
+  input,select,textarea {max-width:100%;box-sizing:border-box}
+}
+@media (max-width:360px) {
+  .sector-treemap-grid .treemap-tile {padding:8px 3px!important}
+  .sector-treemap-grid .treemap-tile .tile-name {font-size:10px}
+}
+
+
+/* StockFinder Pro unified redesign / terminal polish */
+:root:not([data-theme="light"]){--bg:#070d12;--panel:#101b23;--border:#30414c;--primary:#f6aa2a;--green:#20cf83;--red:#ff5a65;--strong-text:#eef4f7;--muted:#93a5b1;--sidebar-bg:#081017}
+:root:not([data-theme="light"]) .market-ticker-container{background:#081017!important;border-bottom:1px solid #30414c;box-shadow:none}
+:root:not([data-theme="light"]) .panel,:root:not([data-theme="light"]) .toolbar,:root:not([data-theme="light"]) .kpi-card,:root:not([data-theme="light"]) .movers-panel,:root:not([data-theme="light"]) .table-container{background:linear-gradient(145deg,#14232c,#0c151c);border-color:#30414c;border-radius:13px}
+:root:not([data-theme="light"]) .sidebar{border-right:1px solid #30414c}.brand{letter-spacing:-.6px}.nav-btn{border-radius:9px}.kpi-card{position:relative;overflow:hidden}.kpi-card:before{content:'';position:absolute;inset:0 0 auto;height:2px;background:linear-gradient(90deg,transparent,#f6aa2a55,transparent)}.panel h3{letter-spacing:-.25px}button,input,select{font-family:inherit}.filter-btn{min-height:34px}.filter-btn:focus-visible,.nav-btn:focus-visible,.hamburger-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+@media(max-width:1024px){.sidebar.collapsed{margin-left:0;opacity:1;pointer-events:auto}.sidebar.open{transform:translateX(0)}.bottom-nav{padding-bottom:max(8px,env(safe-area-inset-bottom));min-height:58px}.main-wrapper{padding-bottom:calc(60px + env(safe-area-inset-bottom))}}
+@media(max-width:600px){main{padding:10px!important}.panel{padding:13px!important}.toolbar{padding:10px!important}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kpi-val{font-size:1.25rem}.sector-side-by-side{grid-template-columns:minmax(0,1fr)}.sector-treemap-grid{gap:5px}.sector-treemap-grid .treemap-tile{min-width:0;min-height:84px;padding:8px 5px}.tile-name{font-size:.64rem}.barchart-label{min-width:88px;width:88px;font-size:.66rem}.barchart-val{width:47px;min-width:47px}.table-container{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.table-container table{min-width:740px}.movers-panel{height:280px}.filter-wrapper{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:3px}.filter-btn{flex-shrink:0}.search-wrapper{width:100%}.search-box{width:100%}#smart-orb-container{grid-template-columns:1fr!important}}
+
+/* Ensure theme-specific overrides beat legacy dark terminal rules. */
+:root[data-theme="ocean"] .market-ticker-container{background:#071b2b!important;border-color:#245571!important}
+:root[data-theme="amoled"] .market-ticker-container{background:#000!important;border-color:#2d2d2d!important}
+/* Account actions stay together at bottom of left sidebar, immediately above clock. */
+.sfp-account-nav{display:flex;flex-direction:column;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
+.sfp-account-nav .nav-btn{display:flex;align-items:center;text-decoration:none;width:100%;box-sizing:border-box;padding:12px 14px;color:var(--strong-text)}
+.sfp-account-nav .sfp-logout{border:1px dashed rgba(246,170,42,.5);color:var(--primary)}
+:root[data-theme="ocean"]{--bg:#071c2b;--panel:#0c2b41;--border:#245571;--primary:#40caff;--green:#25e0b1;--strong-text:#effaff;--muted:#a2bfd1;--sidebar-bg:#071b2b}
+:root[data-theme="amoled"]{--bg:#000;--panel:#080808;--border:#2d2d2d;--primary:#ffb342;--green:#20cf83;--strong-text:#f5f5f5;--muted:#a5a5a5;--sidebar-bg:#000}
+:root[data-theme="amoled"] .panel,:root[data-theme="amoled"] .toolbar,:root[data-theme="amoled"] .kpi-card,:root[data-theme="amoled"] .movers-panel,:root[data-theme="amoled"] .table-container{background:#080808!important}
+:root[data-theme="ocean"] .panel,:root[data-theme="ocean"] .toolbar,:root[data-theme="ocean"] .kpi-card,:root[data-theme="ocean"] .movers-panel,:root[data-theme="ocean"] .table-container{background:#0c2b41!important}
+
+/* v15: landing-consistent sidebar identity + readable responsive terminal */
+.sfp-sidebar-brand{display:flex!important;align-items:center!important;gap:10px!important;margin-bottom:24px!important;padding:9px 7px!important;text-decoration:none!important;white-space:nowrap;min-width:0;text-shadow:none!important;letter-spacing:-.5px!important}
+.sfp-brand-mark{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #c98b2d;border-radius:12px;background:linear-gradient(145deg,#1c2b2c,#0b151c);color:#ffac28;font-size:33px;line-height:1;box-shadow:0 0 17px #ffac2820}
+.sfp-brand-name{display:block;min-width:0;color:var(--strong-text);font-family:'Plus Jakarta Sans',sans-serif;font-size:17px;font-weight:800;letter-spacing:-.65px;line-height:1.1}
+.sfp-brand-name>span{color:#ffac28}.sfp-brand-name small{display:block;margin-top:5px;font-size:7.5px;font-weight:700;letter-spacing:.6px;color:var(--muted)}
+.sfp-sidebar-brand .dot{margin-left:auto!important;flex:0 0 7px!important;width:7px!important;height:7px!important}
+@media(max-width:1024px){
+  .sidebar{width:min(310px,88vw)!important;min-width:0!important;padding:20px 16px!important}
+  .sidebar .nav-btn{min-height:47px;font-size:14px!important;display:flex;align-items:center}
+  .sidebar .universe-dropdown{min-height:46px;font-size:14px!important;width:100%}
+  .sidebar .toggle-row{min-height:48px}
+  .bottom-nav{min-height:66px!important}
+  .bottom-nav .bnav-btn{min-height:54px;font-size:11px!important;line-height:1.25;gap:4px}
+  .bottom-nav .bnav-btn .icon{font-size:21px!important}
+}
+@media(max-width:600px){
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{font-size:14px!important}
+  .main-wrapper main{padding:13px!important;padding-bottom:22px!important}
+  .panel{padding:15px!important;border-radius:13px!important;margin-bottom:14px!important}
+  .panel h3{font-size:15px!important;line-height:1.4}
+  .panel p,.toolbar label,.toolbar span{font-size:12px;line-height:1.45}
+  .toolbar{padding:12px!important;gap:10px!important;flex-wrap:wrap!important}
+  .toolbar select,.toolbar input,.toolbar button,.filter-btn,.search-box,.universe-dropdown{font-size:14px!important;min-height:42px!important}
+  .search-wrapper{min-width:0;width:100%!important}
+  .search-box{width:100%!important}
+  .filter-wrapper{max-width:100%;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch;gap:7px!important}
+  .filter-btn{flex:0 0 auto;padding:9px 12px!important;white-space:nowrap}
+  .kpi-grid{gap:10px!important}
+  .kpi-card{padding:13px!important;min-height:95px}
+  .kpi-val{font-size:21px!important;line-height:1.3}
+  .kpi-label{font-size:11px!important;line-height:1.4}
+  .table-container{overflow-x:auto!important;max-width:100%!important;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+  .table-container table{min-width:750px!important;font-size:12px!important}
+  .table-container th,.table-container td{padding:12px 10px!important;white-space:nowrap}
+  .sector-treemap-grid .treemap-tile{min-height:118px!important;padding:12px 7px!important}
+  .sector-treemap-grid .treemap-tile .tile-name{font-size:12px!important;line-height:1.3}
+  .sector-treemap-grid .treemap-tile .tile-change{font-size:14px!important}
+  .market-ticker-container{height:50px!important;min-height:50px!important}
+  .hamburger-btn,.theme-btn{min-width:48px!important}
+  .ticker-item{font-size:12px!important}
+  input,select,textarea{font-size:16px!important}
+}
+@media(max-width:380px){
+  .main-wrapper main{padding:10px!important}
+  .panel{padding:12px!important}
+  .bottom-nav .bnav-btn{font-size:10px!important}
+  .sfp-brand-name{font-size:16px}
+}
+
+/* StockFinder Pro mobile-first layout refresh — presentation only */
+@media (max-width: 700px) {
+  html, body { width:100%; max-width:100%; overflow-x:hidden; }
+  body { height:100dvh!important; font-size:13px!important; }
+  .main-wrapper { width:100%!important; height:100dvh!important; padding-bottom:calc(62px + env(safe-area-inset-bottom,0px))!important; }
+  .main-wrapper main, body.sfp-compact .main-wrapper main { padding:10px 10px 22px!important; overflow-x:hidden!important; }
+  .market-ticker-container { height:44px!important; min-height:44px!important; }
+  .hamburger-btn,.theme-btn { min-width:44px!important; padding:0 11px!important; }
+  .bottom-nav { min-height:60px!important; padding:5px 4px max(5px,env(safe-area-inset-bottom,0px))!important; gap:2px; }
+  .bottom-nav .bnav-btn { min-width:0; font-size:9px!important; gap:3px; line-height:1.15; padding:5px 1px!important; }
+  .bottom-nav .bnav-btn .icon { font-size:19px!important; }
+  .panel,body.sfp-compact .panel { padding:12px!important; margin-bottom:10px!important; border-radius:12px!important; }
+  .panel h3 { font-size:14px!important; line-height:1.35; }
+  .panel p { line-height:1.5; }
+  #view-scr > .panel:first-child { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:9px!important; }
+  #view-scr > .panel:first-child > div { min-width:0; max-width:100%!important; }
+  #view-scr > .panel:first-child > div:last-child { width:100%; justify-content:space-between!important; gap:12px!important; }
+  #view-scr > .panel:first-child > div:last-child > div:first-child { text-align:left!important; }
+  #view-scr > .panel:first-child > div:last-child > div:last-child { width:90px!important; flex:0 0 90px; }
+  #smart-orb-container { grid-template-columns:minmax(0,1fr)!important; gap:8px!important; }
+  #view-scr > .panel:nth-child(2) > div:first-child { gap:8px; }
+  #smart-orb-refresh-btn { min-width:74px; }
+  .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:8px!important; margin-bottom:10px!important; }
+  .kpi-card,body.sfp-compact .kpi-card { min-width:0; min-height:76px!important; padding:12px!important; border-radius:11px; }
+  .kpi-title { font-size:10px!important; line-height:1.3; overflow-wrap:anywhere; }
+  .kpi-val,body.sfp-compact .kpi-val { font-size:22px!important; }
+  .movers-grid { grid-template-columns:minmax(0,1fr)!important; gap:9px!important; margin-bottom:10px!important; }
+  .movers-panel,body.sfp-compact .movers-panel { height:auto!important; min-height:0; max-height:225px; padding:12px!important; }
+  .movers-list-scroll { max-height:165px; }
+  .movers-row { font-size:12px!important; gap:8px; }
+  .toolbar,body.sfp-compact .toolbar { display:flex!important; flex-direction:column; align-items:stretch!important; padding:10px!important; gap:10px!important; margin-bottom:10px!important; }
+  .filter-wrapper { flex:0 0 auto!important; width:100%; max-width:100%!important; display:flex!important; flex-wrap:nowrap!important; overflow-x:auto!important; gap:6px!important; padding:1px 1px 5px!important; scrollbar-width:thin; }
+  .filter-btn,body.sfp-compact .filter-btn { flex:0 0 auto; min-height:36px!important; padding:8px 11px!important; font-size:11px!important; }
+  .search-wrapper { width:100%!important; min-width:0!important; }
+  .search-box,body.sfp-compact .search-box { width:100%!important; min-width:0; min-height:42px!important; font-size:16px!important; padding:9px 12px!important; }
+  .table-container,body.sfp-compact .table-container { width:100%; max-width:100%!important; min-height:0!important; max-height:58dvh!important; overflow:auto!important; border-radius:10px!important; }
+  .table-container table,body.sfp-compact .table-container table { min-width:710px!important; font-size:12px!important; }
+  .table-container th,.table-container td,body.sfp-compact .table-container th,body.sfp-compact .table-container td { padding:10px 9px!important; }
+  #view-scr #table-wrapper th:nth-child(2),#view-scr #table-wrapper td:nth-child(2) { position:sticky;left:0;z-index:3;background:var(--th-bg);box-shadow:1px 0 0 var(--border); }
+  #view-scr #table-wrapper th:nth-child(2) { z-index:12; }
+  #view-zones > .panel > div:first-child { display:flex!important; flex-direction:column; align-items:stretch!important; gap:12px!important; }
+  #view-zones > .panel > div:first-child > div { min-width:0; width:100%; }
+  #view-zones > .panel > div:first-child > div:last-child { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; }
+  #view-zones > .panel > div:first-child > div:last-child > select { width:100%!important; min-width:0!important; min-height:42px; font-size:12px!important; padding:8px!important; }
+  #zones-cmp-distance { grid-column:1/-1; }
+  #zones-search { grid-column:1/-1; width:100%!important; font-size:16px!important; }
+  #tf-buttons-wrapper { grid-column:1/-1; }
+  .sector-side-by-side { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:10px!important; }
+  .sector-treemap-grid { gap:6px!important; }
+  .sector-treemap-grid .treemap-tile,body.sfp-compact .sector-treemap-grid .treemap-tile { flex:1 1 calc(50% - 6px)!important; min-width:0!important; min-height:90px!important; padding:9px 5px!important; }
+  .sector-treemap-grid .treemap-tile .tile-name { font-size:10px!important; }
+  .sector-treemap-grid .treemap-tile .tile-change { font-size:12px!important; }
+  .barchart-label { width:85px!important; min-width:85px!important; }
+  .barchart-row { padding:8px!important; }
+  .sfp-heatmap-info-grid { grid-template-columns:1fr!important; }
+  #rr-calculator-modal .panel { width:calc(100vw - 20px)!important; max-width:460px; max-height:85dvh!important; overflow-y:auto; }
+  input,select,textarea { max-width:100%; }
+}
+@media(max-width:370px) {
+  .main-wrapper main { padding:8px!important; }
+  .panel { padding:10px!important; }
+  .bottom-nav .bnav-btn { font-size:8px!important; }
+}
+
+
+/* Pullback back-navigation: keeps the user inside the terminal. */
+.sfp-pullback-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.sfp-pullback-back{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-color:var(--primary);color:var(--primary);min-height:38px}
+.sfp-pullback-back:hover{background:var(--hover-bg)}
+@media(max-width:600px){.sfp-pullback-heading{gap:10px}.sfp-pullback-back{min-height:42px}}
+/* Pullback scanner: visible, correctly spaced timeframe/filter arrows */
+#view-pullback .toolbar label {display:inline-flex;align-items:center;gap:9px;flex-wrap:nowrap;color:var(--strong-text);font-size:.78rem;font-weight:650;min-width:0}
+#view-pullback .toolbar select.universe-dropdown {
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  width:auto!important;min-width:142px;max-width:100%;min-height:42px;
+  padding:10px 38px 10px 13px!important;
+  background-color:var(--input-bg);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f6aa2a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")!important;
+  background-position:right 12px center!important;background-size:16px 16px!important;
+  background-repeat:no-repeat!important;
+  border:1px solid var(--border);border-radius:9px;color:var(--strong-text);
+  line-height:1.25;cursor:pointer;
+}
+#view-pullback .toolbar select.universe-dropdown:focus-visible {outline:2px solid var(--primary);outline-offset:2px}
+#view-pullback .toolbar select.universe-dropdown option {background:#101b23;color:#eef4f7}
+:root[data-theme="light"] #view-pullback .toolbar select.universe-dropdown option {background:#fff;color:#142235}
+:root[data-theme="ocean"] #view-pullback .toolbar select.universe-dropdown option {background:#0c2b41;color:#effaff}
+:root[data-theme="amoled"] #view-pullback .toolbar select.universe-dropdown option {background:#080808;color:#fff}
+@media(max-width:600px){
+ #view-pullback .toolbar {align-items:stretch!important}
+ #view-pullback .toolbar label {width:100%;justify-content:space-between}
+ #view-pullback .toolbar select.universe-dropdown {width:min(210px,65%)!important;min-width:0}
+}
+
+
+/* Match the landing-page brand identity in the terminal sidebar. */
+.sfp-sidebar-brand{gap:0!important;padding-left:7px!important;padding-right:0!important;align-items:flex-start!important;font-family:Inter,'Segoe UI',Arial,sans-serif!important;text-shadow:none!important}
+.sfp-sidebar-brand .sfp-brand-mark{display:inline!important;flex:0 0 auto!important;width:auto!important;height:auto!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--primary)!important;font-size:23px!important;font-weight:850!important;line-height:1.1!important;margin-right:6px!important}
+.sfp-sidebar-brand .sfp-brand-name{font-family:Inter,'Segoe UI',Arial,sans-serif!important;font-size:19px!important;font-weight:850!important;letter-spacing:-.7px!important;line-height:1.15!important;color:var(--strong-text)!important}
+.sfp-sidebar-brand .sfp-brand-name em{font-style:normal!important;color:var(--primary)!important}
+.sfp-sidebar-brand .sfp-brand-name small{display:block!important;margin:5px 0 0!important;font-size:7.3px!important;font-weight:700!important;letter-spacing:.8px!important;white-space:nowrap!important;color:var(--muted)!important}
+.sfp-sidebar-brand #api-status{margin:7px 0 0 auto!important;flex:0 0 7px!important}
+
+/* Stock news badge and modal */
+.sfp-chart-link{display:inline-block;margin-left:5px;margin-right:3px;color:var(--muted);font-size:13px;font-weight:800;text-decoration:none;vertical-align:middle}
+.sfp-chart-link:hover{color:var(--primary)}
+.sfp-news-badge{display:inline-flex;align-items:center;margin-left:7px;padding:3px 7px;border:1px solid var(--primary);border-radius:6px;background:rgba(246,170,42,.12);color:var(--primary);font-size:10px;font-weight:800;cursor:pointer;vertical-align:middle}
+.sfp-news-badge:hover{background:rgba(246,170,42,.24)}
+.sfp-news-new{animation:sfp-news-flash 1.1s ease-in-out infinite;border-color:var(--green);color:var(--green)}
+@keyframes sfp-news-flash{50%{box-shadow:0 0 12px var(--green)}}
+.sfp-news-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:5000;display:none;align-items:center;justify-content:center;padding:15px}
+.sfp-news-dialog{width:min(650px,100%);max-height:85dvh;overflow:auto;background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 25px 80px #0008}
+.sfp-news-item{display:block;padding:14px 4px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--strong-text);line-height:1.5;font-size:14px}
+.sfp-news-item:hover{color:var(--primary)}
+.sfp-news-meta{display:block;color:var(--muted);font-size:11px;margin-top:5px}
+
+/* Market pulse strip */
+.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 12px;overflow-x:auto;flex-shrink:0;background:var(--sidebar-bg);border-bottom:1px solid var(--border);scrollbar-width:thin}
+.sfp-pulse-item{display:flex;align-items:center;gap:9px;white-space:nowrap;flex-shrink:0;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--strong-text);text-decoration:none;background:var(--panel);font-size:12px}
+.sfp-pulse-item:hover{border-color:var(--primary)}
+.sfp-pulse-symbol{font-weight:800}.sfp-pulse-price{font-family:'JetBrains Mono',monospace;font-weight:700}
+.sfp-pulse-positive{color:var(--green)}.sfp-pulse-negative{color:var(--red)}
+.sfp-pulse-alert{border-color:var(--red);animation:sfp-pulse-flash 1.5s ease-in-out infinite}
+@keyframes sfp-pulse-flash{50%{box-shadow:0 0 12px rgba(255,90,101,.35)}}
+.sfp-pulse-time{font-size:10px;color:var(--muted);flex-shrink:0}
+@media(max-width:600px){.sfp-market-pulse{padding:6px 8px}.sfp-pulse-item{padding:6px 8px;font-size:11px}}
+
+/* Market Pulse alignment v2: clean, consistent, full-width row below sector ticker */
+.sfp-market-pulse{width:100%;min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;align-items:stretch;gap:10px;padding:9px 16px;background:var(--sidebar-bg);border-bottom:1px solid var(--border);overflow:visible}
+.sfp-market-pulse .sfp-pulse-item{min-width:0;min-height:48px;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;column-gap:10px;row-gap:2px;padding:9px 12px;text-align:center;white-space:normal;border-radius:9px;font-size:12px}
+.sfp-market-pulse .sfp-pulse-symbol{font-size:11px;letter-spacing:.025em;white-space:nowrap}
+.sfp-market-pulse .sfp-pulse-price{white-space:nowrap;font-size:12px}
+.sfp-market-pulse .sfp-pulse-time{display:flex;align-items:center;justify-content:flex-end;text-align:right;max-width:160px;line-height:1.4}
+@media(max-width:1250px){.sfp-market-pulse{grid-template-columns:repeat(4,minmax(0,1fr))}.sfp-market-pulse .sfp-pulse-time{grid-column:1/-1;justify-content:center;max-width:none}}
+@media(max-width:760px){.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow-x:auto;scrollbar-width:thin}.sfp-market-pulse .sfp-pulse-item{min-width:180px;min-height:43px;flex-shrink:0;padding:7px 10px}.sfp-market-pulse .sfp-pulse-time{min-width:115px;flex-shrink:0;text-align:left;justify-content:flex-start}}
+.sfp-pulse-chart-icon{flex-shrink:0;color:var(--primary);opacity:.92;vertical-align:middle;transition:transform .2s ease}
+.sfp-pulse-item:hover .sfp-pulse-chart-icon{transform:translateY(-2px);opacity:1}
+</style>
+</head>
+<body>
+
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <aside class="sidebar" id="app-sidebar">
+    <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<em>Pro</em><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
+    <div class="sidebar-nav">
+      <button class="nav-btn active" id="btn-scr" onclick="switchTab('scr')"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
+      <button class="nav-btn" id="btn-sec" onclick="switchTab('sec')"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
+      <button class="nav-btn" id="btn-zones" onclick="switchTab('zones')"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
+      <button class="nav-btn" id="btn-watchlist" onclick="switchTab('watchlist')"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
+    </div>
+    <div style="margin-top: auto;">
+        <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
+        <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
+          <option value="FO">📊 F&O Universe (Default)</option>
+          <option value="NIFTY500">📈 NIFTY 500</option>
+          <option value="MIDCAP">🚀 Nifty Midcap 150</option>
+          <option value="SMALLCAP">⚡ Nifty Smallcap 250</option>
+          <option value="TOTALMARKET">🌐 Nifty Total Market</option>
+        </select>
+      </div>
+      <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
+        <span class="toggle-label">⚏ Compact View</span>
+        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
+        <span class="toggle-label">🔄 Auto-Refresh</span>
+        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)"><span class="slider"></span></label>
+      </div>
+      <div class="sfp-account-nav" aria-label="Account menu">
+        <a href="/account/profile" class="nav-btn">👤 &nbsp; Profile</a>
+        <a href="/settings" class="nav-btn">⚙️ &nbsp; Settings</a>
+        <a href="/logout" class="nav-btn sfp-logout">🚪 &nbsp; Logout</a>
+      </div>
+      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span></div>
+    </div>
+  </aside>
+
+  <div class="main-wrapper">
+    <!-- Smooth Terminal Ticker Scroller -->
+    <div class="market-ticker-container">
+      <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
+      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
+      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
+    </div>
+    <!-- Dedicated Market Pulse row, below the existing sector ticker -->
+    <div class="sfp-market-pulse" id="sfpMarketPulse" aria-label="Market indices and crude oil prices"><span class="sfp-pulse-time">Loading market prices…</span></div>
+
+    <main>
+      <!-- ================= SCREENER VIEW ================= -->
+      <div id="view-scr">
+        <div class="panel" style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 1.8rem;">⚡</div>
+            <div>
+              <h3 style="font-size: 0.9rem; color: var(--strong-text); text-transform: uppercase;">Overall Market Pulse Meter</h3>
+              <p style="font-size: 0.7rem; color: var(--muted);">Real-time sentiment score based on breadth & momentum.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 20px; flex: 1; max-width: 500px; justify-content: flex-end;">
+            <div style="flex: 1; text-align: right;">
+              <div id="pulse-status-text" class="mono" style="font-weight: 700; font-size: 0.85rem; color: var(--green);">BULLISH (68/100)</div>
+              <div style="font-size: 0.65rem; color: var(--muted);" id="pulse-desc">Strong buying momentum across sectors</div>
+            </div>
+            <div style="width: 140px; background: var(--bar-track); height: 10px; border-radius: 99px; overflow: hidden; position: relative; border: var(--glass-border);">
+              <div id="pulse-meter-bar" style="width: 68%; height: 100%; background: linear-gradient(90deg, var(--red), var(--primary), var(--green)); border-radius: 99px; transition: width 0.5s ease;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom: 1.5rem; border: 1px solid var(--primary);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+            <h3 style="font-size: 1rem; color: var(--primary);">⚡ High-probability setup </h3>
+            <button class="filter-btn" id="smart-orb-refresh-btn" onclick="fetchSmartORBSignals(true)" style="font-size: 0.65rem;">🔄 Refresh</button>
+          </div>
+          <div id="smart-orb-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div style="color: var(--muted); font-size: 0.8rem;">Scanning market sentiments & 9:20 AM breakouts...</div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val" id="k-lb">--</div></div>
+          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val" id="k-sb">--</div></div>
+          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val" id="k-sc">--</div></div>
+          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val" id="k-lu">--</div></div>
+        </div>
+
+        <div class="movers-grid">
+          <div class="movers-panel"><div class="movers-title" style="color: var(--green);"><span>🟢 Bullish Momentum</span></div><div class="movers-list-scroll" id="top-gainers-list"><div style="text-align:center; padding:1rem; color:var(--muted);">Loading...</div></div></div>
+          <div class="movers-panel"><div class="movers-title" style="color: var(--red);"><span>🔴 Bearish Pressure</span></div><div class="movers-list-scroll" id="top-losers-list"><div style="text-align:center; padding:1rem; color:var(--muted);">Loading...</div></div></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="filter-wrapper" id="screener-filters">
+            <button class="filter-btn active" id="flt-all-btn" onclick="setFilter('ALL', this)">ALL</button>
+            <button class="filter-btn" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
+            <button class="filter-btn" onclick="openPullbackScanner()">📈 PULLBACK SCANNER</button>
+            <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
+            <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
+            <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
+            <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
+          </div>
+          <div class="search-wrapper"><input type="text" id="search" class="search-box" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
+        </div>
+
+        <div class="table-container" id="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 35px; text-align: center;">⭐</th>
+                <th onclick="toggleSort('symbol')">Symbol ↕</th>
+                <th onclick="toggleSort('ltp')">LTP (₹) ↕</th>
+                <th onclick="toggleSort('pricePct')">Chg % ↕</th>
+                <th onclick="toggleSort('volume')">Volume ↕</th>
+                <th onclick="toggleSort('oiPct')">OI % ↕</th>
+                <th onclick="toggleSort('buildup')">Buildup ↕</th>
+                <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
+                <th>PRICE TREND</th>
+                <th>R:R ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">Loading Market Data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+
+      <!-- PULLBACK SCANNER VIEW -->
+      <div id="view-pullback" style="display:none">
+        <div class="panel">
+          <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="switchTab('scr')" aria-label="Back to Live Screener">← Back to Screener</button></div>
+          <p style="font-size:.76rem;margin-bottom:16px">Only market + actual sector index + stock trend aligned, confirmed VWAP retests. Previous day and daily EMA levels are informational.</p>
+          <div class="toolbar" style="gap:10px">
+            <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks(true)"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
+            <label>Direction <select class="universe-dropdown" style="width:auto" id="pb-direction" onchange="renderPullbacks()"><option value="All">All</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option></select></label>
+            <label>Momentum <select class="universe-dropdown" style="width:auto" id="pb-momentum" onchange="renderPullbacks()"><option value="All">All Momentum</option><option value="Strong">Strong</option><option value="Moderate">Moderate</option></select></label>
+            <button class="filter-btn" onclick="fetchPullbacks(true)">↻ Refresh</button>
+          </div>
+          <div id="pb-status" style="font-size:.78rem;margin-bottom:10px;color:var(--muted)">Waiting for scan...</div>
+          <div class="table-container" style="min-height:300px;max-height:calc(100vh - 350px)">
+            <table><thead><tr><th>Stock</th><th>Signal</th><th>Pullback IST</th><th>Momentum</th><th>Sector</th><th>VWAP</th><th>Daily EMA20</th><th>Previous Day High</th><th>Previous Day Low</th></tr></thead>
+            <tbody id="pb-tbody"><tr><td colspan="9">Open scanner to load results</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= WATCHLIST VIEW ================= -->
+      <div id="view-watchlist" style="display: none;">
+        <div class="panel">
+          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text); margin-bottom: 0.5rem;">⭐ My Custom Watchlist</h3>
+          <p style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem;">Quick tracking of your bookmarked stocks across market sessions.</p>
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 35px; text-align: center;">⭐</th>
+                  <th>Symbol</th>
+                  <th>LTP (₹)</th>
+                  <th>Chg %</th>
+                  <th>Volume</th>
+                  <th>Buildup</th>
+                  <th>Momentum</th>
+                  <th>Sector</th>
+                </tr>
+              </thead>
+              <tbody id="watchlist-tbody">
+                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= SECTOR VIEW ================= -->
+      <div id="view-sec" style="display: none;">
+        <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
+          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
+            <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
+            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol">--</strong></span>
+          </div>
+          <div class="sector-side-by-side">
+            <div class="panel">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                <div class="sec-section-title" id="heatmap-section-header">🟩 Sector Heatmap</div>
+                <button class="filter-btn" id="reset-heatmap-btn" onclick="selectedHeatmapSector=null; renderSectors();" style="display: none; background: rgba(243, 156, 18, 0.15); color: var(--primary); padding: 0.3rem 0.6rem; font-size: 0.7rem;">⬅ Back to Sectors</button>
+              </div>
+              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Heatmap...</div></div>
+            </div>
+            <div class="panel">
+              <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
+              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
+            </div>
+          </div>
+          <section class="panel" aria-labelledby="about-sector-heatmap-title" style="margin-top:1.25rem;padding:1.5rem;background:linear-gradient(135deg,var(--panel),var(--input-bg));border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.7rem;">
+              <span style="color:var(--primary);font-size:1.15rem;">▦</span>
+              <h3 id="about-sector-heatmap-title" style="margin:0;color:var(--strong-text);font-size:1.05rem;">About Sector Heatmap</h3>
+            </div>
+            <p style="color:var(--muted);font-size:.83rem;line-height:1.8;margin:0 0 1rem;max-width:950px;">The Sector Heatmap gives you a quick visual overview of market strength and weakness across stock-market sectors. Each tile shows the sector's average percentage price change for the stocks currently included in your selected market universe.</p>
+            <div class="sfp-heatmap-info-grid">
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--green);">●</span> Green — Positive Momentum</strong><p>Sectors with a positive average price change. A stronger reading can help you identify areas showing relative buying interest.</p></div>
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--red);">●</span> Red — Negative Momentum</strong><p>Sectors with a negative average price change. Use these readings to spot weaker areas of the market.</p></div>
+              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--primary);">↗</span> Explore Individual Stocks</strong><p>Click any sector tile to see its constituent stocks, then use the performance rankings to compare sectors.</p></div>
+            </div>
+            <p style="color:var(--muted);font-size:.73rem;line-height:1.7;margin:1rem 0 0;border-top:1px solid var(--border);padding-top:.8rem;">Trading tip: Use sector strength as context alongside price action, volume, and demand/supply zones—not as a standalone buy or sell signal. Sector readings reflect the stocks available in the current data set.</p>
+          </section>
+        </div>
+      </div>
+
+      <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
+      <div id="view-zones" style="display: none;">
+        <div class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
+              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
+            </div>
+            
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <select id="zones-bias-filter" aria-label="Demand or Supply zones" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
+                <option value="ALL">Demand &amp; Supply</option>
+                <option value="DEMAND">Demand Only</option>
+                <option value="SUPPLY">Supply Only</option>
+              </select>
+              <select id="zones-status-filter" aria-label="Fresh or Tested zones" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
+                <option value="all">All Statuses</option>
+                <option value="fresh">Fresh Zones</option>
+                <option value="tested">Tested Zones</option>
+              </select>
+              <select id="zones-cmp-distance" aria-label="Maximum distance from current market price" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
+                <option value="nearest">Nearest Zone / First from CMP</option>
+                <option value="1">Within 1% of CMP</option>
+                <option value="2">Within 2% of CMP</option>
+                <option value="5">Within 5% of CMP</option>
+                <option value="10">Within 10% of CMP</option>
+                <option value="20">Within 20% of CMP</option>
+                <option value="all" selected>All Zones</option>
+              </select>
+              <input type="text" id="zones-search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" style="width: 160px; padding: 0.4rem 0.8rem; font-size: 0.75rem;" />
+              <div class="filter-wrapper" id="tf-buttons-wrapper">
+                <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this)">Daily</button>
+                <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this)">Weekly</button>
+                <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this)">Monthly</button>
+                <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this)">Quarterly</button>
+                <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this)">Half-Yearly</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>SYMBOL</th>
+                  <th>BIAS</th>
+                  <th>PATTERN</th>
+                  <th>CURRENT PRICE</th>
+                  <th>PROXIMAL LINE</th>
+                  <th>DISTAL LINE</th>
+                  <th>ZONE STATUS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="zones-tbody">
+                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="bnav-btn active" id="bnav-scr" onclick="switchTab('scr')"><span class="icon">📊</span><span>Screener</span></button>
+      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
+      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
+      <button class="bnav-btn" id="bnav-watchlist" onclick="switchTab('watchlist')"><span class="icon">⭐</span><span>Watchlist</span></button>
+    </nav>
+  </div>
+
+  <!-- Smart Position Sizing & R:R Calculator Modal -->
+  <div id="rr-calculator-modal" class="sidebar-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+    <div class="panel" style="width: 440px; background: var(--sidebar-bg) !important; border: 1px solid var(--primary); position: relative;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: var(--glass-border); padding-bottom: 10px; margin-bottom: 15px;">
+        <h3 style="font-size: 0.95rem; color: var(--primary);">🎯 Smart Position Sizing & R:R Calculator</h3>
+        <button onclick="closeRRCalculator()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.8rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Symbol & Bias:</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <strong id="calc-symbol" class="mono" style="color: var(--strong-text);">--</strong>
+            <div style="display: flex; gap: 4px;" id="bias-toggle-group">
+              <button class="filter-btn active" id="bias-long-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('DEMAND')">LONG</button>
+              <button class="filter-btn" id="bias-short-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('SUPPLY')">SHORT</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Entry Price ($P_{entry}$):</span>
+          <input type="number" id="calc-entry-input" class="search-box mono" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Stop-Loss Points ($P_{sl}$ pts):</span>
+          <input type="number" id="calc-sl-pts" class="search-box mono" value="15" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--muted);">Total Risk Capital ($Risk_{total}$):</span>
+          <input type="number" id="calc-max-risk" class="search-box mono" value="2000" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
+        </div>
+
+        <div style="background: var(--input-bg); padding: 12px; border-radius: 8px; border: var(--glass-border); margin-top: 4px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Calculated Stop-Loss Price:</span>
+            <strong id="calc-sl-price" class="mono val-down">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Risk Per Share:</span>
+            <strong id="calc-risk-per-share" class="mono" style="color: var(--strong-text);">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
+            <span style="color: var(--strong-text); font-weight: 700;">Trade Quantity (Shares):</span>
+            <strong id="calc-qty" class="mono" style="color: var(--primary); font-size: 0.95rem;">0 Shares</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <span style="color: var(--muted);">Total Investment Value:</span>
+            <strong id="calc-total-inv" class="mono" style="color: var(--strong-text);">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
+            <span style="color: var(--muted);">Target 1:2 (Reward):</span>
+            <strong id="calc-t2" class="mono val-up">₹0.00</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--muted);">Target 1:3 (Reward):</span>
+            <strong id="calc-t3" class="mono val-up">₹0.00</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'scr', currentFilter = 'ALL', currentUniverse = 'FO', currentZoneTF = 'day';
+    let marketStocks = [], sectorsData = [], rawZonesData = [];
+    let watchlistSymbols = new Set();
+    let selectedHeatmapSector = null;
+    let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
+    let sortColumn = 'pricePct', sortDirection = 'desc';
+    let activeTradeData = {};
+
+    // Official company website favicons. Unknown symbols retain the initials badge.
+    // Using explicit symbol-to-domain mappings prevents incorrect company logos.
+    const STOCK_LOGO_DOMAINS = Object.freeze({
+      RELIANCE:'ril.com', ONGC:'ongcindia.com', OIL:'oil-india.com', BPCL:'bharatpetroleum.in',
+      IOC:'iocl.com', HINDPETRO:'hindustanpetroleum.com', HPCL:'hindustanpetroleum.com',
+      POWERGRID:'powergrid.in', NTPC:'ntpc.co.in', TATAPOWER:'tatapower.com',
+      ADANIPOWER:'adanipower.com', ADANIGREEN:'adanigreenenergy.com', ADANIENSOL:'adanienergysolutions.com',
+      ADANIENT:'adanienterprises.com', COALINDIA:'coalindia.in', GAIL:'gailonline.com',
+      IREDA:'ireda.in', SUZLON:'suzlon.com', JSWENERGY:'jswenergy.in',
+      NHPC:'nhpcindia.com', SJVN:'sjvn.nic.in', NLCINDIA:'nlcindia.in',
+      CESC:'cesc.co.in', TORNTPOWER:'torrentpower.com', CGPOWER:'cgglobal.com',
+      BHEL:'bhel.com', IEX:'iexindia.com', POWERINDIA:'hitachienergy.com',
+      WAAREEENER:'waaree.com', INOXWIND:'inoxwind.com', PREMIERENE:'premierenergies.com',
+      PETRONET:'petronetlng.in', GUJGASLTD:'gujaratgas.com', MGL:'mahanagargas.com',
+      IGL:'iglonline.net', AEGISLOG:'aegisindia.com', CASTROLIND:'castrol.com',
+      HDFCBANK:'hdfcbank.com', ICICIBANK:'icicibank.com', SBIN:'sbi.co.in',
+      AXISBANK:'axisbank.com', KOTAKBANK:'kotak.com', INDUSINDBK:'indusind.com',
+      BANKBARODA:'bankofbaroda.in', PNB:'pnbindia.in', CANBK:'canarabank.com',
+      INFY:'infosys.com', TCS:'tcs.com', WIPRO:'wipro.com', HCLTECH:'hcltech.com',
+      TECHM:'techmahindra.com', LTIM:'ltimindtree.com', PERSISTENT:'persistent.com',
+      TATAMOTORS:'tatamotors.com', MARUTI:'marutisuzuki.com', M_M:'mahindra.com',
+      EICHERMOT:'eicher.in', BAJAJ_AUTO:'bajajauto.com', HEROMOTOCO:'heromotocorp.com',
+      BHARTIARTL:'airtel.in', ITC:'itcportal.com', HINDUNILVR:'hul.co.in',
+      TITAN:'titancompany.in', ASIANPAINT:'asianpaints.com', ULTRACEMCO:'ultratechcement.com',
+      SUNPHARMA:'sunpharma.com', DRREDDY:'drreddys.com', CIPLA:'cipla.com',
+      APOLLOHOSP:'apollohospitals.com', DIVISLAB:'divislabs.com',
+      TATASTEEL:'tatasteel.com', JSWSTEEL:'jsw.in', HINDALCO:'hindalco.com',
+      BAJFINANCE:'bajajfinserv.in', BAJAJFINSV:'bajajfinserv.in', HDFCLIFE:'hdfclife.com',
+      SBILIFE:'sbilife.co.in', DMART:'dmartindia.com', TRENT:'trentlimited.com',
+      ZOMATO:'eternal.com', ETERNAL:'eternal.com', INDIGO:'goindigo.in',
+      GODREJPROP:'godrejproperties.com', DLF:'dlf.in', LODHA:'lodhagroup.com',
+      LT:'larsentoubro.com', BEL:'bel-india.in', HAL:'hal-india.co.in',
+      GRASIM:'grasim.com', PIDILITIND:'pidilite.com', BRITANNIA:'britannia.co.in',
+      NESTLEIND:'nestle.in', DABUR:'dabur.com', TATACONSUM:'tataconsumer.com',
+      // Additional sector heatmap mappings; unmapped stocks keep the safe initials fallback.
+      MAXHEALTH:'maxhealthcare.in', PPLPHARMA:'piramalpharma.com',
+      FORTIS:'fortishealthcare.com', MANKIND:'mankindpharma.com',
+      ALKEM:'alkemlabs.com', GLENMARK:'glenmarkpharma.com',
+      LUPIN:'lupin.com', TORNTPHARM:'torrentpharma.com',
+      BIOCON:'biocon.com', AUROPHARMA:'aurobindo.com',
+      ZYDUSLIFE:'zyduslife.com', LAURUSLABS:'lauruslabs.com',
+      ABB:'new.abb.com', ASTRAL:'astralltd.com', BDL:'bdl-india.in',
+      COFORGE:'coforge.com', OFSS:'oracle.com', MPHASIS:'mphasis.com',
+      KPITTECH:'kpit.com', CAMS:'camsonline.com', CDSL:'cdslindia.com',
+      BSE:'bseindia.com', MCX:'mcxindia.com', IRFC:'irfc.co.in',
+      RVNL:'rvnl.org', JIOFIN:'jfs.in', ANGELONE:'angelone.in',
+      NYKAA:'nykaa.com', VBL:'varunbeverages.com',
+      MARICO:'marico.com', COLPAL:'colgatepalmolive.co.in',
+      JUBLFOOD:'jublfood.com', GODREJCP:'godrejcp.com',
+      APOLLOHOSP:'apollohospitals.com', AUBANK:'aubank.in',
+      FEDERALBNK:'federalbank.co.in', IDFCFIRSTB:'idfcfirstbank.com',
+      UNIONBANK:'unionbankofindia.co.in', YESBANK:'yesbank.in',
+      RBLBANK:'rblbank.com', BANDHANBNK:'bandhanbank.com',
+      BANKINDIA:'bankofindia.co.in', INDIANB:'indianbank.in',
+      MUTHOOTFIN:'muthootfinance.com', MANAPPURAM:'manappuram.com',
+      LTF:'ltfinance.com', RECLTD:'recindia.nic.in', PFC:'pfcindia.com',
+      SHRIRAMFIN:'shriramfinance.in', CHOLAFIN:'cholamandalam.com',
+      POLICYBZR:'policybazaar.com', PAYTM:'paytm.com',
+      KFINTECH:'kfintech.com', HDFCAMC:'hdfcfund.com',
+      ICICIPRULI:'iciciprulife.com', ICICIGI:'icicilombard.com',
+      MOTHERSON:'motherson.com', TVSMOTOR:'tvsmotor.com',
+      BALKRISIND:'bkt-tires.com', BOSCHLTD:'bosch.in',
+      ASHOKLEY:'ashokleyland.com', BAJAJ_AUTO:'bajajauto.com',
+      M_AND_M:'mahindra.com', 'M&M':'mahindra.com',
+      'BAJAJ AUTO':'bajajauto.com',
+      UNOMINDA:'unominda.com', TIINDIA:'tiiindia.com',
+      SIEMENS:'siemens.com', HAVELLS:'havells.com',
+      VOLTAS:'voltas.com', POLYCAB:'polycab.com',
+      KEI:'kei-ind.com', DIXON:'dixoninfo.com',
+      CUMMINSIND:'cummins.com', MAZDOCK:'mazagondock.in',
+      COCHINSHIP:'cochinshipyard.in', SOLARINDS:'solargroup.com',
+      INDHOTEL:'ihcltata.com', CONCOR:'concorindia.co.in',
+      DELHIVERY:'delhivery.com', NAUKRI:'infoedge.in',
+      INDUSTOWER:'industowers.com', IDEA:'myvi.in',
+      PAGEIND:'jockey.in', SWIGGY:'swiggy.com',
+      ATHER:'atherenergy.com', SAGILITY:'sagilityhealth.com'
+    });
+
+    function getStockLogoUrl(symbol) {
+      const key = String(symbol || '').trim().toUpperCase();
+      const domain = STOCK_LOGO_DOMAINS[key];
+      return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
+    }
+
+    function createStockLogoMarkup(symbol) {
+      const safeSymbol = String(symbol || '').replace(/[^A-Za-z0-9&._-]/g, '');
+      const initials = safeSymbol.slice(0, 3).toUpperCase();
+      const badge = `<span class="tile-logo-badge" aria-hidden="true">${initials}</span>`;
+      const url = getStockLogoUrl(symbol);
+      if (!url) return badge;
+      // Display the initials until a real image successfully loads.
+      return `<span class="tile-logo-shell">${badge}<img src="${url}" class="tile-logo" alt="${safeSymbol} logo" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('tile-logo-ready')" onerror="this.remove()"></span>`;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      applySfpTheme(localStorage.getItem('theme') || 'dark');
+      try { toggleCompactMode(localStorage.getItem('sfp_compact_view') === '1'); } catch(e) { toggleCompactMode(false); }
+      loadWatchlistFromStorage();
+      fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
+    });
+
+    function loadWatchlistFromStorage() {
+      try {
+        const saved = localStorage.getItem('stock_finder_watchlist');
+        watchlistSymbols = saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch (e) { watchlistSymbols = new Set(); }
+    }
+
+    function toggleWatchlist(symbol) {
+      symbol = symbol.toUpperCase();
+      if (watchlistSymbols.has(symbol)) watchlistSymbols.delete(symbol);
+      else watchlistSymbols.add(symbol);
+      try { localStorage.setItem('stock_finder_watchlist', JSON.stringify(Array.from(watchlistSymbols))); } catch (e) {}
+      renderTable();
+      if (currentTab === 'watchlist') renderWatchlistTable();
+    }
+
+    async function fetchSmartORBSignals(forceRefresh = false) {
+      const container = document.getElementById('smart-orb-container');
+      const btn = document.getElementById('smart-orb-refresh-btn');
+      if (btn && btn.disabled) return;
+      if (btn && forceRefresh) { btn.disabled = true; btn.textContent = '⏳ Refreshing...'; }
+      try {
+        const res = await fetch(`/api/smart-orb?refresh=${forceRefresh ? '1' : '0'}&_t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (json.status !== 'success') throw new Error(json.message || 'Unable to refresh signals');
+        if (json.status === 'success' && json.data && json.data.length > 0) {
+          container.innerHTML = json.data.map(s => `
+            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: var(--glass-border);">
+              <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
+                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
+            </div>
+              <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
+              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px;">${s.reason}</div>
+            </div>
+          `).join('');
+        } else {
+          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found.</div>`;
+        }
+      } catch (e) { container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to load ORB data: ${String(e.message || e).replace(/[<>&"']/g, '')}</div>`; }
+      finally { if (btn && forceRefresh) { btn.disabled = false; btn.textContent = '🔄 Refresh'; } }
+    }
+
+    function applySfpTheme(theme) {
+      const valid = ['dark','light','ocean','amoled'];
+      theme = valid.includes(theme) ? theme : 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      const btn = document.getElementById('theme-icon-btn');
+      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+    function toggleThemeBtn() {
+      applySfpTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+    }
+
+    function toggleSidebar() {
+      const sb = document.getElementById('app-sidebar'), ov = document.getElementById('sidebar-overlay');
+      if (window.innerWidth <= 1024) { sb.classList.toggle('open'); ov.classList.toggle('show'); }
+      else { sb.classList.toggle('collapsed'); }
+    }
+
+
+    let pbData=[],pbPolling=null;
+    function openPullbackScanner(){switchTab('pullback');fetchPullbacks();}
+    async function fetchPullbacks(force=false){
+      if(pbPolling){clearTimeout(pbPolling);pbPolling=null;}
+      const tf=document.getElementById('pb-tf').value;
+      const status=document.getElementById('pb-status');
+      status.textContent='Scanning  '+tf+'-minute candles and sector indices...';
+      try{
+        const response=await fetch('/api/pullback-scanner?tf='+tf+(force?'&refresh=1':'')+'&_t='+Date.now(),{cache:'no-store'});
+        const result=await response.json();
+        if(!response.ok||result.status!=='success')throw new Error(result.message||'Scanner unavailable');
+        pbData=result.data||[];
+        status.textContent=result.done?(result.message?('Scan error: '+result.message):('Scan complete • '+result.completed+' checked • '+pbData.length+' qualified')):((result.stage||'Scanning')+' • '+result.completed+(result.total?' / '+result.total:'')+' checked • '+pbData.length+' qualified');
+        renderPullbacks();
+        if(!result.done&&currentTab==='pullback')pbPolling=setTimeout(fetchPullbacks,3500);
+      }catch(e){status.textContent='Scan error: '+e.message;}
+    }
+    function renderPullbacks(){
+      const dir=document.getElementById('pb-direction').value;
+      const momentum=document.getElementById('pb-momentum').value;
+      const list=pbData.filter(x=>(dir==='All'||x.direction===dir)&&(momentum==='All'||x.momentum===momentum));
+      const esc=x=>String(x??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      document.getElementById('pb-tbody').innerHTML=list.length?list.map(x=>`<tr>
+        <td><a class="stock-link" target="_blank" rel="noopener" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(x.symbol)}">${esc(x.symbol)}</a></td>
+        <td><span class="badge ${x.direction==='Bullish'?'badge-green':'badge-red'}">${esc(x.direction)} ${esc(x.state)}</span></td>
+        <td>${esc(x.time)}</td><td>${esc(x.momentum)}</td>
+        <td>${esc(x.sector)} (${esc(x.sectorChange)}%)</td>
+        <td>${esc(x.vwap)}</td><td>₹${esc(x.dailyEma20)} · ${esc(x.emaReaction)}</td>
+        <td>₹${esc(x.pdh)} · ${esc(x.pdhStatus)}</td><td>₹${esc(x.pdl)} · ${esc(x.pdlStatus)}</td>
+      </tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:2rem">No qualified pullbacks yet (or scan in progress).</td></tr>';
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      ['scr', 'sec', 'zones', 'watchlist', 'pullback'].forEach(t => {
+        const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
+        if(btn) btn.classList.toggle('active', t === tab);
+        if(bnav) bnav.classList.toggle('active', t === tab);
+        if(view) { view.style.display = t === tab ? 'block' : 'none'; if (t === tab) { view.classList.remove('sf-view-enter'); void view.offsetWidth; view.classList.add('sf-view-enter'); } }
+      });
+      if (tab === 'sec') { sfShowTabTransition('sec'); setTimeout(() => { if (currentTab === 'sec') renderSectors(); }, 650); }
+      if (tab === 'watchlist') { sfShowTabTransition('watchlist'); setTimeout(() => { if (currentTab === 'watchlist') renderWatchlistTable(); }, 650); }
+      if (tab === 'zones') fetchZones(currentZoneTF, document.getElementById(`tf-btn-${currentZoneTF}`));
+    }
+
+    function toggleCompactMode(c) {
+      document.body.classList.toggle('sfp-compact', Boolean(c));
+      document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', Boolean(c)));
+      const toggle = document.getElementById('compact-toggle');
+      if (toggle) toggle.checked = Boolean(c);
+      try { localStorage.setItem('sfp_compact_view', c ? '1' : '0'); } catch(e) {}
+    }
+    function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
+    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 10000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
+    function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
+
+    async function switchUniverse(type) {
+      currentUniverse = type;
+      marketStocks = []; sectorsData = []; rawZonesData = [];
+      selectedHeatmapSector = null;
+      await fetchData(); fetchTickerBar();
+      if (currentTab === 'zones') fetchZones(currentZoneTF);
+    }
+
+    async function fetchTickerBar() {
+      try {
+        const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
+        const json = await res.json();
+        if(json.status === 'success' && json.data.length > 0) {
+          const track = document.getElementById('tickerTrack');
+          const html = json.data.map(item => `
+            <div class="ticker-item">
+              <span class="ticker-symbol">${item.symbol}</span>
+              <span class="ticker-price">${item.price ? '₹' + item.price : ''}</span>
+              <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
+            </div>
+          `).join('');
+          track.innerHTML = html + html;
+        }
+      } catch(e) {}
+    }
+
+    async function fetchData() {
+      const reqId = ++fetchRequestId, reqUniv = currentUniverse;
+      try {
+        const [res1, res2] = await Promise.all([
+          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' }),
+          fetch(`/api/sectors?universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' })
+        ]);
+        if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
+        const d1 = await res1.json(), d2 = await res2.json();
+        if (d1.status === 'success') {
+          sfDataEverLoaded = true;
+          marketStocks = d1.data || [];
+          document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
+          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable();
+          if (currentTab === 'watchlist') renderWatchlistTable();
+        }
+        if (d2.status === 'success') {
+          sectorsData = d2.data || [];
+          if (d2.marketBreadth) {
+            document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
+            document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
+            document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
+            updateMarketPulseMeter(d2.marketBreadth, marketStocks);
+          }
+        }
+        if (currentTab === 'sec') renderSectors();
+      } catch(e) {}
+    }
+
+    function updateMarketPulseMeter(breadth, stocks) {
+      if (!breadth || !stocks || stocks.length === 0) return;
+      const adv = breadth.advances || 0;
+      const dec = breadth.declines || 0;
+      const total = adv + dec || 1;
+      const breadthScore = (adv / total) * 50;
+      const positiveStocks = stocks.filter(s => (s.pricePct || 0) > 0).length;
+      const momentumScore = (positiveStocks / stocks.length) * 50;
+      const finalScore = Math.round(breadthScore + momentumScore);
+
+      let statusText = "NEUTRAL", statusColor = "var(--primary)", descText = "Balanced market conditions";
+      if (finalScore >= 75) {
+        statusText = `EXTREME GREED (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Aggressive bullish participation";
+      } else if (finalScore >= 55) {
+        statusText = `BULLISH (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Strong buying momentum across sectors";
+      } else if (finalScore <= 25) {
+        statusText = `EXTREME FEAR (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Heavy selling pressure / panic";
+      } else if (finalScore <= 45) {
+        statusText = `BEARISH (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Weak breadth and downward pressure";
+      }
+
+      const statusEl = document.getElementById('pulse-status-text');
+      const barEl = document.getElementById('pulse-meter-bar');
+      const descEl = document.getElementById('pulse-desc');
+      if (statusEl) { statusEl.innerText = statusText; statusEl.style.color = statusColor; }
+      if (barEl) { barEl.style.width = finalScore + '%'; }
+      if (descEl) { descEl.innerText = descText; }
+    }
+
+    function updateKPIs(stocks) {
+      let c = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
+      (stocks || []).forEach(s => { if(c[s.buildup] !== undefined) c[s.buildup]++; });
+      document.getElementById('k-lb').innerText = c['Long Buildup'];
+      document.getElementById('k-sb').innerText = c['Short Buildup'];
+      document.getElementById('k-sc').innerText = c['Short Covering'];
+      document.getElementById('k-lu').innerText = c['Long Unwinding'];
+    }
+
+    function renderMovers(g, l) {
+      document.getElementById('top-gainers-list').innerHTML = g && g.length ? g.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-up">+${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+      document.getElementById('top-losers-list').innerHTML = l && l.length ? l.map((s, i) => `<div class="movers-row"><div><span style="color:var(--muted);">${i+1}.</span> <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></div><div class="val-down">${s.pricePct}%</div></div>`).join('') : '<div style="text-align:center; padding:1rem;">No Data</div>';
+    }
+
+    function toggleSort(col) {
+      if (sortColumn === col) sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+      else { sortColumn = col; sortDirection = 'desc'; }
+      renderTable();
+    }
+
+    function renderTable() {
+      const search = document.getElementById('search').value.toLowerCase();
+      let filtered = [...marketStocks];
+      if (currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
+      else if (currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
+      else if (currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
+      else if (currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
+
+      if (search) filtered = filtered.filter(s => s.symbol.toLowerCase().includes(search) || s.name.toLowerCase().includes(search));
+
+      filtered.sort((a, b) => {
+        let vA = a[sortColumn], vB = b[sortColumn];
+        if (typeof vA === 'string') return sortDirection === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+        return sortDirection === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
+      });
+
+      const tbody = document.getElementById('tbody');
+      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
+
+      tbody.innerHTML = filtered.map(s => {
+        const isStarred = watchlistSymbols.has(s.symbol.toUpperCase());
+        const defaultBias = s.pricePct >= 0 ? 'DEMAND' : 'SUPPLY';
+        const defaultSLPts = Math.max(5, Number(s.ltp * 0.01).toFixed(1));
+        
+        return `
+          <tr>
+            <td style="text-align: center;"><button class="watchlist-btn ${isStarred ? 'starred' : ''}" onclick="toggleWatchlist('${s.symbol}')">${isStarred ? '★' : '☆'}</button></td>
+            <td>
+              <span class="live-pulse-dot" style="background-color: ${s.pricePct >= 0 ? 'var(--green)' : 'var(--red)'};"></span>
+              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
+              ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
+              <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
+            </td>
+            <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
+            <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+            <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
+            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct !== undefined ? (s.oiPct > 0 ? '+' : '') + s.oiPct + '%' : '-'}</td>
+            <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : 'badge-blue'}">${s.buildup || 'CASH'}</span></td>
+            <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+            <td><canvas class="sparkline-canvas" width="90" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas></td>
+            <td>
+              <button class="filter-btn" style="padding: 4px 10px; font-size: 0.7rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${s.symbol}', ${s.ltp}, ${defaultSLPts}, '${defaultBias}')">🎯 R:R</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+      drawSparklines();
+    }
+
+    function renderWatchlistTable() {
+      const tbody = document.getElementById('watchlist-tbody');
+      const watchStocks = marketStocks.filter(s => watchlistSymbols.has(s.symbol.toUpperCase()));
+      if (!watchStocks.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = watchStocks.map(s => `
+        <tr>
+          <td style="text-align: center;"><button class="watchlist-btn starred" onclick="toggleWatchlist('${s.symbol}')">★</button></td>
+          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
+          <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
+          <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
+          <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
+          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : 'badge-red'}">${s.buildup || 'CASH'}</span></td>
+          <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
+          <td><span style="font-size:0.75rem; color:var(--muted);">${s.sector || '-'}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function drawSparklines() {
+      document.querySelectorAll('.sparkline-canvas').forEach(canvas => {
+        const ctx = canvas.getContext('2d'), prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
+        const isPositive = parseFloat(canvas.getAttribute('data-change') || '0') >= 0;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (prices.length < 2) return;
+        const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
+        ctx.beginPath();
+        prices.forEach((price, index) => {
+          const x = 3 + (index / (prices.length - 1)) * (canvas.width - 6);
+          const y = 3 + (canvas.height - 6) - ((price - min) / range) * (canvas.height - 6);
+          if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = isPositive ? '#2ecc71' : '#e74c3c';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      });
+    }
+
+    function setFilter(flt, el) {
+      currentFilter = flt;
+      if (el) { document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
+      renderTable();
+    }
+
+    function filterHeatmapBySector(secName) {
+      selectedHeatmapSector = secName;
+      renderSectors();
+    }
+
+    function renderSectors() {
+      if (!sectorsData.length) return;
+      let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
+      const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
+      // Select the strongest positive and negative sectors from CURRENT market data.
+      // No fixed percentage threshold: ranks are recalculated on every render.
+      const validSectors = sortedSectors.filter(s => Number.isFinite(Number(s.avgChange)));
+      const topBullSector = validSectors.find(s => Number(s.avgChange) > 0)?.sector;
+      const topBearSector = [...validSectors].reverse().find(s => Number(s.avgChange) < 0)?.sector;
+
+      const heatmapContainer = document.getElementById('sec-heatmap-section');
+      const headerTitle = document.getElementById('heatmap-section-header');
+      const resetBtn = document.getElementById('reset-heatmap-btn');
+
+      if (selectedHeatmapSector) {
+        headerTitle.innerText = `STOCKS: ${selectedHeatmapSector}`;
+        resetBtn.style.display = 'inline-block';
+        let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
+        sectorStocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
+        const validStocks = sectorStocks.filter(s => Number.isFinite(Number(s.pricePct)));
+        const topBullStock = validStocks.find(s => Number(s.pricePct) > 0)?.symbol;
+        const topBearStock = [...validStocks].reverse().find(s => Number(s.pricePct) < 0)?.symbol;
+
+        heatmapContainer.innerHTML = sectorStocks.map(s => {
+          const pct = Number(s.pricePct || 0);
+          const tileTone = (pct < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((pct > 0 && s.symbol === topBullStock) || (pct < 0 && s.symbol === topBearStock) ? ' heatmap-momentum' : '');
+          const arrow = pct >= 0 ? '▲' : '▼';
+
+          return `
+            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile ${tileTone}" style="flex: 1 1 110px;">
+              ${createStockLogoMarkup(s.symbol)}
+              <div class="tile-name">${s.symbol}</div>
+              <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
+            </a>
+          `;
+        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks found.</div>`;
+      } else {
+        headerTitle.innerText = `🟩 Sector Heatmap`;
+        resetBtn.style.display = 'none';
+
+        heatmapContainer.innerHTML = sortedSectors.map(sec => {
+          const avg = sec.avgChange || 0;
+          const tileTone = (avg < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((avg > 0 && sec.sector === topBullSector) || (avg < 0 && sec.sector === topBearSector) ? ' heatmap-momentum' : '');
+          return `<div class="treemap-tile ${tileTone}" style="flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
+        }).join('');
+      }
+
+      document.getElementById('sec-bars-section').innerHTML = sortedSectors.map(sec => {
+        const isPos = sec.avgChange >= 0, widthPct = (Math.abs(sec.avgChange) / maxChange) * 48;
+        const isSelected = selectedHeatmapSector && selectedHeatmapSector.toUpperCase() === sec.sector.toUpperCase();
+        return `
+          <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="filterHeatmapBySector('${sec.sector}')">
+            <div class="barchart-label">${sec.sector}</div>
+            <div class="barchart-track">
+              <div class="barchart-bar-wrapper">
+                <div class="barchart-center"></div>
+                <div class="barchart-bar ${isPos ? 'pos' : 'neg'}" style="width: ${widthPct}%;"></div>
+              </div>
+            </div>
+            <div class="barchart-val">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</div>
+          </div>`;
+      }).join('');
+    }
+
+    // Timeframe + universe cache: avoids repeated server scans during normal navigation.
+    const zoneResponseCache = new Map();
+    const ZONE_RESPONSE_TTL_MS = 10 * 60 * 1000;
+    // Coincidence lookups are sequential to avoid saturating Upstox.
+    const CONFLUENCE_TFS = ['day', 'week', 'month', 'quarter', 'halfyear'];
+    const CONFLUENCE_NAMES = {day:'Daily', week:'Weekly', month:'Monthly', quarter:'Quarterly', halfyear:'Half-Yearly'};
+    const confluenceCompleted = new Set();
+    const confluenceUnavailable = new Set();
+    const confluencePending = new Set();
+    const confluenceRunning = new Set();
+    function zoneOverlap(a,b) {
+      if (a.symbol !== b.symbol || a.bias !== b.bias) return false;
+      const aLo=Math.min(Number(a.proximal),Number(a.distal));
+      const aHi=Math.max(Number(a.proximal),Number(a.distal));
+      const bLo=Math.min(Number(b.proximal),Number(b.distal));
+      const bHi=Math.max(Number(b.proximal),Number(b.distal));
+      return [aLo,aHi,bLo,bHi].every(Number.isFinite) && Math.max(aLo,bLo)<=Math.min(aHi,bHi);
+    }
+    function zoneActionHTML(z) {
+      const tags=[];
+      if (z.strongZone === true) tags.push('<span class="badge badge-demand">Strong Zone</span>');
+      const names=[];
+      let pending=false;
+      for (const tf of CONFLUENCE_TFS) {
+        if (tf === currentZoneTF) continue;
+        const key=`${currentUniverse}:${tf}`;
+        const cached=zoneResponseCache.get(key);
+        if (!cached || Date.now()-cached.savedAt>=ZONE_RESPONSE_TTL_MS) {if (!confluenceUnavailable.has(key)) pending=true;continue;}
+        if (cached.data.some(other=>zoneOverlap(z,other))) names.push(CONFLUENCE_NAMES[tf]);
+      }
+      if (names.length) tags.push(`<span class="badge badge-gold">Coinciding with ${names.join(', ')}</span>`);
+      if (pending) tags.push('<span class="badge badge-muted">Checking other TFs...</span>');
+      else if (!names.length && CONFLUENCE_TFS.some(tf=>tf!==currentZoneTF && confluenceUnavailable.has(`${currentUniverse}:${tf}`))) tags.push('<span class="badge badge-muted">TF data temporarily unavailable</span>');
+      else if (!names.length) tags.push('<span class="badge badge-muted">No Coincidence</span>');
+      return tags.join(' ');
+    }
+    async function checkConfluenceInBackground(universe, activeTF) {
+      if (confluenceRunning.has(universe)) return;
+      confluenceRunning.add(universe);
+      try {
+        // No automatic heavy scans of other timeframes on every click.
+        // Only request already-precomputed snapshots when the server says ready.
+        const statusRes = await fetch(`/api/zone-cache-status?universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
+        if (!statusRes.ok) { console.debug('Confluence status HTTP',statusRes.status); return; }
+        const status = await statusRes.json();
+        for (const tf of CONFLUENCE_TFS) {
+          if (tf === activeTF || currentUniverse !== universe) continue;
+          const key = `${universe}:${tf}`;
+          const entry = status.timeframes && status.timeframes[tf];
+          if (!entry || !entry.ready) { confluenceUnavailable.delete(key); confluencePending.add(key); continue; }
+          const cached = zoneResponseCache.get(key);
+          if (cached && Date.now()-cached.savedAt<ZONE_RESPONSE_TTL_MS) continue;
+          try {
+            const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
+            const result = await res.json();
+            if (res.ok && result.status==='success' && result.done && Array.isArray(result.data)) {
+              zoneResponseCache.set(key,{data:result.data,savedAt:Date.now()});
+              confluenceUnavailable.delete(key);
+              confluencePending.delete(key);
+            } else { confluenceUnavailable.add(key); }
+          } catch(err) { confluenceUnavailable.add(key); }
+        }
+        if (currentUniverse===universe) renderZonesTable();
+      } catch(err) { console.debug('Confluence status unavailable',err); }
+      finally { confluenceRunning.delete(universe); }
+    }
+
+
+    // Refresh the confluence status while the zone screen is open.
+    // This only reads completed server snapshots; it never triggers scans.
+    setInterval(() => {
+      if (document.hidden) return;
+      if (confluencePending.size || confluenceUnavailable.size) {
+        checkConfluenceInBackground(currentUniverse, currentZoneTF);
+      }
+    }, 20000);
+
+    function zoneLoaderHTML(tf) {
+      const label = ({day:'Daily',week:'Weekly',month:'Monthly',quarter:'Quarterly',halfyear:'Half-Yearly'})[tf] || tf;
+      const bars = [16,26,20,33,23,14,28,19].map((h,i)=>`<i style="--h:${h}px;--d:${i*.11}s;--c:${i%3===0?'#2ecc71':'#e6a13a'}"></i>`).join('');
+      return `<tr><td colspan="8"><div class="sf-loading" role="status" aria-live="polite"><div class="sf-zone-mark" aria-hidden="true">${bars}</div><div><div class="sf-loader-heading">Finding ${label} Institutional Zones</div><div class="sf-loader-caption" id="zone-scan-progress">Analyzing demand & supply levels...</div></div><div class="sf-line-track" aria-hidden="true"></div></div></td></tr>`;
+    }
+    function sfTableSkeletonRows(columns=10,rows=5) {
+      return Array.from({length:rows},()=>`<tr><td colspan="${columns}"><div class="sf-table-skeleton" aria-hidden="true">${Array.from({length:4},()=>'<div class="sf-skeleton"></div>').join('')}</div></td></tr>`).join('');
+    }
+    function sfSectorLoaderHTML() {
+      return `<div class="sf-loading" role="status"><div class="sf-sector-loader" aria-hidden="true">${Array.from({length:15},(_,i)=>`<i style="--i:${i}"></i>`).join('')}</div><div class="sf-loader-heading">Loading Sector Heatmap</div><div class="sf-loader-caption">Preparing sector performance...</div></div>`;
+    }
+    let sfDataEverLoaded = false;
+    function sfShowInitialLoaders() {
+      const body = document.getElementById('tbody');
+      if (body && !sfDataEverLoaded) body.innerHTML = sfTableSkeletonRows(10,6);
+      const heatmap = document.getElementById('sec-heatmap-section');
+      if (heatmap && !sectorsData.length) heatmap.innerHTML = sfSectorLoaderHTML();
+      const bars = document.getElementById('sec-bars-section');
+      if (bars && !sectorsData.length) bars.innerHTML = '<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-caption">Preparing rankings...</div></div>';
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      sfShowInitialLoaders();
+      let lastMove = 0;
+      document.addEventListener('pointermove', e => {
+        if (e.pointerType === 'touch' || Date.now()-lastMove < 45) return;
+        lastMove=Date.now();
+        document.body.style.setProperty('--sf-mouse-x',`${e.clientX}px`);
+        document.body.style.setProperty('--sf-mouse-y',`${e.clientY}px`);
+      },{passive:true});
+    });
+
+    function sfShowTabTransition(tab) {
+      const view = document.getElementById(`view-${tab}`);
+      if (!view) return;
+      const existing = view.querySelector('.sf-tab-transition');
+      if (existing) existing.remove();
+      const overlay = document.createElement('div');
+      overlay.className = 'sf-tab-transition';
+      overlay.innerHTML = tab === 'sec' ? sfSectorLoaderHTML() : `<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-heading">Preparing Watchlist</div></div>`;
+      view.appendChild(overlay);
+      setTimeout(() => overlay.remove(), 850);
+    }
+    let zoneRequestSequence = 0;
+
+    async function fetchZones(tf, btnElement = null, forceRefresh = false) {
+      currentZoneTF = tf;
+      const requestSequence = ++zoneRequestSequence;
+      const requestUniverse = currentUniverse;
+      const cacheKey = `${requestUniverse}:${tf}`;
+      const activeButton = btnElement || document.getElementById(`tf-btn-${tf}`);
+      document.querySelectorAll('#tf-buttons-wrapper .filter-btn').forEach(b => b.classList.remove('active'));
+      if (activeButton) activeButton.classList.add('active');
+      const tbody = document.getElementById('zones-tbody');
+
+      rawZonesData = [];
+      const loaderStartedAt = Date.now();
+      const holdLoader = async () => { const remaining = 1250 - (Date.now() - loaderStartedAt); if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining)); };
+      const cached = zoneResponseCache.get(cacheKey);
+      if (!forceRefresh && cached && Date.now() - cached.savedAt < ZONE_RESPONSE_TTL_MS) {
+        tbody.innerHTML = zoneLoaderHTML(tf);
+        await holdLoader();
+        if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+        rawZonesData = cached.data;
+        renderZonesTable();
+        checkConfluenceInBackground(requestUniverse, tf);
+        return;
+      }
+
+      tbody.innerHTML = zoneLoaderHTML(tf);
+
+
+      try {
+        const startedAt = Date.now();
+        let previousCompleted = -1;
+        while (true) {
+          if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+          const url = `/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(requestUniverse)}${forceRefresh && previousCompleted === -1 ? '&refresh=1' : ''}`;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000);
+          let data;
+          try {
+            const res = await fetch(url, {signal: controller.signal, cache: 'no-store'});
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            data = await res.json();
+          } finally { clearTimeout(timeout); }
+          if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+          if (data.status !== 'success' || !Array.isArray(data.data)) throw new Error(data.message || 'Invalid response');
+          rawZonesData = data.data;
+          if (data.data.length) {
+            await holdLoader();
+            if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+            renderZonesTable();
+          }
+          if (data.done) {
+            if (data.message) throw new Error(data.message);
+            zoneResponseCache.set(cacheKey, {data: data.data, savedAt: Date.now()});
+            confluenceUnavailable.delete(cacheKey);
+            confluencePending.delete(cacheKey);
+            checkConfluenceInBackground(requestUniverse, tf);
+            if (!data.data.length) { await holdLoader(); if (requestSequence !== zoneRequestSequence) return; }
+            if (!data.data.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;">Scan completed. No matching zones found for ${tf.toUpperCase()}.</td></tr>`;
+            return;
+          }
+          if (Date.now() - startedAt > 120000) {
+            if (!data.data.length) throw new Error('Scan timed out after 2 minutes. Check Render logs / Upstox API.');
+            return; // Keep the partial results visible rather than spinning forever.
+          }
+          if (data.completed !== previousCompleted || !data.data.length) {
+            previousCompleted = data.completed;
+            const msg = `Scanning ${tf.toUpperCase()}: ${data.completed || 0}/${data.total || '?'} stocks checked, ${data.data.length} zones found`;
+            if (!data.data.length) { const statusText = document.getElementById('zone-scan-progress'); if (statusText) statusText.textContent = msg; }
+            const status = document.getElementById('zone-scan-progress');
+            if (status) status.textContent = msg;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      } catch (e) {
+        if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
+        console.error('Zone scan failed:', e);
+        if (!rawZonesData.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--red);">⚠️ ${String(e.message || 'Network error')}</td></tr>`;
+      }
+    }
+
+    function renderZonesTable() {
+      const searchVal = document.getElementById('zones-search').value.toLowerCase().trim();
+      let filteredZones = [...rawZonesData];
+
+      if (searchVal) {
+        filteredZones = filteredZones.filter(z => z.symbol.toLowerCase().includes(searchVal) || (z.sector && z.sector.toLowerCase().includes(searchVal)));
+      }
+
+      const biasFilter = document.getElementById('zones-bias-filter').value;
+      if (biasFilter !== 'ALL') filteredZones = filteredZones.filter(z => z.bias === biasFilter);
+
+      const statusFilter = document.getElementById('zones-status-filter').value;
+      if (statusFilter !== 'all') {
+        filteredZones = filteredZones.filter(z => {
+          const count = Number(z.testCount);
+          if (Number.isFinite(count) && z.testCount !== undefined && z.testCount !== null) {
+            return statusFilter === 'fresh' ? count === 0 : count > 0;
+          }
+          const status = String(z.status || '').toLowerCase();
+          return statusFilter === 'fresh' ? status.includes('fresh') : status.includes('tested') && !status.includes('untested');
+        });
+      }
+
+      // CMP-based price-side proximity. The zone boundary nearest the CMP is used.
+      const distanceSetting = document.getElementById('zones-cmp-distance').value;
+      function cmpDistance(z) {
+        const cmp = Number(z.ltp), proximal = Number(z.proximal), distal = Number(z.distal);
+        if (!(cmp > 0) || !(proximal > 0) || !(distal > 0)) return Infinity;
+        if (cmp >= Math.min(proximal, distal) && cmp <= Math.max(proximal, distal)) return 0;
+        if (z.bias === 'DEMAND') return proximal <= cmp ? (cmp - proximal) / cmp * 100 : Infinity;
+        if (z.bias === 'SUPPLY') return proximal >= cmp ? (proximal - cmp) / cmp * 100 : Infinity;
+        return Infinity;
+      }
+      // All Zones must not discard historical zones based on CMP direction.
+      if (distanceSetting !== 'all') filteredZones = filteredZones.filter(z => Number.isFinite(cmpDistance(z)));
+      filteredZones.sort((a, b) => cmpDistance(a) - cmpDistance(b) || a.symbol.localeCompare(b.symbol));
+      if (distanceSetting === 'nearest') {
+        // Only the closest demand and closest supply for each stock.
+        const seen = new Set();
+        filteredZones = filteredZones.filter(z => {
+          const key = z.symbol + ':' + z.bias;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } else if (distanceSetting !== 'all') {
+        const maxPct = Number(distanceSetting);
+        filteredZones = filteredZones.filter(z => cmpDistance(z) <= maxPct);
+      }
+
+      const tbody = document.getElementById('zones-tbody');
+      if (!filteredZones.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching zones found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filteredZones.map(z => `
+        <tr>
+          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a>${sfpNewsBadge(z.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
+          <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
+          <td style="font-weight:700;">${z.pattern}</td>
+          <td>₹${Number(z.ltp || 0).toFixed(2)}</td>
+          <td style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
+          <td style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
+          <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
+          <td style="min-width:180px;white-space:normal;line-height:1.9">${zoneActionHTML(z)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function openRRCalculator(symbol, entryPrice, defaultSLPts, bias) {
+      activeTradeData = { symbol, bias };
+      document.getElementById('calc-symbol').innerText = symbol;
+      setTradeBias(bias);
+      document.getElementById('calc-entry-input').value = Number(entryPrice).toFixed(2);
+      document.getElementById('calc-sl-pts').value = defaultSLPts;
+      recalculateTradeMetrics();
+      document.getElementById('rr-calculator-modal').style.display = 'flex';
+    }
+
+    function setTradeBias(bias) {
+      activeTradeData.bias = bias;
+      const longBtn = document.getElementById('bias-long-btn');
+      const shortBtn = document.getElementById('bias-short-btn');
+      if (bias === 'DEMAND') { longBtn.classList.add('active'); shortBtn.classList.remove('active'); }
+      else { shortBtn.classList.add('active'); longBtn.classList.remove('active'); }
+      recalculateTradeMetrics();
+    }
+
+    function recalculateTradeMetrics() {
+      const entry = parseFloat(document.getElementById('calc-entry-input').value) || 0;
+      const slPts = parseFloat(document.getElementById('calc-sl-pts').value) || 0;
+      const maxRisk = parseFloat(document.getElementById('calc-max-risk').value) || 0;
+      const bias = activeTradeData.bias;
+
+      if (entry <= 0 || slPts <= 0) return;
+
+      const slPrice = bias === 'DEMAND' ? entry - slPts : entry + slPts;
+      const riskPerShare = Math.abs(entry - slPrice);
+      const quantity = riskPerShare > 0 ? Math.floor(maxRisk / riskPerShare) : 0;
+      const totalInvestment = quantity * entry;
+      const mult = bias === 'DEMAND' ? 1 : -1;
+      const target2R = entry + (mult * riskPerShare * 2);
+      const target3R = entry + (mult * riskPerShare * 3);
+
+      document.getElementById('calc-sl-price').innerText = '₹' + slPrice.toFixed(2);
+      document.getElementById('calc-risk-per-share').innerText = '₹' + riskPerShare.toFixed(2);
+      document.getElementById('calc-qty').innerText = quantity + ' Shares';
+      document.getElementById('calc-total-inv').innerText = '₹' + totalInvestment.toLocaleString('en-IN', {maximumFractionDigits: 2});
+      document.getElementById('calc-t2').innerText = '₹' + target2R.toFixed(2);
+      document.getElementById('calc-t3').innerText = '₹' + target3R.toFixed(2);
+    }
+
+    function closeRRCalculator() {
+      document.getElementById('rr-calculator-modal').style.display = 'none';
+    }
+
+    // Refresh visible stock news automatically every 5 seconds.
+    const sfpNewsStates = new Map();
+    const sfpNewsLatest = new Map();
+    let sfpNewsTimer = null;
+    let sfpNewsBusy = false;
+    let sfpNewsCursor = 0;
+    function sfpNewsBadge(symbol) {
+      const safe = String(symbol || '').toUpperCase();
+      return sfpNewsStates.get(safe) === true
+        ? `<button type="button" class="sfp-news-badge" data-news-symbol="${safe}" onclick="openStockNews('${safe}')">📰 NEWS</button>` : '';
+    }
+    function sfpScheduleNewsCheck() {
+      if (!sfpNewsTimer) sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 350);
+    }
+    async function sfpFetchNewsStatuses() {
+      sfpNewsTimer = null;
+      if (sfpNewsBusy || document.hidden) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
+      sfpEnsureChartLinks();
+      const links = [...document.querySelectorAll('a.stock-link')];
+      const symbolsAll = [...new Set(links.map(a => {
+        const m = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+        return m ? m[1].toUpperCase() : null;
+      }).filter(Boolean))];
+      if (!symbolsAll.length) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
+      // Rotate batches so large 200+ stock universes do not overload the API.
+      const symbols = Array.from({length:Math.min(30,symbolsAll.length)}, (_,i) => symbolsAll[(sfpNewsCursor+i)%symbolsAll.length]);
+      sfpNewsCursor = (sfpNewsCursor + symbols.length) % symbolsAll.length;
+      sfpNewsBusy = true;
+      try {
+        const response = await fetch('/api/stock-news-status?symbols=' + encodeURIComponent(symbols.join(',')), {credentials:'same-origin',cache:'no-store'});
+        if (!response.ok) throw new Error('Upstox news API HTTP ' + response.status);
+        const data = await response.json();
+        for (const [symbol, value] of Object.entries(data.hasNews || {})) {
+          const prior = sfpNewsLatest.get(symbol);
+          const latest = data.latest?.[symbol] || null;
+          sfpNewsStates.set(symbol, value === true);
+          sfpNewsLatest.set(symbol, latest);
+          links.forEach(a => {
+            const match = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+            if (!match || match[1].toUpperCase() !== symbol) return;
+            const badge = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]') || null;
+            if (!value && badge) badge.remove();
+            if (value && !badge) (a.nextElementSibling?.classList.contains('sfp-chart-link') ? a.nextElementSibling : a).insertAdjacentHTML('afterend', sfpNewsBadge(symbol));
+            if (value && prior && latest && latest !== prior) {
+              const current = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]');
+              if (current?.classList.contains('sfp-news-badge')) {
+                current.classList.add('sfp-news-new');
+                current.title = 'New headline detected';
+              }
+            }
+          });
+        }
+      } catch (err) { console.warn('Stock news refresh:', err.message); }
+      finally { sfpNewsBusy = false; sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); }
+    }
+    // Company-name click opens company-only news; the chart icon keeps TradingView access.
+    document.addEventListener('click', function(event) {
+      const link = event.target.closest('a.stock-link');
+      if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const match = (link.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
+      if (!match) return;
+      event.preventDefault();
+      openStockNews(match[1].toUpperCase());
+    });
+    function sfpEnsureChartLinks() {
+      document.querySelectorAll('a.stock-link').forEach(link => {
+        if (link.nextElementSibling?.classList.contains('sfp-chart-link')) return;
+        if (link.parentElement?.querySelector('a.sfp-chart-link[data-for="' + link.textContent.trim() + '"]')) return;
+        const chart = document.createElement('a');
+        chart.className = 'sfp-chart-link';
+        chart.dataset.for = link.textContent.trim();
+        chart.href = link.href;
+        chart.target = '_blank';
+        chart.rel = 'noopener noreferrer';
+        chart.textContent = '↗';
+        chart.title = 'Open TradingView chart';
+        chart.setAttribute('aria-label', 'Open ' + link.textContent.trim() + ' TradingView chart');
+        link.insertAdjacentElement('afterend', chart);
+      });
+    }
+    function closeStockNews() { document.getElementById('sfp-news-overlay').style.display = 'none'; }
+    async function openStockNews(symbol) {
+      const overlay = document.getElementById('sfp-news-overlay');
+      const content = document.getElementById('sfp-news-content');
+      document.getElementById('sfp-news-title').textContent = symbol + ' · Latest News';
+      overlay.style.display = 'flex';
+      content.textContent = 'Loading latest headlines...';
+      try {
+        const response = await fetch('/api/stock-news?symbol=' + encodeURIComponent(symbol), {credentials:'same-origin',cache:'no-store'});
+        if (!response.ok) throw new Error('News service temporarily unavailable');
+        const data = await response.json();
+        content.replaceChildren();
+        if (!data.news?.length) { content.textContent = 'No recent news found for this stock.'; return; }
+        // Always show the most recently published company news first.
+        const newestFirst = [...data.news].sort((a, b) => {
+          const timestamp = item => {
+            const numeric = Number(item.publishedTime);
+            if (Number.isFinite(numeric) && numeric > 0) return numeric;
+            const parsed = Date.parse(item.publishedAt || '');
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          return timestamp(b) - timestamp(a);
+        });
+        for (const [index, item] of newestFirst.entries()) {
+          const a = document.createElement('a');
+          a.className = 'sfp-news-item'; a.href = item.url;
+          a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.append(document.createTextNode((index === 0 ? 'LATEST · ' : '') + item.title));
+          const meta = document.createElement('span'); meta.className = 'sfp-news-meta';
+          const when = item.publishedAt ? new Date(item.publishedAt).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : '';
+          meta.textContent = [item.source, when].filter(Boolean).join(' · ');
+          a.append(meta); content.append(a);
+        }
+      } catch(e) { content.textContent = 'Unable to load news right now. Please try again later.'; }
+    }
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeStockNews(); });
+
+    const sfpNewsObserver = new MutationObserver(() => sfpScheduleNewsCheck());
+    window.addEventListener('DOMContentLoaded', () => {
+      sfpEnsureChartLinks();
+      for (const id of ['tbody','watchlist-tbody','zones-tbody','top-gainers-list','top-losers-list','pb-tbody']) {
+        const el = document.getElementById(id);
+        if (el) sfpNewsObserver.observe(el, {childList:true,subtree:false});
+      }
+      sfpScheduleNewsCheck();
+    });
+  
+    // Market pulse is independent of the sector ticker and scans.
+    let sfpMarketPulseBusy = false;
+    const sfpPulseEscape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function sfpFetchMarketPulse() {
+      if (sfpMarketPulseBusy || document.hidden) return;
+      sfpMarketPulseBusy = true;
+      try {
+        const response = await fetch('/api/market-pulse', {cache:'no-store'});
+        if (!response.ok) throw new Error('Market feed unavailable');
+        const payload = await response.json();
+        if (payload.status !== 'success') throw new Error('Market feed unavailable');
+        const target = document.getElementById('sfpMarketPulse');
+        if (!target) return;
+        const cards = (payload.data || []).map(item => {
+          const hasPrice = Number.isFinite(Number(item.price)) && item.price !== null;
+          const pct = item.percent == null ? '' : `${Number(item.percent) >= 0 ? '+' : ''}${Number(item.percent).toFixed(2)}%`;
+          const cls = Number(item.change) >= 0 ? 'sfp-pulse-positive' : 'sfp-pulse-negative';
+          const price = hasPrice ? `${item.currency === 'USD/bbl' ? '$' : '₹'}${Number(item.price).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}` : 'Unavailable';
+          const chart = 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(item.chart || 'NSE:NIFTY');
+          const alertText = item.alert ? ` ⚠ ${sfpPulseEscape(item.alertText)}` : '';
+          return `<a class="sfp-pulse-item ${item.alert?'sfp-pulse-alert':''}" href="${chart}" target="_blank" rel="noopener noreferrer" title="Open chart" aria-label="Open ${sfpPulseEscape(item.symbol)} chart"><span class="sfp-pulse-symbol">${sfpPulseEscape(item.symbol)}</span>${/^(NIFTY 50|NIFTY BANK|BANK ?NIFTY|SENSEX)$/i.test(String(item.symbol || "").trim()) ? `<svg class="sfp-pulse-chart-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>` : ""}<span class="sfp-pulse-price">${price}</span><span class="${cls}">${pct}</span>${alertText}</a>`;
+        }).join('');
+        const time = payload.asOf ? new Date(payload.asOf).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+        target.innerHTML = cards + `<span class="sfp-pulse-time">Checked ${sfpPulseEscape(time)} • 5s • Brent indicative</span>`;
+      } catch (e) {
+        const target = document.getElementById('sfpMarketPulse');
+        if (target && !target.querySelector('a')) target.textContent = 'Market feed unavailable — checking again…';
+      } finally { sfpMarketPulseBusy = false; }
+    }
+    sfpFetchMarketPulse();
+    setInterval(sfpFetchMarketPulse, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sfpFetchMarketPulse(); });
+
+</script>
+<div id="sfp-news-overlay" class="sfp-news-overlay" role="presentation" onclick="if(event.target===this)closeStockNews()">
+  <section class="sfp-news-dialog" role="dialog" aria-modal="true" aria-labelledby="sfp-news-title">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px"><h3 id="sfp-news-title">Stock News</h3><button type="button" class="filter-btn" onclick="closeStockNews()" aria-label="Close news">✕</button></div>
+    <div id="sfp-news-content" aria-live="polite">Loading news...</div>
+  </section>
+</div>
+</body>
+</html>

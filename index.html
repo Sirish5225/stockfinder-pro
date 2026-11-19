@@ -2203,16 +2203,15 @@ body{background:radial-gradient(ellipse 70% 45% at 80% -10%,rgba(181,121,31,.105
       } catch (err) { console.warn('Stock news refresh:', err.message); }
       finally { sfpNewsBusy = false; sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); }
     }
-    // Company-name click opens company-only news; the chart icon keeps TradingView access.
+    // Stock names always open their TradingView charts in a new tab.
+    // News remains accessible through the separate NEWS badge.
     document.addEventListener('click', function(event) {
       const link = event.target.closest('a.stock-link');
-      if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      // Market Movers stock names must open their TradingView charts, not the news popup.
-      if (link.closest('#sfp-pane-movers')) return;
-      const match = (link.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
-      if (!match) return;
-      event.preventDefault();
-      openStockNews(match[1].toUpperCase());
+      if (!link) return;
+      const href = link.getAttribute('href') || '';
+      if (!href.includes('tradingview.com/chart/')) return;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
     });
     function sfpEnsureChartLinks() {
       document.querySelectorAll('a.stock-link').forEach(link => {

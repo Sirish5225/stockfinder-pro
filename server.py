@@ -879,6 +879,14 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
     zones = []
     if not candles or len(candles) < 2 or current_ltp <= 0:
         return zones
+    # Daily candle is confirmed only after the regular NSE cash session closes.
+    # Historical API can include a partial today's candle during market hours.
+    if tf == 'day':
+        now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+        today = now_ist.date()
+        if now_ist.time() < datetime.strptime('15:30', '%H:%M').time():
+            candles = [c for c in candles if pd.to_datetime(c[0], errors='coerce').date() < today]
+
     # A forming monthly candle is not a confirmed leg-in, base, or leg-out.
     # Derived quarterly/half-yearly candles are already restricted to completed periods.
     if tf == 'month':
@@ -1032,7 +1040,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
         })
     # Impulse-origin detection: historical bases often precede a very strong
     # departure without a strong preceding leg-in. Do not impose the strict
-    # 60% leg-in body rule on these BASED structures. Keep 1-2 bases only.
+    # 70% leg-in body rule on these BASED structures. Keep 1-2 bases only.
     # This is a separate conservative candidate path, not a hardcoded stock fix.
     for exit_idx in range(2, len(m)):
         out = m[exit_idx]
@@ -1242,7 +1250,7 @@ def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct
 # local SQLite is only durable when stored on a persistent disk.
 HISTORY_FETCH_LOCKS = {}
 HISTORY_FETCH_LOCKS_GUARD = threading.Lock()
-HISTORY_CACHE_SECONDS = int(os.getenv("SFP_HISTORY_CACHE_SECONDS", str(3 * 24 * 3600)))
+HISTORY_CACHE_SECONDS = int(os.getenv("SFP_HISTORY_CACHE_SECONDS", str(4 * 3600)))
 HISTORY_YEARS = 4
 
 def _read_stored_candles(key):
@@ -2173,7 +2181,7 @@ def get_smart_orb():
     except Exception:
         return jsonify({"status": "success", "data": []})
 
-ZONE_ALGORITHM_VERSION = 'v20_stop_at_second_touch'
+ZONE_ALGORITHM_VERSION = 'v21_completed_recent_refresh'
 
 ZONE_SCAN_LOCKS = {}
 ZONE_SCAN_LOCKS_GUARD = threading.Lock()
@@ -2369,7 +2377,7 @@ def zone_screener():
     persisted, updated_at = _stored_zone_snapshot(univ_key, tf)
     if persisted is not None and not force_refresh:
         persisted = [z for z in persisted if int(z.get('testCount', 0) or 0) <= 1]
-        stale = not updated_at or (datetime.utcnow()-updated_at).total_seconds() >= HISTORY_CACHE_SECONDS
+        stale = not updated_at or (datetime.utcnow()-updated_at).total_seconds() >= ZONE_JOB_TTL
         if stale:
             _begin_zone_job(univ_key, tf, target_universe)
         with ZONE_JOBS_LOCK:

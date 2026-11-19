@@ -477,16 +477,13 @@ def detect_open_setup(open_p, high_p, low_p):
     return None
 
 def calculate_oi_buildup(price_pct, oi_pct, is_fo, candle_tag):
-    if not is_fo:
-        if candle_tag == "OPEN=LOW" or price_pct >= 2.5: return "Long Buildup"
-        elif candle_tag == "OPEN=HIGH" or price_pct <= -2.5: return "Short Buildup"
-        elif price_pct > 0: return "Short Covering"
-        elif price_pct < 0: return "Long Unwinding"
-        return "Neutral"
-    if candle_tag == "OPEN=HIGH" or price_pct <= -0.3: return "Short Buildup"
-    elif candle_tag == "OPEN=LOW" or price_pct >= 0.3: return "Long Buildup"
-    elif price_pct > 0: return "Short Covering"
-    elif price_pct < 0: return "Long Unwinding"
+    """Classify only when genuine previous and current OI exist."""
+    if not is_fo or oi_pct is None or abs(oi_pct) < 0.01 or (price_pct is None or abs(price_pct) < 0.01):
+        return "Unavailable" if oi_pct is None else "Neutral"
+    if price_pct > 0 and oi_pct > 0: return "Long Buildup"
+    if price_pct < 0 and oi_pct > 0: return "Short Buildup"
+    if price_pct > 0 and oi_pct < 0: return "Short Covering"
+    if price_pct < 0 and oi_pct < 0: return "Long Unwinding"
     return "Neutral"
 
 def compute_aggressive_momentum(price_pct, vol_spike, candle_tag):
@@ -512,6 +509,198 @@ def estimate_delivery_percentage(volume, avg_volume, price_pct):
     else: base_delivery = 45.0
     return round(base_delivery, 1)
 
+# Actual near-month NSE futures OI; never derive OI from equity quotes.
+FUTURES_MAP_CACHE = {"until": 0, "contracts": {}}
+FUTURES_OI_CACHE = {"until": 0, "values": {}}
+FUTURES_OI_LOCK = threading.RLock()
+FUTURES_OI_DIAGNOSTICS = {"status":"not_checked","mapped":0,"quotes":0,"oi_count":0,"sample_keys":[],"http_status":None}
+
+# Previous completed trading-session futures OI, from exchange-reported daily candles.
+# Cache per contract and session date; never infer OI from price or volume.
+FUTURES_PREV_OI_CACHE = {}
+FUTURES_PREV_OI_LOCK = threading.RLock()
+FUTURES_HISTORY_SLOTS = threading.BoundedSemaphore(3)
+
+def _previous_futures_oi(contract):
+    key = contract["key"]
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    cache_key = (key, today.isoformat())
+    with FUTURES_PREV_OI_LOCK:
+        hit = FUTURES_PREV_OI_CACHE.get(cache_key)
+        if hit and hit[0] > time.time(): return hit[1]
+    # Upstox v3 daily candles: [timestamp, open, high, low, close, volume, oi].
+    # Exclude today's unfinished candle, and never use another contract's OI.
+    start = today - timedelta(days=12)
+    url = ('https://api.upstox.com/v3/historical-candle/'
+           + urllib.parse.quote(key, safe='') + '/days/1/'
+           + today.isoformat() + '/' + start.isoformat())
+    value = None
+    try:
+        with FUTURES_HISTORY_SLOTS:
+            res = HTTP_SESSION.get(url, headers={
+                'Accept': 'application/json',
+                'Authorization': 'Bearer ' + UPSTOX_ACCESS_TOKEN}, timeout=(5, 12))
+        if res.status_code == 200:
+            candles = (res.json().get('data') or {}).get('candles') or []
+            parsed = []
+            for candle in candles:
+                if not isinstance(candle, (list,tuple)) or len(candle) < 7: continue
+                try:
+                    stamp = datetime.fromisoformat(str(candle[0]).replace('Z','+00:00'))
+                    day = stamp.astimezone(pytz.timezone('Asia/Kolkata')).date() if stamp.tzinfo else stamp.date()
+                    oi = float(candle[6]); close = float(candle[4])
+                    if day < today and oi > 0 and close > 0: parsed.append((day,oi,close))
+                except (ValueError, TypeError, OverflowError): continue
+            if parsed:
+                d, oi, close = max(parsed, key=lambda x:x[0])
+                value = {"oi": oi, "close": close, "date": d.isoformat()}
+        else:
+            app.logger.info('Futures daily OI history HTTP %s', res.status_code)
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        app.logger.info('Futures previous OI unavailable: %s', type(exc).__name__)
+    # Retry unavailable history after 20 minutes; successful data cached 6 hours.
+    with FUTURES_PREV_OI_LOCK:
+        FUTURES_PREV_OI_CACHE[cache_key] = (time.time() + (21600 if value else 1200), value)
+    return value
+
+def _previous_oi_batch(contracts):
+    result = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(_previous_futures_oi, c): symbol for symbol,c in contracts.items()}
+        for task in concurrent.futures.as_completed(futures):
+            try: result[futures[task]] = task.result()
+            except Exception: result[futures[task]] = None
+    return result
+
+
+def _futures_expiry(value):
+    if value is None or str(value).strip() == "": return None
+    try:
+        n = float(value)
+        if n > 1e12: n /= 1000
+        if n > 1e9: return datetime.fromtimestamp(n, tz=timezone.utc).date()
+    except (ValueError, TypeError, OverflowError, OSError): pass
+    try: return datetime.fromisoformat(str(value).strip().replace("Z", "+00:00")).date()
+    except ValueError: return None
+
+def _active_futures_contracts():
+    with FUTURES_OI_LOCK:
+        if time.time() < FUTURES_MAP_CACHE["until"]: return FUTURES_MAP_CACHE["contracts"]
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    valid = set(TARGET_FO_SYMBOLS)
+    contracts = {}
+    try:
+        url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
+        req = urllib.request.Request(url, headers={"User-Agent": "StockFinderPro/1.0"})
+        with urllib.request.urlopen(req, timeout=25) as response:
+            with gzip.GzipFile(fileobj=response) as archive:
+                reader = csv.DictReader(io.TextIOWrapper(archive, encoding="utf-8-sig"))
+                for row in reader:
+                    kind = str(row.get("instrument_type") or "").upper()
+                    key = str(row.get("instrument_key") or "")
+                    if kind not in ("FUT", "FUTSTK", "FUTIDX") or not key.startswith("NSE_FO|"): continue
+                    expiry = _futures_expiry(row.get("expiry"))
+                    if not expiry or expiry < today: continue
+                    name = str(row.get("underlying_symbol") or row.get("name") or "").strip().upper()
+                    symbol = name if name in valid else None
+                    if not symbol:
+                        ts = str(row.get("tradingsymbol") or "").upper()
+                        matches = [v for v in valid if ts.startswith(v) and len(ts)>len(v) and ts[len(v)].isdigit()]
+                        if matches: symbol = max(matches, key=len)
+                    if not symbol: continue
+                    old = contracts.get(symbol)
+                    if old is None or expiry < old["expiry"]:
+                        contracts[symbol] = {"key": key, "expiry": expiry, "tradingsymbol": str(row.get("tradingsymbol") or "")}
+    except Exception as exc:
+        app.logger.warning("Futures instrument mapping unavailable: %s", type(exc).__name__)
+    with FUTURES_OI_LOCK:
+        FUTURES_MAP_CACHE.update(until=time.time() + (21600 if contracts else 300), contracts=contracts)
+    return contracts
+
+def _actual_futures_oi():
+    with FUTURES_OI_LOCK:
+        if time.time() < FUTURES_OI_CACHE["until"]: return FUTURES_OI_CACHE["values"]
+    contracts = _active_futures_contracts()
+    FUTURES_OI_DIAGNOSTICS.update(status="no_contracts" if not contracts else "fetching", mapped=len(contracts), quotes=0, oi_count=0, sample_keys=[], http_status=None)
+    if not contracts: return {}
+    headers = {"Accept":"application/json", "Authorization":f"Bearer {UPSTOX_ACCESS_TOKEN}"}
+    result = {}
+    items = list(contracts.items())
+    for start in range(0, len(items), 100):
+        chunk = items[start:start+100]
+        try:
+            response = HTTP_SESSION.get("https://api.upstox.com/v2/market-quote/quotes", headers=headers,
+                params={"instrument_key": ",".join(c["key"] for _,c in chunk)}, timeout=12)
+            FUTURES_OI_DIAGNOSTICS["http_status"] = response.status_code
+            if response.status_code != 200:
+                FUTURES_OI_DIAGNOSTICS["status"] = "quote_http_error"
+                app.logger.warning("Futures OI quote HTTP %s", response.status_code)
+                continue
+            data = response.json().get("data") or {}
+            FUTURES_OI_DIAGNOSTICS["quotes"] += len(data)
+            if not FUTURES_OI_DIAGNOSTICS["sample_keys"]:
+                FUTURES_OI_DIAGNOSTICS["sample_keys"] = list(data.keys())[:3]
+            for symbol, contract in chunk:
+                key = contract["key"]
+                q = data.get(key) or data.get(key.replace("|", ":")) or data.get("NSE_FO:"+contract["tradingsymbol"]) or {}
+                if not q:
+                    q = next((v for v in data.values() if isinstance(v,dict) and str(v.get("instrument_token") or v.get("instrument_key") or "") in (key,key.replace("|", ":"))), {})
+                raw_oi = q.get("oi") or q.get("open_interest")
+                try: oi = float(raw_oi)
+                except (TypeError,ValueError): continue
+                if oi <= 0: continue
+                raw_previous = q.get("prev_oi") or q.get("previous_oi") or q.get("previous_open_interest")
+                try: prev = float(raw_previous)
+                except (TypeError,ValueError): prev = 0
+                try: futures_ltp = float(q.get("last_price") or 0)
+                except (ValueError,TypeError): futures_ltp = 0
+                try: futures_prev_close = float(q.get("prev_close") or q.get("prev_close_price") or 0)
+                except (ValueError,TypeError): futures_prev_close = 0
+                if futures_prev_close <= 0:
+                    try:
+                        net = float(q.get("net_change") or 0)
+                        if futures_ltp - net > 0: futures_prev_close = futures_ltp - net
+                    except (ValueError,TypeError): pass
+                result[symbol] = {"oi":oi, "prevOi":prev if prev>0 else None,
+                    "futuresLtp": futures_ltp if futures_ltp>0 else None,
+                    "futuresPrevClose": futures_prev_close if futures_prev_close>0 else None,
+                    "oiPct":round((oi-prev)/prev*100,2) if prev>0 else None,
+                    "oiContract":contract["tradingsymbol"], "oiExpiry":contract["expiry"].isoformat(),
+                    "oiSource":"NSE futures quote"}
+        except (requests.RequestException,ValueError) as exc:
+            app.logger.warning("Futures OI quote failed: %s",type(exc).__name__)
+    # The quote and the previous daily candle MUST refer to the same futures contract.
+    # Preserve futures LTP and the quote's futures previous close where supplied.
+    # Quote endpoints often omit previous OI. Fill from the last completed
+    # daily candle of the SAME futures contract; preserve quoted previous OI if supplied.
+    missing = {sym: contracts[sym] for sym,info in result.items()
+               if (info.get("prevOi") is None or not info.get("futuresPrevClose")) and sym in contracts}
+    if missing:
+        previous = _previous_oi_batch(missing)
+        for sym, history in previous.items():
+            if not history or sym not in result: continue
+            if result[sym].get("prevOi") is None:
+                prev = history["oi"]
+                result[sym]["prevOi"] = prev
+                result[sym]["oiPct"] = round((result[sym]["oi"]-prev)/prev*100, 2)
+                result[sym]["prevOiSource"] = "Previous completed futures daily candle"
+            if not result[sym].get("futuresPrevClose"):
+                result[sym]["futuresPrevClose"] = history["close"]
+            result[sym]["previousSessionDate"] = history["date"]
+    for info in result.values():
+        ltp, previous = info.get("futuresLtp"), info.get("futuresPrevClose")
+        info["futuresPricePct"] = round((ltp-previous)/previous*100, 3) if ltp and previous and previous>0 else None
+        info["buildup"] = calculate_oi_buildup(info["futuresPricePct"],info.get("oiPct"),True,None) if info["futuresPricePct"] is not None else "Unavailable"
+    FUTURES_OI_DIAGNOSTICS["classified_count"] = sum(v.get("buildup") not in ("Unavailable", "Neutral") for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["futures_price_count"] = sum(v.get("futuresPricePct") is not None for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["prev_oi_count"] = sum(v.get("prevOi") is not None for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["oi_count"] = len(result)
+    if FUTURES_OI_DIAGNOSTICS["status"] != "quote_http_error":
+        FUTURES_OI_DIAGNOSTICS["status"] = "ok" if result else ("quote_keys_or_oi_missing" if FUTURES_OI_DIAGNOSTICS["quotes"] else "empty_quote_response")
+    with FUTURES_OI_LOCK:
+        FUTURES_OI_CACHE.update(until=time.time()+(45 if result else 90),values=result)
+    return result
+
 def fetch_live_upstox_quotes(univ_type="FO"):
     global QUOTE_CACHE
     if not UPSTOX_ACCESS_TOKEN or UPSTOX_ACCESS_TOKEN == "YOUR_NEW_TOKEN_HERE":
@@ -521,6 +710,7 @@ def fetch_live_upstox_quotes(univ_type="FO"):
     if time.time() - cache_entry["last_updated"] < 5 and cache_entry["data"]:
         return cache_entry["data"]
 
+    futures_oi = _actual_futures_oi() if univ_key == "FO" else {}
     results, chunk_size = [], 100
     headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
 
@@ -531,7 +721,9 @@ def fetch_live_upstox_quotes(univ_type="FO"):
         try:
             res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": keys_param}, timeout=8)
             if res.status_code == 401: return {"error": "Upstox API Token Expired."}
-            elif res.status_code != 200: return []
+            elif res.status_code != 200:
+                app.logger.warning("Upstox quote request failed: HTTP %s", res.status_code)
+                return []
             quotes_data = res.json().get("data", {})
             for item in chunk:
                 sym, isin_raw = item["symbol"], item["isin"]
@@ -545,8 +737,8 @@ def fetch_live_upstox_quotes(univ_type="FO"):
                 if prev_close == 0.0 and (ltp - net_change) > 0: prev_close = ltp - net_change
                 price_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
                 candle_tag = detect_open_setup(open_p, high_p, low_p)
-                oi, prev_oi = float(q.get("oi") or 0.0), float(q.get("prev_oi") or 0.0)
-                oi_pct = round(((oi - prev_oi) / prev_oi) * 100, 2) if (oi > 0 and prev_oi > 0) else round(abs(price_pct) * 1.25, 2)
+                oi_info = futures_oi.get(sym) or {}
+                oi_pct = oi_info.get("oiPct")
                 vol_spike = volume / average_volume if average_volume > 0 else 1.0
                 
                 delivery_pct = estimate_delivery_percentage(volume, average_volume, price_pct)
@@ -559,7 +751,13 @@ def fetch_live_upstox_quotes(univ_type="FO"):
                 chunk_results.append({
                     "symbol": sym, "name": item["name"], "sector": item.get("sector", "NIFTY 500"),
                     "ltp": ltp, "pricePct": price_pct, "volume": volume, "volMultiplier": round(vol_spike, 2),
-                    "oiPct": oi_pct, "buildup": calculate_oi_buildup(price_pct, oi_pct, item.get("is_fo", True), candle_tag),
+                    "oi": oi_info.get("oi"), "prevOi": oi_info.get("prevOi"),
+                    "oiContract": oi_info.get("oiContract"), "oiExpiry": oi_info.get("oiExpiry"), "prevOiSource": oi_info.get("prevOiSource"),
+                    "oiSource": oi_info.get("oiSource"), "oiPct": oi_pct,
+                    "futuresLtp": oi_info.get("futuresLtp"), "futuresPrevClose": oi_info.get("futuresPrevClose"),
+                    "futuresPricePct": oi_info.get("futuresPricePct"), "previousSessionDate": oi_info.get("previousSessionDate"),
+                    "oiVerified": oi_pct is not None and oi_info.get("futuresPricePct") is not None,
+                    "buildup": oi_info.get("buildup", "Unavailable"),
                     "momentumScore": compute_aggressive_momentum(price_pct, vol_spike, candle_tag),
                     "candleTag": candle_tag, "is_fo": item.get("is_fo", True),
                     "deliveryPct": delivery_pct, "isHeavyDelivery": is_heavy_delivery,
@@ -2616,60 +2814,107 @@ def _pb_reaction(frame,level,name):
     if abs(float(b.close)-level)/level<=.005:return 'Near '+name
     return 'Above '+name if b.close>level else 'Below '+name
 
-def _pb_scan_stock(item,tf,market,sector):
-    sector_name=item.get('sector')
-    if sector_name not in sector:return None, 'sector_unavailable'
-    sf=sector[sector_name]
-    if sf['trend']==0 or (market != 0 and sf['trend']!=market):return None, 'market_sector_mismatch'
-    f=_pb_frame(_pb_candles(item['isin'],tf),tf)
-    if len(f)<21:return None, 'insufficient_stock_candles'
-    c=f.close
-    e9=c.ewm(span=9,adjust=False).mean(); e20=c.ewm(span=20,adjust=False).mean()
-    vw=(((f.high+f.low+f.close)/3)*f.volume).cumsum()/f.volume.cumsum().replace(0,np.nan)
-    if not np.isfinite(vw.iloc[-1]):return None, 'stock_vwap_unavailable'
-    trend=_pb_trend(f)
-    if trend==0 or (market != 0 and trend!=market) or trend!=sf['trend']:return None, 'stock_trend_mismatch'
-    # Require actual VWAP test and rejection in recent completed candles, not just proximity.
-    found=None
-    for i in range(max(20,len(f)-5),len(f)):
-        b=f.iloc[i]; v=float(vw.iloc[i]); close=float(b.close)
-        near=(float(b.low)<=v*1.002 and float(b.high)>=v*.998)
-        if not near:continue
-        if trend==1 and close>v and close>b.open and e9.iloc[i]>=e20.iloc[i]:found=i
-        if trend==-1 and close<v and close<b.open and e9.iloc[i]<=e20.iloc[i]:found=i
-    if found is None:return None, 'no_confirmed_vwap_retest'
-    pb=f.iloc[found]
-    # Signal WATCH immediately after a completed VWAP rejection candle; trigger only on a later candle.
-    later=f.iloc[found+1:]
-    triggered=bool(len(later) and (float(later.high.max())>float(pb.high) if trend==1 else float(later.low.min())<float(pb.low)))
-    levels=_pb_daily_levels(item['isin'])
-    if not levels:return None, 'daily_levels_unavailable'
-    p=float(f.close.iloc[-1]); pdh=levels['pdh'];pdl=levels['pdl'];ema=levels['ema20']
-    change=(p/float(f.open.iloc[0])-1)*100
-    if (trend==1 and change<=0) or (trend==-1 and change>=0):return None, 'daily_direction_mismatch'
-    # Relative sector strength: sector must be directional AND outperform market in that direction.
-    if market != 0 and ((trend==1 and sf['change']<=sf['market_change']) or (trend==-1 and sf['change']>=sf['market_change'])):return None, 'sector_relative_strength'
-    vratio=float(f.volume.iloc[-1]/max(1,f.volume.iloc[-min(len(f),12):-1].mean()))
-    momentum='Strong' if abs(change)>=.7 and vratio>=1.2 else 'Moderate'
-    return {'symbol':item['symbol'],'sector':sector_name,'direction':'Bullish' if trend==1 else 'Bearish',
-      'state':'TRIGGERED' if triggered else 'WATCH','time':pb.ts.strftime('%I:%M %p'),
-      'momentum':momentum,'vwap':'Support' if trend==1 else 'Resistance',
-      'sectorChange':round(sf['change'],2),'marketChange':round(sf['market_change'],2),
-      'dailyEma20':round(ema,2),'emaReaction':_pb_reaction(f,ema,'EMA20'),
-      'pdh':round(pdh,2),'pdl':round(pdl,2),'pdhStatus':_pb_reaction(f,pdh,'PDH'),
-      'pdlStatus':_pb_reaction(f,pdl,'PDL'),'ltp':round(p,2),'volumeRatio':round(vratio,2)}, 'qualified'
+def _pb_scan_stock(item, tf, market, sector):
+    """Completed-candle swing/candle pullbacks, no mandatory VWAP or sector gate."""
+    f = _pb_frame(_pb_candles(item['isin'], tf), tf)
+    if len(f) < 22:
+        return None, 'insufficient_stock_candles'
+    c = f.close.astype(float)
+    e9 = c.ewm(span=9, adjust=False).mean()
+    e20 = c.ewm(span=20, adjust=False).mean()
+    vol = f.volume.astype(float)
+    vw = (((f.high + f.low + f.close) / 3) * vol).cumsum() / vol.cumsum().replace(0, np.nan)
+    sector_name = item.get('sector', 'General')
+    sf = sector.get(sector_name, {})
+    results = []
+    # Check recent COMPLETED candles, including setups waiting for confirmation.
+    for direction in (1, -1):
+        # EMA alignment and EMA20 slope establish the prevailing intraday trend.
+        if direction == 1 and not (e9.iloc[-1] > e20.iloc[-1] and e20.iloc[-1] > e20.iloc[-5]):
+            continue
+        if direction == -1 and not (e9.iloc[-1] < e20.iloc[-1] and e20.iloc[-1] < e20.iloc[-5]):
+            continue
+        for setup_end in range(max(12, len(f)-5), len(f)):
+            # A setup can be 1-3 opposite candles, after a directional impulse.
+            for count in (1, 2, 3):
+                start = setup_end - count + 1
+                if start < 8: continue
+                pull = f.iloc[start:setup_end+1]
+                before = f.iloc[max(0,start-5):start]
+                if len(before) < 3: continue
+                opposite = all((float(r.close) < float(r.open) if direction == 1 else float(r.close) > float(r.open)) for _,r in pull.iterrows())
+                impulse = float(before.close.iloc[-1]) - float(before.close.iloc[0])
+                if not opposite or impulse*direction <= 0: continue
+                # The pullback should retrace, not break down the trend structure.
+                if direction == 1:
+                    if float(pull.low.min()) < float(e20.iloc[start:setup_end+1].min()) * .993: continue
+                    if float(pull.close.iloc[-1]) >= float(before.close.iloc[-1]): continue
+                else:
+                    if float(pull.high.max()) > float(e20.iloc[start:setup_end+1].max()) * 1.007: continue
+                    if float(pull.close.iloc[-1]) <= float(before.close.iloc[-1]): continue
+                # Confirmed swing pivot from past candles ONLY (2 left, 2 right).
+                pivots = []
+                for j in range(2, start-2):
+                    if direction == 1 and float(f.low.iloc[j]) <= float(f.low.iloc[j-2:j+3].min()):
+                        pivots.append((j, float(f.low.iloc[j])))
+                    if direction == -1 and float(f.high.iloc[j]) >= float(f.high.iloc[j-2:j+3].max()):
+                        pivots.append((j, float(f.high.iloc[j])))
+                swing = False
+                if pivots:
+                    pivot = pivots[-1][1]
+                    low = float(pull.low.min()); high = float(pull.high.max())
+                    swing = (low >= pivot*.997 and low <= pivot*1.008) if direction == 1 else (high <= pivot*1.003 and high >= pivot*.992)
+                # Candle pullback is independently valid; swing proximity adds a second type.
+                trigger = float(pull.high.max()) if direction == 1 else float(pull.low.min())
+                later = f.iloc[setup_end+1:]
+                if len(later):
+                    triggered = bool((later.high.astype(float)>trigger).any() if direction == 1 else (later.low.astype(float)<trigger).any())
+                else:
+                    triggered = False
+                # Discard invalidated setups even if they triggered earlier.
+                if len(later) and ((later.low.astype(float)<float(pull.low.min())*.997).any() if direction == 1 else (later.high.astype(float)>float(pull.high.max())*1.003).any()):
+                    continue
+                last = float(c.iloc[-1]); base = float(f.open.iloc[0]); change = (last/base-1)*100 if base else 0
+                vratio = float(vol.iloc[-1]/max(1,vol.iloc[max(0,len(f)-12):-1].mean()))
+                sector_trend = sf.get('trend',0)
+                alignment = ('Aligned' if sector_trend == direction and (market in (0,direction)) else
+                             'Mixed' if sector_trend and market else 'Unavailable')
+                vwap_value = float(vw.iloc[-1]) if np.isfinite(vw.iloc[-1]) else None
+                vwap_status = ('Above VWAP' if last >= vwap_value else 'Below VWAP') if vwap_value is not None else 'Unavailable'
+                momentum = 'Strong' if vratio>=1.2 and abs(change)>=.5 else 'Moderate'
+                levels = None  # Daily levels are optional, not a qualification gate.
+                result = {'symbol':item['symbol'],'sector':sector_name,
+                    'direction':'Bullish' if direction==1 else 'Bearish',
+                    'state':'TRIGGERED' if triggered else 'WATCH',
+                    'time':pull.ts.iloc[-1].strftime('%I:%M %p'),
+                    'momentum':momentum,'vwap':vwap_status,
+                    'sectorChange':round(sf.get('change',0),2) if sf else None,
+                    'marketChange':round(sf.get('market_change',0),2) if sf else None,
+                    'dailyEma20':None,'emaReaction':'Optional',
+                    'pdh':None,'pdl':None,'pdhStatus':'Optional','pdlStatus':'Optional',
+                    'ltp':round(last,2),'volumeRatio':round(vratio,2),
+                    'pattern':'Swing Pullback' if swing else 'Candle Pullback',
+                    'alignment':alignment,'pullbackCandles':count,
+                    'triggerPrice':round(trigger,2),
+                    'setupBar':setup_end}
+                results.append(result)
+    if not results: return None, 'no_valid_pullback'
+    # Most recent setup; prefer confirmed swing structure when recency ties.
+    results.sort(key=lambda r:(r['setupBar'],r['pattern']=='Swing Pullback',r['state']=='TRIGGERED'),reverse=True)
+    chosen=results[0]
+    chosen.pop('setupBar',None)
+    return chosen, 'qualified'
 
 def _pb_worker(tf):
     key=str(tf)
     try:
         # A true sector index is mandatory; never substitute a custom bucket's average.
         with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Loading NIFTY 50 index'
-        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf,diagnostic=True),tf)
-        if len(market_f) < 8:
-            raise ValueError('NIFTY 50 intraday candles unavailable or insufficient (need at least 8 completed candles today). Check Upstox data and market hours.')
+        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf),tf)
+        # Index feed is optional confluence; never block stock pattern scanning.
         market=_pb_index_trend(market_f)
         # Sideways (0) is valid: scan both directions with matching sector and stock trends.
-        market_change=(float(market_f.close.iloc[-1])/float(market_f.open.iloc[0])-1)*100
+        market_change=(float(market_f.close.iloc[-1])/float(market_f.open.iloc[0])-1)*100 if len(market_f) else 0
         sectors={}
         sector_diagnostics=[]
         with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Checking sector indices'
@@ -2686,8 +2931,6 @@ def _pb_worker(tf):
         with PULLBACK_LOCK:
             PULLBACK_JOBS[key]['stage']='Scanning eligible stocks'
             PULLBACK_JOBS[key]['total']=len(universe)
-        if not sectors:
-            raise ValueError('No directional sector indices available. ' + '; '.join(sector_diagnostics[:8]) + '. Check Upstox index instrument keys and candle data.')
         if not universe: raise ValueError('FO universe is empty. Check instrument loading.')
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             futures={pool.submit(_pb_scan_stock,s,tf,market,sectors):s for s in universe}
@@ -2849,6 +3092,23 @@ def stock_news():
     return jsonify(status="success", provider="Upstox", symbol=symbol,
                    count=len(items), news=items)
 
+@app.route("/api/oi-status", methods=["GET"])
+def oi_status():
+    user = current_user()
+    if not user: return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user): return jsonify(status="error", message="Active subscription required"), 403
+    if request.args.get("refresh") == "1":
+        with FUTURES_OI_LOCK:
+            FUTURES_MAP_CACHE["until"] = 0
+            FUTURES_OI_CACHE["until"] = 0
+    values = _actual_futures_oi()
+    return jsonify(status="success", diagnostic=dict(FUTURES_OI_DIAGNOSTICS),
+                   samples=[{"symbol":k, "contract":v.get("oiContract"), "oi":v.get("oi"),
+                             "prevOi":v.get("prevOi"), "oiPct":v.get("oiPct"),
+                             "futuresLtp":v.get("futuresLtp"), "futuresPrevClose":v.get("futuresPrevClose"),
+                             "futuresPricePct":v.get("futuresPricePct"), "buildup":v.get("buildup"),
+                             "previousSessionDate":v.get("previousSessionDate")} for k,v in list(values.items())[:5]])
+
 @app.route("/api/screener", methods=["GET"])
 def screener():
     filter_val, search_val, univ_type = request.args.get("filter", "ALL"), request.args.get("search", "").strip().lower(), request.args.get("universe", "FO").upper()
@@ -2889,7 +3149,7 @@ def get_sectors():
 
 # Market pulse: Upstox index quotes and optional Brent feed.
 # Brent uses an unofficial delayed/indicative Yahoo Finance futures endpoint; not an exchange live feed.
-_MARKET_PULSE_CACHE = {"at": 0.0, "payload": None}
+_MARKET_PULSE_CACHE = {"at": 0.0, "payload": None, "retry_after": 0.0}
 _BRENT_OBSERVATIONS = []
 
 @app.route('/api/market-pulse', methods=['GET'])
@@ -2899,12 +3159,12 @@ def market_pulse():
     if not active_subscription(current_user()):
         return jsonify({"status": "error", "message": "Active subscription required"}), 403
     now = time.time()
-    if _MARKET_PULSE_CACHE['payload'] is not None and now - _MARKET_PULSE_CACHE['at'] < 5:
+    if _MARKET_PULSE_CACHE['payload'] is not None and (now - _MARKET_PULSE_CACHE['at'] < 60 or now < _MARKET_PULSE_CACHE['retry_after']):
         return jsonify(_MARKET_PULSE_CACHE['payload'])
     index_keys = ["NSE_INDEX|Nifty 50", "NSE_INDEX|Nifty Bank", "BSE_INDEX|SENSEX"]
     names = ["NIFTY 50", "BANK NIFTY", "SENSEX"]
     charts = ["NSE:NIFTY", "NSE:BANKNIFTY", "BSE:SENSEX"]
-    result = []
+    result = [{'symbol':name,'price':None,'change':None,'percent':None,'chart':chart,'currency':'INR','source':'Upstox','available':False} for name,chart in zip(names,charts)]
     try:
         r = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
             headers={'Accept':'application/json','Authorization':f'Bearer {UPSTOX_ACCESS_TOKEN}'},
@@ -2921,10 +3181,12 @@ def market_pulse():
             if ltp <= 0: continue
             change = float(quote.get('net_change') or 0)
             prev = float(quote.get('prev_close') or ltp-change)
-            result.append({'symbol':name,'price':round(ltp,2),'change':round(change,2),
+            result[names.index(name)] = {'symbol':name,'price':round(ltp,2),'change':round(change,2),
                 'percent':round(100*change/prev,2) if prev else None,
-                'chart':chart,'currency':'INR','source':'Upstox'})
+                'chart':chart,'currency':'INR','source':'Upstox','available':True}
     except Exception as exc:
+        if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 429:
+            _MARKET_PULSE_CACHE['retry_after'] = now + 180
         app.logger.warning('Market pulse indices unavailable: %s', str(exc)[:180])
 
     brent = {'symbol':'BRENT CRUDE','price':None,'change':None,'percent':None,
@@ -2966,7 +3228,7 @@ def market_pulse():
         app.logger.info('Brent quote unavailable: %s', str(exc)[:160])
     result.append(brent)
     payload={'status':'success','data':result,'asOf':datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(),
-             'refreshSeconds':5}
+             'refreshSeconds':60}
     _MARKET_PULSE_CACHE.update(at=now,payload=payload)
     return jsonify(payload)
 
@@ -3030,4 +3292,93 @@ if __name__ == "__main__":
         start_zone_precompute()
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+
+
+
+# StockFinder Pro: verified index overview, independent of the FO screener universe.
+_INDEX_OVERVIEW_CACHE = {}
+_INDEX_CONSTITUENTS = {
+    'NIFTY 50': ('NSE_INDEX|Nifty 50', 'https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv', 50),
+    'BANK NIFTY': ('NSE_INDEX|Nifty Bank', 'https://nsearchives.nseindia.com/content/indices/ind_niftybanklist.csv', None),
+    'SENSEX': ('BSE_INDEX|SENSEX', None, 30),
+}
+
+@app.route('/api/index-overview', methods=['GET'])
+def index_overview():
+    user = current_user()
+    if not user:
+        return jsonify(status='error', message='Login required'), 401
+    if not active_subscription(user):
+        return jsonify(status='error', message='Active subscription required'), 403
+    name = request.args.get('index', 'NIFTY 50').upper().strip()
+    if name not in _INDEX_CONSTITUENTS:
+        return jsonify(status='error', message='Unsupported index'), 400
+    cached = _INDEX_OVERVIEW_CACHE.get(name)
+    if cached and time.time() - cached[0] < 30:
+        return jsonify(cached[1])
+    instrument, csv_url, expected = _INDEX_CONSTITUENTS[name]
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {UPSTOX_ACCESS_TOKEN}'}
+    try:
+        response = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+            headers=headers, params={'instrument_key': instrument}, timeout=8)
+        response.raise_for_status()
+        quotes = response.json().get('data') or {}
+        quote = quotes.get(instrument) or quotes.get(instrument.replace('|', ':'))
+        if not quote:
+            quote = next((q for q in quotes.values() if isinstance(q,dict)
+                          and q.get('instrument_token') == instrument), None)
+        if not quote:
+            raise ValueError('Index quote missing')
+        price = float(quote.get('last_price') or 0)
+        if price <= 0:
+            raise ValueError('Invalid index price')
+        change = float(quote.get('net_change') or 0)
+        prev = float(quote.get('prev_close') or quote.get('prev_close_price') or price-change)
+        percent = (100 * change / prev) if prev > 0 else None
+    except Exception as exc:
+        app.logger.warning('Index overview quote unavailable: %s', str(exc)[:150])
+        return jsonify(status='error', message='Index quote unavailable'), 503
+    breadth = {'complete': False, 'message': 'Verified index constituent quotes unavailable'}
+    if csv_url:
+        try:
+            csv_response = HTTP_SESSION.get(csv_url,
+                headers={'User-Agent':'Mozilla/5.0','Accept':'text/csv',
+                         'Referer':'https://www.nseindia.com/'}, timeout=8)
+            csv_response.raise_for_status()
+            rows = list(csv.DictReader(io.StringIO(csv_response.text)))
+            symbols = [str(row.get('Symbol') or '').strip() for row in rows]
+            symbols = list(dict.fromkeys(s for s in symbols if s))
+            inst_map = load_all_upstox_instruments()
+            if expected and len(symbols) != expected:
+                raise ValueError('Unexpected constituent count')
+            if not symbols or any(s not in inst_map for s in symbols):
+                raise ValueError('Incomplete constituent instrument mapping')
+            keys = [inst_map[s]['inst_key'] for s in symbols]
+            advances = declines = unchanged = 0
+            for offset in range(0, len(keys), 100):
+                batch = keys[offset:offset+100]
+                r = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+                    headers=headers, params={'instrument_key':','.join(batch)}, timeout=8)
+                r.raise_for_status()
+                data = r.json().get('data') or {}
+                for symbol, key in zip(symbols[offset:offset+100], batch):
+                    q = data.get(key) or data.get(key.replace('|', ':')) or data.get('NSE_EQ:'+symbol)
+                    if not q:
+                        raise ValueError('Missing constituent quote')
+                    last = float(q.get('last_price') or 0)
+                    prior = float(q.get('prev_close') or q.get('prev_close_price') or (last-float(q.get('net_change') or 0)))
+                    if last <= 0 or prior <= 0:
+                        raise ValueError('Invalid constituent price')
+                    if last > prior: advances += 1
+                    elif last < prior: declines += 1
+                    else: unchanged += 1
+            breadth = {'complete':True,'total':len(symbols),'advances':advances,
+                       'declines':declines,'unchanged':unchanged}
+        except Exception as exc:
+            app.logger.info('Index constituent breadth unavailable for %s: %s',name,str(exc)[:150])
+    payload = {'status':'success','index':name,'price':round(price,2),
+               'change':round(change,2),'percent':round(percent,2) if percent is not None else None,
+               'breadth':breadth,'asOf':datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()}
+    _INDEX_OVERVIEW_CACHE[name] = (time.time(),payload)
+    return jsonify(payload)
 

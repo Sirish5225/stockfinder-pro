@@ -1,2456 +1,3392 @@
-<!DOCTYPE html>
+import os
+import re
+import secrets
+import json
+import hmac
+import hashlib
+import calendar
+from flask import abort
+import time
+from datetime import datetime, date, timedelta, timezone
+import pytz
+import csv
+import io
+import gzip
+import urllib.request
+import urllib.parse
+import random
+import threading
+import concurrent.futures
+from collections import defaultdict
+import numpy as np
+import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, url_for, session
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+CORS(app)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "9f31b85adc90a103684b3c46ac83610a28f9a7b0a99d92bf2c0872e84e8591fe")
+if not app.secret_key:
+    raise RuntimeError("Set FLASK_SECRET_KEY in your environment before starting StockFinder Pro")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = bool(os.getenv('RENDER'))
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
+
+# Absolute Path Fix for SQLite Database to prevent 'no such table' errors
+basedir = os.path.abspath(os.path.dirname(__file__))
+db_path = os.getenv('DATABASE_PATH', os.path.join(basedir, 'users.db'))
+database_url = os.getenv('DATABASE_URL', '').strip()
+if database_url.startswith('postgres://'):
+    database_url = 'postgresql://' + database_url[len('postgres://'):]
+if os.getenv('RENDER') and not database_url and not os.getenv('DATABASE_PATH'):
+    raise RuntimeError('Configure a persistent DATABASE_URL on Render; ephemeral SQLite loses user accounts and subscriptions')
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or ('sqlite:///' + db_path)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+app.logger.warning(
+    "ACTIVE DATABASE TYPE: %s",
+    app.config["SQLALCHEMY_DATABASE_URI"].split(":", 1)[0]
+)
+if not database_url and os.getenv('RENDER'):
+    app.logger.warning('SQLite on Render ephemeral storage can lose accounts on restart. Configure persistent DATABASE_URL (PostgreSQL).')
+
+# User Database Model with Robust Constraints
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    watchlist = db.Column(db.Text, default="")
+    reset_otp = db.Column(db.String(6), nullable=True)
+    otp_expiry = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class DeviceLogin(db.Model):
+    __tablename__ = 'device_login'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked = db.Column(db.Boolean, nullable=False, default=False)
+
+
+def establish_device_login(user):
+    # Every browser/device gets its own independent, revocable login token.
+    session.clear()
+    session.permanent = True
+    token = secrets.token_urlsafe(32)
+    record = DeviceLogin(user_id=user.id,
+                         token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                         expires_at=datetime.utcnow() + timedelta(days=30))
+    db.session.add(record)
+    db.session.commit()
+    session['user'] = user.email
+    session['device_token'] = token
+
+
+def revoke_device_login():
+    token = session.get('device_token')
+    if token:
+        record = DeviceLogin.query.filter_by(token_hash=hashlib.sha256(token.encode()).hexdigest()).first()
+        if record:
+            record.revoked = True
+            db.session.commit()
+    session.clear()
+
+class Payment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    order_id = db.Column(db.String(100), unique=True, nullable=False)
+    payment_id = db.Column(db.String(100), unique=True, nullable=True)
+    plan = db.Column(db.String(20), nullable=False)
+    amount_paise = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default='created', nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class HistoricalCandleStore(db.Model):
+    __tablename__ = 'historical_candle_store'
+    cache_key = db.Column(db.String(180), primary_key=True)
+    candles_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+class ZoneResultStore(db.Model):
+    __tablename__ = 'zone_result_store'
+    cache_key = db.Column(db.String(100), primary_key=True)
+    zones_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+class Subscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    plan = db.Column(db.String(20), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+class UserPreference(db.Model):
+    __tablename__ = 'user_preference'
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+    universe = db.Column(db.String(20), nullable=False, default='FO')
+    timeframe = db.Column(db.String(20), nullable=False, default='day')
+    zone_filter = db.Column(db.String(20), nullable=False, default='all')
+    expiry_reminders = db.Column(db.Boolean, nullable=False, default=True)
+
+PLAN_DETAILS = {'monthly': (49900, 1), 'quarterly': (119900, 3),
+                'halfyearly': (249900, 6), 'yearly': (499900, 12)}
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', 'rzp_test_U19SAifu5yCSpA').strip()
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', 'BgsOKO8Ts1NBBUBbE8lUs9Ap').strip()
+
+def current_user():
+    email = session.get('user')
+    token = session.get('device_token')
+    if not email or not token:
+        return None
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return None
+    record = DeviceLogin.query.filter_by(
+        user_id=user.id, token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        revoked=False).first()
+    if not record or record.expires_at <= datetime.utcnow():
+        return None
+    return user
+
+def is_admin(user):
+    """Admin access requires a validated device login and configured account."""
+    if user is None:
+        return False
+    admin_email = os.getenv('STOCKFINDER_ADMIN_EMAIL', '').strip().lower()
+    return bool(admin_email and user.email.strip().lower() == admin_email)
+
+
+def active_subscription(user):
+    if not user:
+        return False
+    # Personal administrator has lifetime access, without creating a fake paid subscription.
+    if is_admin(user):
+        return True
+
+    # Opt-in development bypass: only for requests originating from and addressed
+    # to the local machine. Never enable LOCAL_DEV_SUBSCRIPTION on a hosted service.
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    if (os.getenv("LOCAL_DEV_SUBSCRIPTION", "0") == "1"
+            and request.remote_addr in {"127.0.0.1", "::1"}
+            and request.host.split(":")[0].strip("[]").lower() in local_hosts):
+        return True
+
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    return bool(sub and sub.expires_at > datetime.utcnow())
+
+def add_months(start, months):
+    year = start.year + (start.month - 1 + months) // 12
+    month = (start.month - 1 + months) % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return start.replace(year=year, month=month, day=day)
+
+# Explicit Application Context with Guaranteed Table Creation
+with app.app_context():
+    try:
+        db.create_all()
+        print("✅ Database tables created and verified successfully at:", db_path)
+    except Exception as e:
+        print(f"⚠️ Database initialization error: {e}")
+
+# Persistent HTTP Session Pool to prevent Windows Socket crashes
+HTTP_SESSION = requests.Session()
+adapter = HTTPAdapter(
+    pool_connections=50,
+    pool_maxsize=50,
+    max_retries=Retry(total=3, backoff_factor=0.2, status_forcelist=[502, 503, 504])
+)
+HTTP_SESSION.mount("https://", adapter)
+HTTP_SESSION.mount("http://", adapter)
+
+UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJDTDgwMDQiLCJqdGkiOiI2YTZlZGU0YTdkMDdkYzI0NTcxY2IwNjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlzRXh0ZW5kZWQiOnRydWUsImlhdCI6MTc4NTY1MDc2MiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxODE3MjQ0MDAwfQ.QevX5BwRdiDzZNmuSc0CGqDZcN5VP1qK6GXbvziEAik").strip()
+
+QUOTE_CACHE = {
+    "FO": {"data": [], "last_updated": 0},
+    "NIFTY500": {"data": [], "last_updated": 0},
+    "MIDCAP": {"data": [], "last_updated": 0},
+    "SMALLCAP": {"data": [], "last_updated": 0},
+    "TOTALMARKET": {"data": [], "last_updated": 0}
+}
+ZONE_CACHE = {
+    "FO": {"last_updated": {}},
+    "NIFTY500": {"last_updated": {}},
+    "MIDCAP": {"last_updated": {}},
+    "SMALLCAP": {"last_updated": {}},
+    "TOTALMARKET": {"last_updated": {}}
+}
+CANDLE_CACHE = {}
+CANDLE_CACHE_LOCK = threading.RLock()
+ZONE_CACHE_LOCK = threading.RLock()
+
+MIDCAP_UNIVERSE_CACHE = []
+SMALLCAP_UNIVERSE_CACHE = []
+TOTAL_MARKET_UNIVERSE_CACHE = []
+SMART_ORB_SIGNALS = []
+
+MARKET_INDICES = [
+    {"symbol": "NIFTY 50", "isin": "NSE_INDEX|Nifty 50"},
+    {"symbol": "NIFTY BANK", "isin": "NSE_INDEX|Nifty Bank"},
+    {"symbol": "SENSEX", "isin": "BSE_INDEX|SENSEX"},
+    {"symbol": "NIFTY FIN SERVICE", "isin": "NSE_INDEX|Nifty Financial Services"},
+    {"symbol": "NIFTY IT", "isin": "NSE_INDEX|Nifty IT"}
+]
+
+TARGET_FO_SYMBOLS = {
+    "AUBANK": "Nifty Bank", "AXISBANK": "Nifty Bank", "BANDHANBNK": "Nifty Bank", "BANKBARODA": "Nifty Bank",
+    "BANKINDIA": "Nifty Bank", "MAHABANK": "Nifty Bank", "CANBK": "Nifty Bank", "FEDERALBNK": "Nifty Bank",
+    "HDFCBANK": "Nifty Bank", "ICICIBANK": "Nifty Bank", "IDFCFIRSTB": "Nifty Bank", "INDIANB": "Nifty Bank",
+    "INDUSINDBK": "Nifty Bank", "KOTAKBANK": "Nifty Bank", "PNB": "Nifty Bank", "RBLBANK": "Nifty Bank",
+    "SBIN": "Nifty Bank", "UNIONBANK": "Nifty Bank", "YESBANK": "Nifty Bank",
+    "COFORGE": "Nifty IT", "HCLTECH": "Nifty IT", "INFY": "Nifty IT", "KPITTECH": "Nifty IT",
+    "LTM": "Nifty IT", "CAMS": "Nifty IT", "MPHASIS": "Nifty IT", "OFSS": "Nifty IT","PERSISTENT": "Nifty IT", "TCS": "Nifty IT",
+    "TECHM": "Nifty IT", "WIPRO": "Nifty IT",
+    "ASHOKLEY": "Nifty Auto", "BAJAJ AUTO": "Nifty Auto", "BALKRISIND": "Nifty Auto", "BOSCHLTD": "Nifty Auto",
+    "EICHERMOT": "Nifty Auto", "FORCEMOT": "Nifty Auto", "HEROMOTOCO": "Nifty Auto", "HYUNDAI": "Nifty Auto",
+    "M&M": "Nifty Auto", "MARUTI": "Nifty Auto", "MOTHERSON": "Nifty Auto", "SONACOMS": "Nifty Auto",
+    "TATAMOTORS": "Nifty Auto", "TMPVL": "Nifty Auto", "TIINDIA": "Nifty Auto", "TVSMOTOR": "Nifty Auto",
+    "UNOMINDA": "Nifty Auto",
+    "ALKEM": "Nifty Pharma", "PPLPHARMA": "Nifty Pharma", "APOLLOHOSP": "Nifty Pharma", "AUROPHARMA": "Nifty Pharma", "BIOCON": "Nifty Pharma",
+    "CIPLA": "Nifty Pharma", "DIVISLAB": "Nifty Pharma", "DRREDDY": "Nifty Pharma", "FORTIS": "Nifty Pharma",
+    "GLENMARK": "Nifty Pharma", "LAURUSLABS": "Nifty Pharma", "LUPIN": "Nifty Pharma", "MANKIND": "Nifty Pharma",
+    "MAXHEALTH": "Nifty Pharma", "SUNPHARMA": "Nifty Pharma", "TORNTPHARM": "Nifty Pharma", "ZYDUSLIFE": "Nifty Pharma",
+    "HINDALCO": "Nifty Metal", "HINDZINC": "Nifty Metal", "JINDALSTEL": "Nifty Metal",
+    "JSWSTEEL": "Nifty Metal", "NATIONALUM": "Nifty Metal", "NMDC": "Nifty Metal", "SAIL": "Nifty Metal",
+    "TATASTEEL": "Nifty Metal", "VEDL": "Nifty Metal", "APLAPOLLO": "Nifty Metal",
+    "COALINDIA": "Nifty Energy", "ADANIENSOL": "Nifty Energy", "ADANIGREEN": "Nifty Energy", "ADANIPOWER": "Nifty Energy", "BPCL": "Nifty Energy",
+    "BHEL": "Nifty Energy", "CGPOWER": "Nifty Energy", "GAIL": "Nifty Energy", "GET&D": "Nifty Energy",
+    "HINDPETRO": "Nifty Energy", "IEX": "Nifty Energy", "IOC": "Nifty Energy", "IREDA": "Nifty Energy",
+    "JSWENERGY": "Nifty Energy", "NHPC": "Nifty Energy", "NTPC": "Nifty Energy", "ONGC": "Nifty Energy",
+    "OIL": "Nifty Energy", "POWERGRID": "Nifty Energy", "PREMIERENE": "Nifty Energy", "RELIANCE": "Nifty Energy",
+    "SUZLON": "Nifty Energy", "TATAPOWER": "Nifty Energy", "WAAREEENER": "Nifty Energy", "INOXWIND": "Nifty Energy",
+    "PETRONET": "Nifty Energy", "POWERINDIA": "Nifty Energy",
+    "360ONE": "Fin Service", "ABCAPITAL": "Fin Service", "ANGELONE": "Fin Service", "BAJFINANCE": "Fin Service",
+    "BAJAJFINSV": "Fin Service", "BAJAJHLDNG": "Fin Service", "BSE": "Fin Service", 
+    "CDSL": "Fin Service", "CHOLAFIN": "Fin Service", "HDFCAMC": "Fin Service", "HDFCLIFE": "Fin Service",
+    "ICICIGI": "Fin Service", "ICICIPRULI": "Fin Service", "IRFC": "Fin Service", "JIOFIN": "Fin Service",
+    "KFINTECH": "Fin Service", "LICI": "Fin Service", "LTF": "Fin Service", "LICHSGFIN": "Fin Service",
+    "MANAPPURAM": "Fin Service", "MFSL": "Fin Service", "MOTILALOFS": "Fin Service", "MCX": "Fin Service",
+    "MUTHOOTFIN": "Fin Service", "NAM-INDIA": "Fin Service", "PAYTM": "Fin Service", "POLICYBZR": "Fin Service",
+    "PNBHOUSING": "Fin Service", "PFC": "Fin Service", "RECLTD": "Fin Service", "SBICARD": "Fin Service",
+    "SBILIFE": "Fin Service", "SHRIRAMFIN": "Fin Service","BRITANNIA": "Nifty FMCG", "COLPAL": "Nifty FMCG", "DABUR": "Nifty FMCG", "DMART": "Nifty FMCG",
+    "GODFRYPHLP": "Nifty FMCG", "GODREJCP": "Nifty FMCG", "HINDUNILVR": "Nifty FMCG", "ITC": "Nifty FMCG",
+    "JUBLFOOD": "Nifty FMCG", "MARICO": "Nifty FMCG", "NESTLEIND": "Nifty FMCG", "NYKAA": "Nifty FMCG",
+    "PATANJALI": "Nifty FMCG", "RADICO": "Nifty FMCG", "SWIGGY": "Nifty FMCG", "TATACONSUM": "Nifty FMCG",
+    "TRENT": "Nifty FMCG", "UNITDSPR": "Nifty FMCG", "VBL": "Nifty FMCG", "VISHAL": "Nifty FMCG",
+    "KALYANKJIL": "Nifty FMCG", "TITAN": "Nifty FMCG", 
+    "ADANIPORTS": "Realty & Infra", "DLF": "Realty & Infra", "GMRINFRA": "Realty & Infra", "GODREJPROP": "Realty & Infra",
+    "LODHA": "Realty & Infra", "NBCC": "Realty & Infra", "OBEROIRLTY": "Realty & Infra", "PHOENIXLTD": "Realty & Infra",
+    "PRESTIGE": "Realty & Infra", "RVNL": "Realty & Infra",
+    "AMBUJACEM": "Cement & Chem", "GRASIM": "Cement & Chem", "SHREECEM": "Cement & Chem", "ULTRACEMCO": "Cement & Chem",
+    "PIIND": "Cement & Chem", "SRF": "Cement & Chem", "UPL": "Cement & Chem",
+    "ABB": "Cap Goods & Def", "ADANIENT": "Cap Goods & Def", "AMBER": "Cap Goods & Def", "ASTRAL": "Cap Goods & Def",
+    "BDL": "Cap Goods & Def", "BEL": "Cap Goods & Def", "BHARATFORG": "Cap Goods & Def", "BLUESTARCO": "Cap Goods & Def",
+    "COCHINSHIP": "Cap Goods & Def", "CROMPTON": "Cap Goods & Def", "CUMMINSIND": "Cap Goods & Def",
+    "DIXON": "Cap Goods & Def", "HAL": "Cap Goods & Def", "HAVELLS": "Cap Goods & Def", "HITACHI": "Cap Goods & Def",
+    "KAYNES": "Cap Goods & Def", "KEI": "Cap Goods & Def", "LT": "Cap Goods & Def", "MAZDOCK": "Cap Goods & Def",
+    "PGEL": "Cap Goods & Def", "PIDILITIND": "Cap Goods & Def", "POLYCAB": "Cap Goods & Def", "SIEMENS": "Cap Goods & Def",
+    "SOLARINDS": "Cap Goods & Def", "SUPREMEIND": "Cap Goods & Def", "VOLTAS": "Cap Goods & Def",
+    "ATHER": "Telecom & Logistics", "BHARTIARTL": "Telecom & Logistics", "CONCOR": "Telecom & Logistics",
+    "DELHIVERY": "Telecom & Logistics", "ETERNAL": "Telecom & Logistics", "IDEA": "Telecom & Logistics",
+    "INDIGO": "Telecom & Logistics", "INDUSTOWER": "Telecom & Logistics", "NAUKRI": "Telecom & Logistics",
+    "PAGEIND": "Telecom & Logistics", "SAGILITY": "Telecom & Logistics", "INDHOTEL": "Telecom & Logistics"
+}
+
+ALL_NSE_EQ_MAP = {}
+
+def load_all_upstox_instruments():
+    global ALL_NSE_EQ_MAP
+    if ALL_NSE_EQ_MAP: return ALL_NSE_EQ_MAP
+    url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            with gzip.open(response, 'rt', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) < 4: continue
+                    inst_key, symbol, name = row[0].strip(), row[2].strip(), row[3].strip()
+                    if inst_key.startswith("NSE_EQ|") and symbol not in ALL_NSE_EQ_MAP:
+                        ALL_NSE_EQ_MAP[symbol] = {"inst_key": inst_key, "name": name}
+    except Exception as e:
+        print("Error loading Upstox instruments:", e)
+    return ALL_NSE_EQ_MAP
+
+def load_dynamic_universe():
+    inst_map = load_all_upstox_instruments()
+    universe = []
+    for symbol, sector in TARGET_FO_SYMBOLS.items():
+        if symbol in inst_map:
+            universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": sector, "isin": inst_map[symbol]["inst_key"], "is_fo": True})
+    return universe if universe else [{"symbol": "NIFTY", "name": "Fallback", "sector": "Error", "isin": "NSE_INDEX|Nifty 50", "is_fo": False}]
+
+GLOBAL_MARKET_UNIVERSE = load_dynamic_universe()
+CORE_MARKET_UNIVERSE = GLOBAL_MARKET_UNIVERSE.copy()
+NIFTY500_UNIVERSE_CACHE = []
+
+def get_nifty_500_data():
+    urls = ['https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv', 'https://archives.nseindia.com/content/indices/ind_nifty500list.csv']
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/csv', 'Referer': 'https://www.nseindia.com/'}
+    for url in urls:
+        try:
+            res = HTTP_SESSION.get(url, headers=headers, timeout=8)
+            if res.status_code == 200 and "Symbol" in res.text:
+                lines = res.text.strip().splitlines()
+                reader = csv.reader(lines)
+                next(reader, None)
+                return {row[2].strip(): row[1].strip() for row in reader if len(row) > 2}
+        except Exception:
+            pass
+    return {}
+
+def load_nifty500_universe():
+    global NIFTY500_UNIVERSE_CACHE
+    if NIFTY500_UNIVERSE_CACHE: return NIFTY500_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    nifty_data = get_nifty_500_data()
+    universe, seen = [], set()
+    if nifty_data:
+        for symbol, nse_sector in nifty_data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": TARGET_FO_SYMBOLS.get(symbol) or nse_sector or "NIFTY 500", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        for symbol, inst in inst_map.items():
+            if symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "General"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    NIFTY500_UNIVERSE_CACHE = universe[:500]
+    return NIFTY500_UNIVERSE_CACHE
+
+
+def get_active_universe_list(univ_type=None):
+    u = (univ_type or request.args.get("universe", "FO")).upper()
+    if u == "NIFTY500": return ("NIFTY500", load_nifty500_universe())
+    return ("FO", GLOBAL_MARKET_UNIVERSE)
+
+def get_index_csv_data(url):
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/csv', 'Referer': 'https://www.nseindia.com/'}
+    try:
+        res = HTTP_SESSION.get(url, headers=headers, timeout=8)
+        if res.status_code == 200 and "Symbol" in res.text:
+            lines = res.text.strip().splitlines()
+            reader = csv.reader(lines)
+            next(reader, None)
+            return {row[2].strip(): row[1].strip() for row in reader if len(row) > 2}
+    except Exception:
+        pass
+    return {}
+
+def load_nifty500_universe():
+    global NIFTY500_UNIVERSE_CACHE
+    if NIFTY500_UNIVERSE_CACHE: return NIFTY500_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    nifty_data = get_nifty_500_data()
+    universe, seen = [], set()
+    if nifty_data:
+        for symbol, nse_sector in nifty_data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": TARGET_FO_SYMBOLS.get(symbol) or nse_sector or "NIFTY 500", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        for symbol, inst in inst_map.items():
+            if symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "General"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    NIFTY500_UNIVERSE_CACHE = universe[:500]
+    return NIFTY500_UNIVERSE_CACHE
+
+def load_midcap_universe():
+    global MIDCAP_UNIVERSE_CACHE
+    if MIDCAP_UNIVERSE_CACHE: return MIDCAP_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    data = get_index_csv_data('https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv')
+    universe, seen = [], set()
+    if data:
+        for symbol, nse_sector in data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": nse_sector or "Midcap", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        for symbol, inst in inst_map.items():
+            if symbol not in TARGET_FO_SYMBOLS and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": "Midcap", "isin": inst["inst_key"], "is_fo": False})
+                if len(universe) >= 150: break
+    MIDCAP_UNIVERSE_CACHE = universe
+    return MIDCAP_UNIVERSE_CACHE
+
+def load_smallcap_universe():
+    global SMALLCAP_UNIVERSE_CACHE
+    if SMALLCAP_UNIVERSE_CACHE: return SMALLCAP_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    data = get_index_csv_data('https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv')
+    universe, seen = [], set()
+    if data:
+        for symbol, nse_sector in data.items():
+            if symbol in inst_map and symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst_map[symbol]["name"], "sector": nse_sector or "Smallcap", "isin": inst_map[symbol]["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    if not universe:
+        sorted_insts = list(inst_map.items())
+        for symbol, inst in sorted_insts[150:350]:
+            if symbol not in seen:
+                seen.add(symbol)
+                universe.append({"symbol": symbol, "name": inst["name"], "sector": "Smallcap", "isin": inst["inst_key"], "is_fo": False})
+    SMALLCAP_UNIVERSE_CACHE = universe
+    return SMALLCAP_UNIVERSE_CACHE
+
+def load_total_market_universe():
+    global TOTAL_MARKET_UNIVERSE_CACHE
+    if TOTAL_MARKET_UNIVERSE_CACHE: return TOTAL_MARKET_UNIVERSE_CACHE
+    inst_map = load_all_upstox_instruments()
+    universe, seen = [], set()
+    for symbol, inst in inst_map.items():
+        if symbol not in seen:
+            seen.add(symbol)
+            universe.append({"symbol": symbol, "name": inst["name"], "sector": TARGET_FO_SYMBOLS.get(symbol, "Total Market"), "isin": inst["inst_key"], "is_fo": symbol in TARGET_FO_SYMBOLS})
+    TOTAL_MARKET_UNIVERSE_CACHE = universe
+    return TOTAL_MARKET_UNIVERSE_CACHE
+
+def get_active_universe_list(univ_type=None):
+    u = (univ_type or request.args.get("universe", "FO")).upper()
+    if u == "NIFTY500": return ("NIFTY500", load_nifty500_universe())
+    elif u == "MIDCAP": return ("MIDCAP", load_midcap_universe())
+    elif u == "SMALLCAP": return ("SMALLCAP", load_smallcap_universe())
+    elif u == "TOTALMARKET": return ("TOTALMARKET", load_total_market_universe())
+    return ("FO", GLOBAL_MARKET_UNIVERSE)
+
+def detect_open_setup(open_p, high_p, low_p):
+    if open_p <= 0 or low_p <= 0 or high_p <= 0: return None
+    tolerance = min(0.03, open_p * 0.00005)
+    if abs(open_p - low_p) <= tolerance: 
+        return "OPEN=LOW"
+    elif abs(open_p - high_p) <= tolerance: 
+        return "OPEN=HIGH"
+    return None
+
+def calculate_oi_buildup(price_pct, oi_pct, is_fo, candle_tag):
+    """Classify only when genuine previous and current OI exist."""
+    if not is_fo or oi_pct is None or abs(oi_pct) < 0.01 or (price_pct is None or abs(price_pct) < 0.01):
+        return "Unavailable" if oi_pct is None else "Neutral"
+    if price_pct > 0 and oi_pct > 0: return "Long Buildup"
+    if price_pct < 0 and oi_pct > 0: return "Short Buildup"
+    if price_pct > 0 and oi_pct < 0: return "Short Covering"
+    if price_pct < 0 and oi_pct < 0: return "Long Unwinding"
+    return "Neutral"
+
+def compute_aggressive_momentum(price_pct, vol_spike, candle_tag):
+    score = (abs(price_pct) * 15.0) + (vol_spike * 10.0)
+    if candle_tag in ["OPEN=LOW", "OPEN=HIGH"]: score += 35.0
+    return round(score, 1)
+
+def generate_sparkline_data(ltp, price_pct):
+    base = ltp / (1 + (price_pct / 100)) if price_pct != -100 else ltp * 0.95
+    points = [round(base, 2)]
+    for _ in range(14):
+        change_step = random.uniform(-0.003, 0.003) * base
+        base += change_step
+        points.append(round(base, 2))
+    points[-1] = ltp
+    return points
+
+def estimate_delivery_percentage(volume, avg_volume, price_pct):
+    if avg_volume <= 0: return 50.0
+    vol_ratio = volume / avg_volume
+    if vol_ratio > 2.0 and abs(price_pct) < 2.0: base_delivery = 75.0
+    elif vol_ratio > 1.5: base_delivery = 65.0
+    else: base_delivery = 45.0
+    return round(base_delivery, 1)
+
+# Actual near-month NSE futures OI; never derive OI from equity quotes.
+FUTURES_MAP_CACHE = {"until": 0, "contracts": {}}
+FUTURES_OI_CACHE = {"until": 0, "values": {}}
+FUTURES_OI_LOCK = threading.RLock()
+FUTURES_OI_DIAGNOSTICS = {"status":"not_checked","mapped":0,"quotes":0,"oi_count":0,"sample_keys":[],"http_status":None}
+
+# Previous completed trading-session futures OI, from exchange-reported daily candles.
+# Cache per contract and session date; never infer OI from price or volume.
+FUTURES_PREV_OI_CACHE = {}
+FUTURES_PREV_OI_LOCK = threading.RLock()
+FUTURES_HISTORY_SLOTS = threading.BoundedSemaphore(3)
+
+def _previous_futures_oi(contract):
+    key = contract["key"]
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    cache_key = (key, today.isoformat())
+    with FUTURES_PREV_OI_LOCK:
+        hit = FUTURES_PREV_OI_CACHE.get(cache_key)
+        if hit and hit[0] > time.time(): return hit[1]
+    # Upstox v3 daily candles: [timestamp, open, high, low, close, volume, oi].
+    # Exclude today's unfinished candle, and never use another contract's OI.
+    start = today - timedelta(days=12)
+    url = ('https://api.upstox.com/v3/historical-candle/'
+           + urllib.parse.quote(key, safe='') + '/days/1/'
+           + today.isoformat() + '/' + start.isoformat())
+    value = None
+    try:
+        with FUTURES_HISTORY_SLOTS:
+            res = HTTP_SESSION.get(url, headers={
+                'Accept': 'application/json',
+                'Authorization': 'Bearer ' + UPSTOX_ACCESS_TOKEN}, timeout=(5, 12))
+        if res.status_code == 200:
+            candles = (res.json().get('data') or {}).get('candles') or []
+            parsed = []
+            for candle in candles:
+                if not isinstance(candle, (list,tuple)) or len(candle) < 7: continue
+                try:
+                    stamp = datetime.fromisoformat(str(candle[0]).replace('Z','+00:00'))
+                    day = stamp.astimezone(pytz.timezone('Asia/Kolkata')).date() if stamp.tzinfo else stamp.date()
+                    oi = float(candle[6]); close = float(candle[4])
+                    if day < today and oi > 0 and close > 0: parsed.append((day,oi,close))
+                except (ValueError, TypeError, OverflowError): continue
+            if parsed:
+                d, oi, close = max(parsed, key=lambda x:x[0])
+                value = {"oi": oi, "close": close, "date": d.isoformat()}
+        else:
+            app.logger.info('Futures daily OI history HTTP %s', res.status_code)
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        app.logger.info('Futures previous OI unavailable: %s', type(exc).__name__)
+    # Retry unavailable history after 20 minutes; successful data cached 6 hours.
+    with FUTURES_PREV_OI_LOCK:
+        FUTURES_PREV_OI_CACHE[cache_key] = (time.time() + (21600 if value else 1200), value)
+    return value
+
+def _previous_oi_batch(contracts):
+    result = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(_previous_futures_oi, c): symbol for symbol,c in contracts.items()}
+        for task in concurrent.futures.as_completed(futures):
+            try: result[futures[task]] = task.result()
+            except Exception: result[futures[task]] = None
+    return result
+
+
+def _futures_expiry(value):
+    if value is None or str(value).strip() == "": return None
+    try:
+        n = float(value)
+        if n > 1e12: n /= 1000
+        if n > 1e9: return datetime.fromtimestamp(n, tz=timezone.utc).date()
+    except (ValueError, TypeError, OverflowError, OSError): pass
+    try: return datetime.fromisoformat(str(value).strip().replace("Z", "+00:00")).date()
+    except ValueError: return None
+
+def _active_futures_contracts():
+    with FUTURES_OI_LOCK:
+        if time.time() < FUTURES_MAP_CACHE["until"]: return FUTURES_MAP_CACHE["contracts"]
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    valid = set(TARGET_FO_SYMBOLS)
+    contracts = {}
+    try:
+        url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
+        req = urllib.request.Request(url, headers={"User-Agent": "StockFinderPro/1.0"})
+        with urllib.request.urlopen(req, timeout=25) as response:
+            with gzip.GzipFile(fileobj=response) as archive:
+                reader = csv.DictReader(io.TextIOWrapper(archive, encoding="utf-8-sig"))
+                for row in reader:
+                    kind = str(row.get("instrument_type") or "").upper()
+                    key = str(row.get("instrument_key") or "")
+                    if kind not in ("FUT", "FUTSTK", "FUTIDX") or not key.startswith("NSE_FO|"): continue
+                    expiry = _futures_expiry(row.get("expiry"))
+                    if not expiry or expiry < today: continue
+                    name = str(row.get("underlying_symbol") or row.get("name") or "").strip().upper()
+                    symbol = name if name in valid else None
+                    if not symbol:
+                        ts = str(row.get("tradingsymbol") or "").upper()
+                        matches = [v for v in valid if ts.startswith(v) and len(ts)>len(v) and ts[len(v)].isdigit()]
+                        if matches: symbol = max(matches, key=len)
+                    if not symbol: continue
+                    old = contracts.get(symbol)
+                    if old is None or expiry < old["expiry"]:
+                        contracts[symbol] = {"key": key, "expiry": expiry, "tradingsymbol": str(row.get("tradingsymbol") or "")}
+    except Exception as exc:
+        app.logger.warning("Futures instrument mapping unavailable: %s", type(exc).__name__)
+    with FUTURES_OI_LOCK:
+        FUTURES_MAP_CACHE.update(until=time.time() + (21600 if contracts else 300), contracts=contracts)
+    return contracts
+
+def _actual_futures_oi():
+    with FUTURES_OI_LOCK:
+        if time.time() < FUTURES_OI_CACHE["until"]: return FUTURES_OI_CACHE["values"]
+    contracts = _active_futures_contracts()
+    FUTURES_OI_DIAGNOSTICS.update(status="no_contracts" if not contracts else "fetching", mapped=len(contracts), quotes=0, oi_count=0, sample_keys=[], http_status=None)
+    if not contracts: return {}
+    headers = {"Accept":"application/json", "Authorization":f"Bearer {UPSTOX_ACCESS_TOKEN}"}
+    result = {}
+    items = list(contracts.items())
+    for start in range(0, len(items), 100):
+        chunk = items[start:start+100]
+        try:
+            response = HTTP_SESSION.get("https://api.upstox.com/v2/market-quote/quotes", headers=headers,
+                params={"instrument_key": ",".join(c["key"] for _,c in chunk)}, timeout=12)
+            FUTURES_OI_DIAGNOSTICS["http_status"] = response.status_code
+            if response.status_code != 200:
+                FUTURES_OI_DIAGNOSTICS["status"] = "quote_http_error"
+                app.logger.warning("Futures OI quote HTTP %s", response.status_code)
+                continue
+            data = response.json().get("data") or {}
+            FUTURES_OI_DIAGNOSTICS["quotes"] += len(data)
+            if not FUTURES_OI_DIAGNOSTICS["sample_keys"]:
+                FUTURES_OI_DIAGNOSTICS["sample_keys"] = list(data.keys())[:3]
+            for symbol, contract in chunk:
+                key = contract["key"]
+                q = data.get(key) or data.get(key.replace("|", ":")) or data.get("NSE_FO:"+contract["tradingsymbol"]) or {}
+                if not q:
+                    q = next((v for v in data.values() if isinstance(v,dict) and str(v.get("instrument_token") or v.get("instrument_key") or "") in (key,key.replace("|", ":"))), {})
+                raw_oi = q.get("oi") or q.get("open_interest")
+                try: oi = float(raw_oi)
+                except (TypeError,ValueError): continue
+                if oi <= 0: continue
+                raw_previous = q.get("prev_oi") or q.get("previous_oi") or q.get("previous_open_interest")
+                try: prev = float(raw_previous)
+                except (TypeError,ValueError): prev = 0
+                try: futures_ltp = float(q.get("last_price") or 0)
+                except (ValueError,TypeError): futures_ltp = 0
+                try: futures_prev_close = float(q.get("prev_close") or q.get("prev_close_price") or 0)
+                except (ValueError,TypeError): futures_prev_close = 0
+                if futures_prev_close <= 0:
+                    try:
+                        net = float(q.get("net_change") or 0)
+                        if futures_ltp - net > 0: futures_prev_close = futures_ltp - net
+                    except (ValueError,TypeError): pass
+                result[symbol] = {"oi":oi, "prevOi":prev if prev>0 else None,
+                    "futuresLtp": futures_ltp if futures_ltp>0 else None,
+                    "futuresPrevClose": futures_prev_close if futures_prev_close>0 else None,
+                    "oiPct":round((oi-prev)/prev*100,2) if prev>0 else None,
+                    "oiContract":contract["tradingsymbol"], "oiExpiry":contract["expiry"].isoformat(),
+                    "oiSource":"NSE futures quote"}
+        except (requests.RequestException,ValueError) as exc:
+            app.logger.warning("Futures OI quote failed: %s",type(exc).__name__)
+    # The quote and the previous daily candle MUST refer to the same futures contract.
+    # Preserve futures LTP and the quote's futures previous close where supplied.
+    # Quote endpoints often omit previous OI. Fill from the last completed
+    # daily candle of the SAME futures contract; preserve quoted previous OI if supplied.
+    missing = {sym: contracts[sym] for sym,info in result.items()
+               if (info.get("prevOi") is None or not info.get("futuresPrevClose")) and sym in contracts}
+    if missing:
+        previous = _previous_oi_batch(missing)
+        for sym, history in previous.items():
+            if not history or sym not in result: continue
+            if result[sym].get("prevOi") is None:
+                prev = history["oi"]
+                result[sym]["prevOi"] = prev
+                result[sym]["oiPct"] = round((result[sym]["oi"]-prev)/prev*100, 2)
+                result[sym]["prevOiSource"] = "Previous completed futures daily candle"
+            if not result[sym].get("futuresPrevClose"):
+                result[sym]["futuresPrevClose"] = history["close"]
+            result[sym]["previousSessionDate"] = history["date"]
+    for info in result.values():
+        ltp, previous = info.get("futuresLtp"), info.get("futuresPrevClose")
+        info["futuresPricePct"] = round((ltp-previous)/previous*100, 3) if ltp and previous and previous>0 else None
+        info["buildup"] = calculate_oi_buildup(info["futuresPricePct"],info.get("oiPct"),True,None) if info["futuresPricePct"] is not None else "Unavailable"
+    FUTURES_OI_DIAGNOSTICS["classified_count"] = sum(v.get("buildup") not in ("Unavailable", "Neutral") for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["futures_price_count"] = sum(v.get("futuresPricePct") is not None for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["prev_oi_count"] = sum(v.get("prevOi") is not None for v in result.values())
+    FUTURES_OI_DIAGNOSTICS["oi_count"] = len(result)
+    if FUTURES_OI_DIAGNOSTICS["status"] != "quote_http_error":
+        FUTURES_OI_DIAGNOSTICS["status"] = "ok" if result else ("quote_keys_or_oi_missing" if FUTURES_OI_DIAGNOSTICS["quotes"] else "empty_quote_response")
+    with FUTURES_OI_LOCK:
+        FUTURES_OI_CACHE.update(until=time.time()+(45 if result else 90),values=result)
+    return result
+
+def fetch_live_upstox_quotes(univ_type="FO"):
+    global QUOTE_CACHE
+    if not UPSTOX_ACCESS_TOKEN or UPSTOX_ACCESS_TOKEN == "YOUR_NEW_TOKEN_HERE":
+        return {"error": "Invalid API Token."}
+    univ_key, target_universe = get_active_universe_list(univ_type)
+    cache_entry = QUOTE_CACHE.setdefault(univ_key, {"data": [], "last_updated": 0})
+    if time.time() - cache_entry["last_updated"] < 5 and cache_entry["data"]:
+        return cache_entry["data"]
+
+    futures_oi = _actual_futures_oi() if univ_key == "FO" else {}
+    results, chunk_size = [], 100
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
+
+    def fetch_chunk(chunk):
+        chunk_results = []
+        keys_param = ",".join([item["isin"] for item in chunk])
+        url = "https://api.upstox.com/v2/market-quote/quotes"
+        try:
+            res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": keys_param}, timeout=8)
+            if res.status_code == 401: return {"error": "Upstox API Token Expired."}
+            elif res.status_code != 200:
+                app.logger.warning("Upstox quote request failed: HTTP %s", res.status_code)
+                return []
+            quotes_data = res.json().get("data", {})
+            for item in chunk:
+                sym, isin_raw = item["symbol"], item["isin"]
+                q = quotes_data.get(isin_raw) or quotes_data.get(isin_raw.replace("|", ":")) or quotes_data.get(f"NSE_EQ:{sym}") or quotes_data.get(sym)
+                if not q: continue
+                ltp = float(q.get("last_price", 0.0))
+                ohlc = q.get("ohlc", {})
+                open_p, low_p, high_p, volume = float(ohlc.get("open") or 0.0), float(ohlc.get("low") or 0.0), float(ohlc.get("high") or 0.0), int(q.get("volume", 0))
+                average_volume = int(q.get("average_volume") or q.get("avg_volume") or (volume * 0.6) or 100000)
+                net_change, prev_close = float(q.get("net_change") or 0.0), float(q.get("prev_close") or q.get("prev_close_price") or 0.0)
+                if prev_close == 0.0 and (ltp - net_change) > 0: prev_close = ltp - net_change
+                price_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+                candle_tag = detect_open_setup(open_p, high_p, low_p)
+                oi_info = futures_oi.get(sym) or {}
+                oi_pct = oi_info.get("oiPct")
+                vol_spike = volume / average_volume if average_volume > 0 else 1.0
+                
+                delivery_pct = estimate_delivery_percentage(volume, average_volume, price_pct)
+                is_heavy_delivery = delivery_pct >= 60.0
+
+                tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{sym}"
+                groww_url = f"https://groww.in/stocks/{sym.lower()}"
+                sparkline_points = generate_sparkline_data(ltp, price_pct)
+
+                chunk_results.append({
+                    "symbol": sym, "name": item["name"], "sector": item.get("sector", "NIFTY 500"),
+                    "ltp": ltp, "pricePct": price_pct, "volume": volume, "volMultiplier": round(vol_spike, 2),
+                    "oi": oi_info.get("oi"), "prevOi": oi_info.get("prevOi"),
+                    "oiContract": oi_info.get("oiContract"), "oiExpiry": oi_info.get("oiExpiry"), "prevOiSource": oi_info.get("prevOiSource"),
+                    "oiSource": oi_info.get("oiSource"), "oiPct": oi_pct,
+                    "futuresLtp": oi_info.get("futuresLtp"), "futuresPrevClose": oi_info.get("futuresPrevClose"),
+                    "futuresPricePct": oi_info.get("futuresPricePct"), "previousSessionDate": oi_info.get("previousSessionDate"),
+                    "oiVerified": oi_pct is not None and oi_info.get("futuresPricePct") is not None,
+                    "buildup": oi_info.get("buildup", "Unavailable"),
+                    "momentumScore": compute_aggressive_momentum(price_pct, vol_spike, candle_tag),
+                    "candleTag": candle_tag, "is_fo": item.get("is_fo", True),
+                    "deliveryPct": delivery_pct, "isHeavyDelivery": is_heavy_delivery,
+                    "tvUrl": tv_url, "growwUrl": groww_url, "sparkline": sparkline_points
+                })
+        except Exception:
+            pass
+        return chunk_results
+
+    chunks = [target_universe[i:i + chunk_size] for i in range(0, len(target_universe), chunk_size)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+        futures = [executor.submit(fetch_chunk, c) for c in chunks]
+        for f in concurrent.futures.as_completed(futures):
+            res = f.result()
+            if isinstance(res, dict) and "error" in res: return res
+            if isinstance(res, list): results.extend(res)
+
+    if results:
+        results.sort(key=lambda x: x["momentumScore"], reverse=True)
+        cache_entry["data"], cache_entry["last_updated"] = results, time.time()
+        return results
+    return {"error": "No market data retrieved."}
+
+# ================= BACKGROUND THREADS FOR SMART ORB =================
+def evaluate_smart_orb_strategy():
+    global SMART_ORB_SIGNALS
+    while True:
+        now = datetime.now(pytz.timezone("Asia/Kolkata"))
+        if now.weekday() < 5 and now.hour == 9 and now.minute == 20:
+            try:
+                stocks = fetch_live_upstox_quotes("FO")
+                if isinstance(stocks, list) and len(stocks) > 0:
+                    advances = sum(1 for s in stocks if s.get('pricePct', 0) > 0)
+                    declines = sum(1 for s in stocks if s.get('pricePct', 0) < 0)
+                    market_is_bullish = advances >= declines
+                    scored_stocks = []
+                    for stock in stocks:
+                        score, bias = 0, "NEUTRAL"
+                        price_pct, buildup, candle_tag, vol_multiplier = stock.get('pricePct', 0), stock.get('buildup', ''), stock.get('candleTag', ''), stock.get('volMultiplier', 1.0)
+                        if market_is_bullish:
+                            if candle_tag == 'OPEN=LOW': score += 40
+                            if buildup in ['Long Buildup', 'Short Covering']: score += 30
+                            if vol_multiplier >= 1.1: score += 20
+                            if price_pct > 0: score += 10
+                            if score >= 10: bias = "BULLISH_ORB"
+                        else:
+                            if candle_tag == 'OPEN=HIGH': score += 40
+                            if buildup in ['Short Buildup', 'Long Unwinding']: score += 30
+                            if vol_multiplier >= 1.1: score += 20
+                            if price_pct < 0: score += 10
+                            if score >= 10: bias = "BEARISH_ORB"
+                        if bias != "NEUTRAL":
+                            scored_stocks.append({
+                                "symbol": stock["symbol"], "bias": bias, "score": score,
+                                "ltp": stock["ltp"], "sector": stock["sector"],
+                                "reason": f"Score: {score} | Tag: {candle_tag or 'N/A'} | Buildup: {buildup or 'N/A'} | Vol: {vol_multiplier}x"
+                            })
+                    scored_stocks.sort(key=lambda x: x['score'], reverse=True)
+                    SMART_ORB_SIGNALS = scored_stocks[:2]
+            except Exception as e:
+                print("Error in Smart ORB background task:", e)
+            time.sleep(70)
+        time.sleep(10)
+
+def start_smart_orb_background_thread():
+    t = threading.Thread(target=evaluate_smart_orb_strategy, daemon=True)
+    t.start()
+
+# ================= HIGHER TIMEFRAME AGGREGATION & ZONE SCANNER =================
+def aggregate_candles(candles, timeframe):
+    """Build completed calendar quarter/half-year/year candles from Upstox monthly OHLC."""
+    if not candles:
+        return []
+    period_months = {'quarter': 3, 'halfyear': 6, 'year': 12}.get(timeframe)
+    if not period_months:
+        return candles
+    buckets = {}
+    for c in candles:
+        try:
+            stamp = pd.to_datetime(c[0], errors='coerce')
+            if pd.isna(stamp):
+                continue
+            month = int(stamp.month)
+            start_month = ((month - 1) // period_months) * period_months + 1
+            key = (int(stamp.year), start_month)
+            buckets.setdefault(key, []).append((stamp, c))
+        except (ValueError, TypeError, IndexError):
+            continue
+    today = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+    rows = []
+    for (year, start_month), entries in sorted(buckets.items()):
+        entries.sort(key=lambda pair: pair[0])
+        distinct_months = {int(stamp.month) for stamp, _ in entries}
+        if len(distinct_months) != period_months or distinct_months != set(range(start_month, start_month + period_months)):
+            continue
+        # Do not build a higher-timeframe candle from the still-forming month.
+        last_month = start_month + period_months - 1
+        if year == today.year and start_month <= today.month <= last_month:
+            continue
+        cs = [c for _, c in entries]
+        rows.append([cs[0][0], float(cs[0][1]), max(float(c[2]) for c in cs),
+                     min(float(c[3]) for c in cs), float(cs[-1][4]),
+                     sum(float(c[5]) for c in cs)])
+    return rows
+
+def has_strong_exit_confirmation(candles, legout_idx, bias):
+    """One immediate same-direction exit candle with >=70% body and breakout close."""
+    if legout_idx + 1 >= len(candles):
+        return False
+    legout, candle = candles[legout_idx], candles[legout_idx + 1]
+    o, h, l, c = map(float, (candle[1], candle[2], candle[3], candle[4]))
+    if h <= l or abs(c - o) / (h - l) < 0.70:
+        return False
+    return (c > o and c > float(legout[2])) if bias == 'DEMAND' else (c < o and c < float(legout[3]))
+
+
+def scan_four_institutional_zones(candles, current_ltp, symbol, tf, max_dist_pct=None):
+    """RBR/DBR/RBD/DBD: 1-2 compact bases; >=70% impulse bodies; leg-out > leg-in."""
+    zones = []
+    if not candles or len(candles) < 2 or current_ltp <= 0:
+        return zones
+    # Daily candle is confirmed only after the regular NSE cash session closes.
+    # Historical API can include a partial today's candle during market hours.
+    if tf == 'day':
+        now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+        today = now_ist.date()
+        if now_ist.time() < datetime.strptime('15:30', '%H:%M').time():
+            candles = [c for c in candles if pd.to_datetime(c[0], errors='coerce').date() < today]
+
+    # A forming monthly candle is not a confirmed leg-in, base, or leg-out.
+    # Derived quarterly/half-yearly candles are already restricted to completed periods.
+    if tf == 'month':
+        now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+        completed = []
+        for candle in candles:
+            stamp = pd.to_datetime(candle[0], errors='coerce')
+            if pd.isna(stamp):
+                continue
+            if (int(stamp.year), int(stamp.month)) < (now_ist.year, now_ist.month):
+                completed.append(candle)
+        candles = completed
+        if len(candles) < 3:
+            return zones
+
+    # Completed weekly candles only for confirmed patterns; incomplete current week
+    # must not be used to confirm or invalidate zones.
+    if tf == 'week':
+        today_ist = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+        monday = today_ist - timedelta(days=today_ist.weekday())
+        completed = []
+        for candle in candles:
+            stamp = pd.to_datetime(candle[0], errors='coerce')
+            if pd.isna(stamp):
+                continue
+            # Upstox weekly stamps normally identify the beginning of the week.
+            # Exclude only timestamps in the currently forming week.
+            if stamp.date() < monday:
+                completed.append(candle)
+        candles = completed
+        if len(candles) < 2:
+            return zones
+
+    # Scan the full available history, preserving all independent price levels.
+    # Upstox may return newest-first; all structure/retest logic needs oldest-first.
+    candles = sorted({str(c[0]): c for c in candles if len(c) >= 5}.values(), key=lambda c: str(c[0]))
+
+    def metrics(c):
+        o, h, l, close = map(float, (c[1], c[2], c[3], c[4]))
+        span = h - l
+        if span <= 0 or not (l <= min(o, close) <= max(o, close) <= h):
+            return None
+        return {'o': o, 'h': h, 'l': l, 'c': close,
+                'body': abs(close-o), 'ratio': abs(close-o)/span}
+
+    m = [metrics(c) for c in candles]
+
+    def compact(j, leg_body):
+        v = m[j]
+        # A compact base is a small-bodied candle; 40% of the incoming
+        # impulse accommodates small bases without accepting broad candles.
+        return bool(v and v['ratio'] <= 0.30 and v['body'] <= 0.40*leg_body)
+
+    # Iterate each leg-in once, count the FULL contiguous base sequence.
+    for legin_idx in range(len(candles)-2):
+        legin = m[legin_idx]
+        if not legin or legin['ratio'] < 0.70:
+            continue
+        first_base = legin_idx+1
+        if not compact(first_base, legin['body']):
+            continue
+        legout_idx = first_base
+        while legout_idx < len(candles) and compact(legout_idx, legin['body']):
+            legout_idx += 1
+        num_bases = legout_idx-first_base
+        if num_bases not in (1, 2) or legout_idx >= len(candles):
+            continue
+        legout = m[legout_idx]
+        if not legout or legout['ratio'] < 0.70:
+            continue
+        if legout['body'] <= legin['body']:
+            continue
+        base = m[first_base:legout_idx]
+        base_high = max(c['h'] for c in base)
+        base_low = min(c['l'] for c in base)
+        # Reject wide, scattered consolidation even if individual candles are dojis.
+        if base_high-base_low > max(legin['body'], legout['body']):
+            continue
+
+        legin_rally = legin['c'] > legin['o']
+        legout_rally = legout['c'] > legout['o']
+        if legout_rally:
+            bias = 'DEMAND'
+            pattern = 'Rally-Base-Rally' if legin_rally else 'Drop-Base-Rally'
+            proximal = max(max(c['o'], c['c']) for c in base)
+            distal = base_low
+            # A leg-out must CLOSE outside the full base range.
+            if legout['c'] <= base_high or legout['c'] <= legout['o']:
+                continue
+        else:
+            bias = 'SUPPLY'
+            pattern = 'Rally-Base-Drop' if legin_rally else 'Drop-Base-Drop'
+            proximal = min(min(c['o'], c['c']) for c in base)
+            distal = base_high
+            if legout['c'] >= base_low or legout['c'] >= legout['o']:
+                continue
+
+        risk = abs(proximal-distal)
+        if risk <= 0:
+            continue
+        distance_pct = round(abs(current_ltp-proximal)/current_ltp*100, 2)
+        # CMP proximity belongs in the UI; never erase historical zones here.
+        # The optional max_dist_pct parameter is retained for API compatibility.
+
+        # Count separate retest EVENTS, not every candle that touches the zone.
+        test_count, violated, inside_previous = 0, False, False
+        for later in m[legout_idx+1:]:
+            if later is None:
+                continue
+            if bias == 'DEMAND':
+                touched = later['l'] <= proximal and later['h'] >= distal
+                violated = later['c'] < distal
+            else:
+                touched = later['h'] >= proximal and later['l'] <= distal
+                violated = later['c'] > distal
+            if violated:
+                break
+            if touched and not inside_previous:
+                test_count += 1
+                if test_count >= 2:
+                    break  # Second independent touch: permanently exclude this zone
+            inside_previous = touched
+            # Keep counting retests; tested zones remain eligible.
+        if violated or test_count > 1:
+            continue
+        if bias == 'DEMAND' and current_ltp < distal:
+            continue
+        if bias == 'SUPPLY' and current_ltp > distal:
+            continue
+        # Retested zones remain visible; status records the number of retest events.
+        in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+        status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+        zones.append({
+            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
+            'distal': round(distal, 2), 'entry': round(proximal, 2),
+            'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+            'riskPct': round(risk/current_ltp*100, 2),
+            'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
+            'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
+            'status': status, 'testCount': test_count, 'distancePct': distance_pct,
+            'multiplier': round(legout['body']/max(legin['body'], 0.01), 2),
+            'strongZone': True,  # Both impulses passed >=70% and leg-out > leg-in
+            'followupConfirmed': has_strong_exit_confirmation(candles, legout_idx, bias),
+            'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+            'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+            'timeframe': tf.upper(), 'baseCandles': num_bases,
+            'zoneCandleDate': str(candles[first_base][0]),
+            'incomingCandleDate': str(candles[legin_idx][0]),
+            'exitCandleDate': str(candles[legout_idx][0]),
+            'zoneBoundarySource': 'BASE_CANDLES'
+        })
+    # Impulse-origin detection: historical bases often precede a very strong
+    # departure without a strong preceding leg-in. Do not impose the strict
+    # 70% leg-in body rule on these BASED structures. Keep 1-2 bases only.
+    # This is a separate conservative candidate path, not a hardcoded stock fix.
+    for exit_idx in range(2, len(m)):
+        out = m[exit_idx]
+        if not out or out['ratio'] < 0.70:
+            continue
+        direction = 'DEMAND' if out['c'] > out['o'] else 'SUPPLY'
+        for count in (1, 2):
+            start = exit_idx - count
+            incoming_idx = start - 1
+            if incoming_idx < 0:
+                continue
+            base = m[start:exit_idx]
+            incoming = m[incoming_idx]
+            # Reject a hidden third contiguous doji/base candle.
+            if incoming_idx > 0 and m[incoming_idx - 1] and compact(incoming_idx - 1, incoming['body']) and compact(incoming_idx, incoming['body']):
+                continue
+            if not incoming or incoming['ratio'] < 0.70 or out['body'] <= incoming['body'] or any(v is None for v in base):
+                continue
+            # All base candles must be compact relative to the departing body.
+            if any(v['ratio'] > 0.30 or v['body'] > 0.40 * incoming['body'] for v in base):
+                continue
+            base_high = max(v['h'] for v in base)
+            base_low = min(v['l'] for v in base)
+            width = base_high - base_low
+            if width <= 0 or width > 0.70 * out['body']:
+                continue
+            if direction == 'DEMAND':
+                if out['c'] <= base_high or out['body'] < 1.30 * width:
+                    continue
+                proximal = max(max(v['o'], v['c']) for v in base)
+                distal = base_low
+                pattern = 'Rally-Base-Rally' if incoming['c'] >= incoming['o'] else 'Drop-Base-Rally'
+            else:
+                if out['c'] >= base_low or out['body'] < 1.30 * width:
+                    continue
+                proximal = min(min(v['o'], v['c']) for v in base)
+                distal = base_high
+                pattern = 'Rally-Base-Drop' if incoming['c'] >= incoming['o'] else 'Drop-Base-Drop'
+            risk = abs(proximal - distal)
+            if risk <= 0:
+                continue
+            # Count all subsequent retests; a CLOSE beyond distal invalidates.
+            test_count, violated, inside_previous = 0, False, False
+            for later in m[exit_idx+1:]:
+                if later is None:
+                    continue
+                if direction == 'DEMAND':
+                    touched = later['l'] <= proximal and later['h'] >= distal
+                    violated = later['c'] < distal
+                else:
+                    touched = later['h'] >= proximal and later['l'] <= distal
+                    violated = later['c'] > distal
+                if violated:
+                    break
+                if touched and not inside_previous:
+                    test_count += 1
+                    if test_count >= 2:
+                        break  # Second independent touch: permanently exclude this zone
+                inside_previous = touched
+            if violated or test_count > 1 or (direction == 'DEMAND' and current_ltp < distal) or (direction == 'SUPPLY' and current_ltp > distal):
+                continue
+            # Retain distinct formations; deduplication below uses candle identity and band.
+            # Retested zones remain visible; status records the number of retest events.
+            in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+            status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+            zones.append({
+                'pattern': pattern, 'bias': direction, 'proximal': round(proximal, 2),
+                'distal': round(distal, 2), 'entry': round(proximal, 2),
+                'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+                'riskPct': round(risk/current_ltp*100, 2),
+                'target1R2': round(proximal+2*risk if direction == 'DEMAND' else proximal-2*risk, 2),
+                'target1R3': round(proximal+3*risk if direction == 'DEMAND' else proximal-3*risk, 2),
+                'status': status, 'testCount': test_count,
+                'distancePct': round(abs(current_ltp-proximal)/current_ltp*100, 2),
+                'multiplier': round(out['body']/max(incoming['body'], 0.01), 2),
+                'strongZone': True,
+                'followupConfirmed': has_strong_exit_confirmation(candles, exit_idx, direction),
+                'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+                'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+                'timeframe': tf.upper(), 'baseCandles': count,
+                'zoneCandleDate': str(candles[start][0]),
+                'incomingCandleDate': str(candles[incoming_idx][0]),
+                'exitCandleDate': str(candles[exit_idx][0]),
+                'zoneBoundarySource': 'COMPACT_IMPULSE_ORIGIN'
+            })
+            break
+
+    # Base-free reversal patterns: DR / RD (two adjacent completed candles).
+    # Both impulse bodies >=70% of range; leg-out body strictly larger than leg-in.
+    # These are separate from RBR/DBR/RBD/DBD; they have ZERO base candles.
+    for incoming_idx in range(len(m) - 1):
+        outgoing_idx = incoming_idx + 1
+        incoming, outgoing = m[incoming_idx], m[outgoing_idx]
+        if not incoming or not outgoing:
+            continue
+        if not (incoming['ratio'] >= 0.70 and
+                outgoing['ratio'] >= 0.70 and
+                outgoing['body'] > incoming['body']):
+            continue
+        if incoming['c'] < incoming['o'] and outgoing['c'] > outgoing['o']:
+            bias, pattern = 'DEMAND', 'Drop-Rally'
+            proximal = min(outgoing['o'], outgoing['c'])
+            distal = outgoing['l']  # Second (Rally) candle lower wick
+            # Exit must break above the incoming candle, not just turn green.
+            if outgoing['c'] <= incoming['o'] or proximal <= distal:
+                continue
+        elif incoming['c'] > incoming['o'] and outgoing['c'] < outgoing['o']:
+            bias, pattern = 'SUPPLY', 'Rally-Drop'
+            proximal = max(outgoing['o'], outgoing['c'])
+            distal = outgoing['h']  # Second (Drop) candle upper wick
+            if outgoing['c'] >= incoming['o'] or proximal >= distal:
+                continue
+        else:
+            continue
+
+        risk = abs(proximal - distal)
+        if risk <= 0:
+            continue
+        distance_pct = round(abs(current_ltp - proximal) / current_ltp * 100, 2)
+        # CMP proximity belongs in the UI; never erase historical zones here.
+        # The optional max_dist_pct parameter is retained for API compatibility.
+        test_count, violated, inside_previous = 0, False, False
+        for later in m[outgoing_idx + 1:]:
+            if later is None:
+                continue
+            if bias == 'DEMAND':
+                touched = later['l'] <= proximal and later['h'] >= distal
+                violated = later['c'] < distal
+            else:
+                touched = later['h'] >= proximal and later['l'] <= distal
+                violated = later['c'] > distal
+            if violated:
+                break
+            if touched and not inside_previous:
+                test_count += 1
+                if test_count >= 2:
+                    break  # Second independent touch: permanently exclude this zone
+            inside_previous = touched
+            # Keep counting retests; tested zones remain eligible.
+        if violated or test_count > 1:
+            continue
+        if bias == 'DEMAND' and current_ltp < distal:
+            continue
+        if bias == 'SUPPLY' and current_ltp > distal:
+            continue
+        # Retested zones remain visible; status records the number of retest events.
+        in_zone = min(proximal, distal) <= current_ltp <= max(proximal, distal)
+        status = ('🎯 In Zone · ' if in_zone else '') + ('Untested (Fresh)' if test_count == 0 else f'Tested ({test_count}x)')
+        zones.append({
+            'pattern': pattern, 'bias': bias, 'proximal': round(proximal, 2),
+            'distal': round(distal, 2), 'entry': round(proximal, 2),
+            'stopLoss': round(distal, 2), 'risk': round(risk, 2),
+            'riskPct': round(risk/current_ltp*100, 2),
+            'target1R2': round(proximal+2*risk if bias == 'DEMAND' else proximal-2*risk, 2),
+            'target1R3': round(proximal+3*risk if bias == 'DEMAND' else proximal-3*risk, 2),
+            'status': status, 'testCount': test_count, 'distancePct': distance_pct,
+            'multiplier': round(outgoing['body']/max(incoming['body'], 0.01), 2),
+            'strongZone': True,
+            'followupConfirmed': has_strong_exit_confirmation(candles, outgoing_idx, bias),
+            'tvUrl': f'https://www.tradingview.com/chart/?symbol=NSE:{symbol}',
+            'brokerUrl': f'https://groww.in/stocks/{symbol.lower()}',
+            'timeframe': tf.upper(), 'baseCandles': 0,
+            # DR/RD have no base candle. Zone boundaries come from candle 2.
+            'zoneCandleDate': str(candles[outgoing_idx][0]),
+            'zoneCandleOpen': outgoing['o'],
+            'zoneCandleHigh': outgoing['h'],
+            'zoneCandleLow': outgoing['l'],
+            'zoneCandleClose': outgoing['c'],
+            'incomingCandleDate': str(candles[incoming_idx][0]),
+            'exitCandleDate': str(candles[outgoing_idx][0]),
+            'exitCandleOpen': outgoing['o'],
+            'exitCandleHigh': outgoing['h'],
+            'exitCandleLow': outgoing['l'],
+            'exitCandleClose': outgoing['c'],
+            'zoneBoundarySource': 'SECOND_CANDLE_ONLY'
+        })
+    # Diagnostic trace of price structures for one symbol/timeframe. This never changes
+    # eligibility, and is deliberately not persisted or exposed to anonymous users.
+    if os.getenv('SFP_ZONE_DEBUG_SYMBOL', '').upper() == symbol.upper():
+        from collections import Counter
+        counts = Counter(z['pattern'] for z in zones)
+        print(f'[ZONE DEBUG] {symbol}/{tf} candles={len(candles)} retained={len(zones)} patterns={dict(counts)}')
+    # Preserve level-over-level zones: deduplicate only identical formations.
+    unique = {}
+    for zone in zones:
+        identity = (zone['pattern'], zone['bias'], zone.get('incomingCandleDate'),
+                    zone.get('exitCandleDate'), zone['proximal'], zone['distal'])
+        unique.setdefault(identity, zone)
+    # For the same departure candle, prefer the strict structure when it
+    # produces the same price band; keep genuinely separate level-over-level.
+    ranked = sorted(unique.values(), key=lambda z: z.get('zoneBoundarySource') == 'COMPACT_IMPULSE_ORIGIN')
+    kept = []
+    for z in ranked:
+        duplicate = False
+        for prior in kept:
+            if z['bias'] != prior['bias'] or z.get('exitCandleDate') != prior.get('exitCandleDate'):
+                continue
+            width = max(z['risk'], prior['risk'], 0.01)
+            if abs(z['proximal'] - prior['proximal']) <= 0.12 * width and abs(z['distal'] - prior['distal']) <= 0.12 * width:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(z)
+    return kept
+
+# Four-year persistent candle store. PostgreSQL survives Render deploys/restarts;
+# local SQLite is only durable when stored on a persistent disk.
+HISTORY_FETCH_LOCKS = {}
+HISTORY_FETCH_LOCKS_GUARD = threading.Lock()
+HISTORY_CACHE_SECONDS = int(os.getenv("SFP_HISTORY_CACHE_SECONDS", str(4 * 3600)))
+HISTORY_YEARS = 4
+
+def _read_stored_candles(key):
+    try:
+        with app.app_context():
+            row = db.session.get(HistoricalCandleStore, key)
+            if row:
+                return json.loads(row.candles_json), row.updated_at
+    except Exception as exc:
+        print('Historical DB read:', type(exc).__name__, str(exc)[:120])
+    return None, None
+
+def _save_stored_candles(key, candles):
+    try:
+        with app.app_context():
+            row = db.session.get(HistoricalCandleStore, key)
+            if row is None:
+                row = HistoricalCandleStore(cache_key=key, candles_json='[]')
+                db.session.add(row)
+            row.candles_json = json.dumps(candles, separators=(',', ':'))
+            row.updated_at = datetime.utcnow()
+            db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        print('Historical DB write:', type(exc).__name__, str(exc)[:120])
+
+HISTORY_API_SLOTS = threading.BoundedSemaphore(int(os.getenv('SFP_HISTORY_API_CONCURRENCY', '6')))
+
+def fetch_historical_candles(instrument_key, interval):
+    """Shared monthly cache for higher timeframes; incremental refresh after first download."""
+    api_interval = 'month' if interval in ('quarter', 'halfyear', 'year') else interval
+    raw_key = f'{instrument_key}_{api_interval}_4y_v1'
+    derived_key = f'{instrument_key}_{interval}_4y_v1'
+    def memory_get(key):
+        with CANDLE_CACHE_LOCK:
+            entry = CANDLE_CACHE.get(key)
+            return entry['candles'] if entry and time.time()-entry['ts'] < HISTORY_CACHE_SECONDS else None
+    cached = memory_get(derived_key)
+    if cached is not None:
+        return cached
+    with HISTORY_FETCH_LOCKS_GUARD:
+        lock = HISTORY_FETCH_LOCKS.setdefault(raw_key, threading.Lock())
+    with lock:
+        raw = memory_get(raw_key)
+        if raw is None:
+            stored, updated_at = _read_stored_candles(raw_key)
+            fresh = stored is not None and updated_at is not None and (datetime.utcnow()-updated_at).total_seconds() < HISTORY_CACHE_SECONDS
+            if fresh:
+                raw = stored
+            else:
+                today = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+                oldest = today - timedelta(days=1461)
+                windows = []
+                if stored:
+                    try:
+                        last_date = max(pd.to_datetime(c[0], utc=True).date() for c in stored if len(c)>=6)
+                        begin = max(oldest, last_date-timedelta(days=45))
+                    except (ValueError, TypeError):
+                        begin = max(oldest, today-timedelta(days=65))
+                    windows = [(begin,today)]
+                else:
+                    end_date = today
+                    while end_date >= oldest:
+                        begin = max(oldest,end_date-timedelta(days=364))
+                        windows.append((begin,end_date))
+                        end_date = begin-timedelta(days=1)
+                headers = {'Accept':'application/json','Authorization':f'Bearer {UPSTOX_ACCESS_TOKEN}'}
+                downloaded=[]
+                errors=0
+                for begin,end_date in windows:
+                    url = (f'https://api.upstox.com/v2/historical-candle/'
+                           f'{urllib.parse.quote(instrument_key,safe="")}/{api_interval}/'
+                           f'{end_date:%Y-%m-%d}/{begin:%Y-%m-%d}')
+                    chunk=None
+                    for attempt in range(3):
+                        try:
+                            with HISTORY_API_SLOTS:
+                                response=HTTP_SESSION.get(url,headers=headers,timeout=(5,12))
+                            if response.status_code==200:
+                                chunk=response.json().get('data',{}).get('candles',[])
+                                break
+                            print(f'Historical {api_interval} HTTP {response.status_code} for {instrument_key}')
+                            if response.status_code not in (429,500,502,503,504):
+                                break
+                        except requests.RequestException as exc:
+                            if attempt==2: print('Historical request:',type(exc).__name__)
+                        if attempt<2: time.sleep(0.8*(2**attempt)+random.uniform(0,0.4))
+                    if chunk is None: errors+=1
+                    else: downloaded.extend(chunk)
+                if errors==0:
+                    by_stamp={str(c[0]):c for c in (stored or []) if len(c)>=6}
+                    by_stamp.update({str(c[0]):c for c in downloaded if len(c)>=6})
+                    raw=[by_stamp[k] for k in sorted(by_stamp)]
+                    if raw: _save_stored_candles(raw_key,raw)
+                else:
+                    raw=stored if stored is not None else []
+                    print(f'Historical refresh incomplete {instrument_key}/{api_interval}: {errors}/{len(windows)} windows failed')
+            with CANDLE_CACHE_LOCK:
+                CANDLE_CACHE[raw_key]={'candles':raw,'ts':time.time() if raw else time.time()-HISTORY_CACHE_SECONDS+60}
+        if interval==api_interval: return raw
+        derived=aggregate_candles(raw,interval)
+        with CANDLE_CACHE_LOCK:
+            CANDLE_CACHE[derived_key]={'candles':derived,'ts':time.time()}
+        return derived
+
+# ================= DOMAIN-FREE GMAIL SMTP OTP DELIVERY =================
+from email.utils import formataddr
+
+def send_otp_email(to_email, otp_code):
+    """Send reset OTP through Gmail SMTP; credentials are Render environment variables."""
+    sender = os.getenv('SMTP_EMAIL', '').strip()
+    app_password = os.getenv('SMTP_APP_PASSWORD', '').replace(' ', '').strip()
+    if not sender or not app_password:
+        app.logger.error('OTP email not configured: set SMTP_EMAIL and SMTP_APP_PASSWORD')
+        return False
+    message = MIMEMultipart('alternative')
+    message['From'] = formataddr(('StockFinder Pro', sender))
+    message['To'] = to_email
+    message['Subject'] = 'Password Reset OTP - StockFinder Pro'
+    html = ("<div style='font-family:Arial,sans-serif'>"
+            "<h2>StockFinder Pro password reset</h2>"
+            "<p>Your verification code is:</p>"
+            f"<h1>{otp_code}</h1><p>Valid for 10 minutes.</p>"
+            "<p>If you did not request this, ignore this email.</p></div>")
+    message.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(sender, app_password)
+            smtp.sendmail(sender, [to_email], message.as_string())
+        app.logger.info('Password reset OTP sent via SMTP')
+        return True
+    except (smtplib.SMTPException, OSError) as exc:
+        app.logger.error('SMTP OTP delivery failed: %s', type(exc).__name__)
+        return False
+
+# ================= HTML TEMPLATES WITH STANDARD FORM POST =================
+LANDING_PAGE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="StockFinder Pro — intraday equity screening and demand & supply zone discovery for swing traders."><title>StockFinder Pro | Intraday & Swing Trading Screener</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>\n:root{--bg:#070b10;--surface:#101923;--surface2:#151f2b;--line:#263341;--white:#f6f8fb;--muted:#a2b1c0;--gold:#ffab22;--green:#31d998;--red:#ff6479}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--white);font-family:\'Plus Jakarta Sans\',sans-serif}a{text-decoration:none;color:inherit}.wrap{max-width:1200px;width:calc(100% - 42px);margin:auto}header{position:sticky;top:0;z-index:20;background:#080e15ed;backdrop-filter:blur(18px);border-bottom:1px solid #263341}.top{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{font-size:22px;font-weight:800;letter-spacing:-1px;white-space:nowrap}.brand em{color:var(--gold);font-style:normal}.brand .mark{color:var(--gold);margin-right:9px}nav{display:flex;align-items:center;gap:24px;font-size:13px;font-weight:700}nav a:hover{color:var(--gold)}.btn{display:inline-flex;justify-content:center;align-items:center;min-height:46px;padding:13px 21px;border-radius:10px;border:1px solid #41505e;font-weight:800;font-size:13px;background:#17232e;transition:transform .2s,border-color .2s}.btn:hover{transform:translateY(-2px);border-color:var(--gold)}.btn.gold{background:linear-gradient(135deg,#ffc04e,#ff9810);border-color:#ffae29;color:#10131a}.hero{background:radial-gradient(ellipse at 70% 0%,#59330d44,transparent 45%),#070b10;padding:44px 0 60px}.eyebrow,.kicker{color:var(--gold);font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(36px,4.9vw,66px);line-height:1.12;letter-spacing:-2px;margin:14px 0 18px;max-width:850px}.hero h1 span{color:var(--gold)}.lead{font-size:16px;line-height:1.8;color:var(--muted);max-width:770px;margin:0 0 24px}.actions{display:flex;flex-wrap:wrap;gap:12px}.hero-image{position:relative;margin-top:30px;border-radius:20px;overflow:hidden;border:1px solid #5d4628;box-shadow:0 26px 90px #0009}.hero-image img{display:block;width:100%;height:auto}.image-caption{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,#03080de8);padding:30px 18px 12px;text-align:right;color:#b3c0cb;font-size:11px}.pill-row{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.pill{font-size:12px;font-weight:700;border:1px solid #364453;border-radius:30px;background:#101a24;padding:9px 13px;color:#cbd5df}section{padding:75px 0;border-top:1px solid #1e2a36}h2{font-size:clamp(29px,3.7vw,44px);letter-spacing:-1.3px;margin:12px 0}.desc{max-width:760px;color:var(--muted);line-height:1.85;font-size:14px}.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:30px}.feature-panel{border:1px solid #334150;border-radius:18px;background:linear-gradient(145deg,#162331,#0d151e);padding:30px}.feature-panel.green{border-top:3px solid var(--green)}.feature-panel.goldline{border-top:3px solid var(--gold)}.feature-panel h3{font-size:25px;letter-spacing:-.7px;margin:14px 0}.feature-panel p{font-size:14px;line-height:1.8;color:var(--muted)}.feature-panel ul{padding-left:20px;color:#d5dce4;line-height:2.2;font-size:13px}.feature-panel .symbol{font-size:30px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:28px}.card,.plan,.faq-item{background:#111c27;border:1px solid #2a3948;border-radius:15px;padding:24px}.card strong{font-size:16px}.card .ico{font-size:27px;color:var(--gold);display:block;margin-bottom:14px}.card p,.faq-item p{font-size:13px;color:var(--muted);line-height:1.8}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}.step{border-left:3px solid var(--gold);padding:20px;background:#111c27;border-radius:0 12px 12px 0}.step b{color:var(--gold)}.step p{font-size:13px;color:var(--muted);line-height:1.8}.plans{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-top:30px}.plan{display:flex;flex-direction:column;gap:13px}.plan.popular{border:2px solid var(--gold);background:linear-gradient(160deg,#302315,#111c27 55%)}.plan h3{margin:0;font-size:16px}.amount{font-size:31px;font-weight:800}.plan small{color:var(--muted)}.plan ul{padding-left:18px;font-size:12px;color:#d2dbe5;line-height:2.1}.plan .btn{margin-top:auto}.tag{color:var(--gold);font-size:11px;font-weight:800}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:28px}.faq-item h3{font-size:14px;margin:0 0 10px}.contact{display:grid;grid-template-columns:1fr 1fr;gap:25px;align-items:center}.contact-panel{border:1px solid #364653;border-radius:16px;background:#13212c;padding:25px}.contact-panel p{color:var(--muted);line-height:1.8}.contact-panel a{color:var(--gold);font-weight:800}.disclaimer{font-size:12px;line-height:1.8;color:var(--muted)}footer{padding:28px 0;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:18px}.footlinks{display:flex;gap:15px;flex-wrap:wrap}@media(max-width:1000px){.plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.wrap{width:calc(100% - 28px)}.top{min-height:70px;flex-wrap:wrap;padding:12px 0}.brand{font-size:18px}nav{gap:10px;flex-wrap:wrap}nav .hide-mobile{display:none}.hero{padding:36px 0 48px}.hero h1{letter-spacing:-1px}.hero-image{margin-top:23px}.split,.cards,.steps,.plans,.faq,.contact{grid-template-columns:1fr}section{padding:53px 0}.feature-panel{padding:22px}}\n</style></head><body><header><div class="wrap top"><a class="brand" href="/"><span class="mark">⌕</span>StockFinder<em>Pro</em></a><nav><a class="hide-mobile" href="#features">Features</a><a href="#pricing">Plans</a><a class="hide-mobile" href="#faq">FAQs</a><a href="/login">Login</a><a class="btn gold" href="/signup">Get Started</a></nav></div></header><main><div class="hero"><div class="wrap"><div class="eyebrow">Professional Indian equity screening platform</div><h1>Discover intraday setups.<br><span>Map swing trading zones.</span></h1><p class="lead">From fast-moving intraday opportunities to higher-timeframe demand and supply zones, StockFinder Pro brings your stock screening workflow into one powerful, organized terminal. Scan, shortlist and verify setups with clarity.</p><div class="actions"><a class="btn gold" href="#pricing">Explore Subscription Plans →</a><a class="btn" href="/login">Already a member? Login</a></div><div class="pill-row"><span class="pill">⚡ Intraday price action</span><span class="pill">▤ Demand &amp; Supply Zones</span><span class="pill">◉ Fresh &amp; Tested Zones</span><span class="pill">↗ EMA 9/20 Screening</span><span class="pill">▦ Multiple Timeframes</span></div><div class="hero-image"><img src="/landing-hero.png" alt="Illustrative StockFinder Pro trading platform showing intraday charts and swing demand and supply zones"><div class="image-caption">Concept illustration · Not a live platform screenshot or trading signal</div></div></div></div><section id="features"><div class="wrap"><div class="kicker">Built around your trading style</div><h2>Intraday speed. Swing trading structure.</h2><p class="desc">Two complementary workflows in one terminal. Discover potential candidates quickly, then validate them using your own chart and risk analysis.</p><div class="split"><article class="feature-panel goldline"><div class="symbol">⚡</div><div class="kicker">For active day traders</div><h3>Intraday Stock Screener</h3><p>Identify stocks worth watching during the trading session using price-action and trend filters.</p><ul><li>Open = High and Open = Low screening</li><li>9/20 EMA trend and crossover analysis</li><li>Breakout, pullback and momentum candidates</li><li>F&amp;O and supported equity universes</li><li>Sector strength and market movers</li></ul></article><article class="feature-panel green"><div class="symbol">▤</div><div class="kicker">For structured swing traders</div><h3>Demand &amp; Supply Zone Screener</h3><p>Shortlist potential higher-timeframe zones and review price reaction around meaningful areas.</p><ul><li>RBR, DBR, RBD and DBD structures</li><li>Fresh and previously tested zone filters</li><li>Daily, weekly, monthly, quarterly and half-yearly views</li><li>Zone boundaries and indicative risk levels</li><li>Structured zones with up to two base candles</li></ul></article></div></div></section><section><div class="wrap"><div class="kicker">Why StockFinder Pro</div><h2>Less searching. More focused chart review.</h2><div class="cards"><article class="card"><span class="ico">⌕</span><strong>Smart Stock Discovery</strong><p>Bring relevant stocks into a single shortlist instead of manually opening dozens of charts.</p></article><article class="card"><span class="ico">▱</span><strong>Zone Status Filters</strong><p>Separate fresh zone candidates from zones that have already been tested.</p></article><article class="card"><span class="ico">◷</span><strong>Multiple Timeframes</strong><p>Compare intraday conditions with higher-timeframe swing trading structures.</p></article><article class="card"><span class="ico">↗</span><strong>Trend &amp; Momentum</strong><p>Combine EMA analysis and price action for an organized intraday workflow.</p></article><article class="card"><span class="ico">▦</span><strong>Sector Overview</strong><p>Monitor strength and weakness across supported market sectors and stock universes.</p></article><article class="card"><span class="ico">◈</span><strong>Professional Terminal</strong><p>Clean, responsive layouts designed for desktop and mobile market review.</p></article></div></div></section><section><div class="wrap"><div class="kicker">Getting started</div><h2>Three steps to a focused workflow.</h2><div class="steps"><div class="step"><b>01 · Create your account</b><p>Sign up once, select a plan and complete secure payment verification.</p></div><div class="step"><b>02 · Choose your screener</b><p>Explore intraday setups or swing demand and supply zones with your preferred filters.</p></div><div class="step"><b>03 · Validate before trading</b><p>Review chart structure, liquidity, stop-loss and risk independently before placing a trade.</p></div></div></div></section><section id="pricing"><div class="wrap"><div class="kicker">Membership</div><h2>Choose your StockFinder Pro access.</h2><p class="desc">All plans provide access to supported intraday and demand &amp; supply screening features for the selected period. Payments are processed through Razorpay.</p><div class="plans"><article class="plan"><h3>Monthly</h3><div class="amount">₹499</div><small>1 month</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=monthly">Choose Monthly</a></article><article class="plan popular"><div class="tag">POPULAR CHOICE</div><h3>Quarterly</h3><div class="amount">₹1,199</div><small>3 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn gold" href="/checkout?plan=quarterly">Choose Quarterly</a></article><article class="plan"><h3>Half-Yearly</h3><div class="amount">₹2,499</div><small>6 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=halfyearly">Choose Half-Yearly</a></article><article class="plan"><h3>Yearly</h3><div class="amount">₹4,999</div><small>12 months</small><ul><li>Intraday screener</li><li>Demand &amp; supply zones</li><li>EMA &amp; sector tools</li></ul><a class="btn" href="/checkout?plan=yearly">Choose Yearly</a></article></div><p class="disclaimer">Access is activated only after verified payment. Existing members with an active subscription can log in without paying again. Displayed prices match the current application configuration.</p></div></section><section id="faq"><div class="wrap"><div class="kicker">FAQs</div><h2>Know before you subscribe.</h2><div class="faq"><article class="faq-item"><h3>Is this an automated trading or brokerage service?</h3><p>No. StockFinder Pro is an analytical screening tool, not a broker or automated order execution platform.</p></article><article class="faq-item"><h3>Are the setups guaranteed to be profitable?</h3><p>No. Results may be delayed or incomplete and do not guarantee outcomes. Always independently verify signals and manage risk.</p></article><article class="faq-item"><h3>Do I need to pay each time I log in?</h3><p>No. A verified active membership remains valid until its expiry date. Payment is needed when a subscription is not active.</p></article><article class="faq-item"><h3>Can I use the screener on PC and mobile?</h3><p>The interface supports both. Sign in separately on each device using your registered account.</p></article></div></div></section><section id="contact"><div class="wrap contact"><div><div class="kicker">Support</div><h2>Need help getting started?</h2><p class="desc">For login, payment or membership questions, contact support with your registered email and a brief description. Never share passwords or OTPs.</p></div><div class="contact-panel"><h3>StockFinder Pro Support</h3>{% if support_email %}<p>Email our support team:</p><a href="mailto:{{ support_email }}?subject=StockFinder%20Pro%20Support">{{ support_email }}</a>{% else %}<p>Support email will appear here once the platform owner configures <code>SUPPORT_EMAIL</code>.</p>{% endif %}</div></div></section></main><footer><div class="wrap foot"><span>© <span id="year"></span> StockFinder Pro. All rights reserved.</span><div class="footlinks"><a href="#features">Features</a><a href="#pricing">Plans</a><a href="#faq">FAQs</a><a href="/login">Login</a></div><div class="disclaimer">For analytical and educational use only. Not investment advice. Trading involves risk.</div></div></footer><script>document.getElementById(\'year\').textContent=new Date().getFullYear()</script></body></html>'
+
+LOGIN_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />  
-  <title>Stock Finder Pro - Elite Institutional Terminal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Stock Finder Pro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (['light','ocean','amoled'].includes(savedTheme)) document.documentElement.setAttribute('data-theme', savedTheme);
-  </script>
-
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #030508; --panel: rgba(13, 18, 27, 0.82); --border: rgba(243, 156, 18, 0.18);
-      --text: #94a3b8; --muted: #64748b; --green: #2ecc71; --red: #e74c3c; --primary: #f39c12;
-      --sidebar-bg: rgba(6, 9, 15, 0.95); --ticker-bg: #030508; --th-bg: rgba(13, 18, 27, 0.95);
-      --hover-bg: rgba(243, 156, 18, 0.06); --bar-bg: rgba(0, 0, 0, 0.3); --bar-track: #161a23;
-      --strong-text: #ffffff; --input-bg: rgba(0, 0, 0, 0.55);
-      --glass-shadow: 0 30px 60px rgba(0,0,0,0.85);
-      --glass-border: 1px solid rgba(243, 156, 18, 0.18);
+      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c;
     }
-    [data-theme="light"] {
-      --bg: #f3f4f6; --card: rgba(255, 255, 255, 0.85); --border: rgba(0, 0, 0, 0.1);
-      --text: #374151; --muted: #6b7280; --green: #059669; --red: #dc2626; --primary: #d97706;
-      --sidebar-bg: rgba(255, 255, 255, 0.95); --ticker-bg: #ffffff; --th-bg: rgba(243, 244, 246, 0.95);
-      --hover-bg: rgba(0, 0, 0, 0.04); --bar-bg: rgba(255, 255, 255, 0.6); --bar-track: #e5e7eb;
-      --strong-text: #111827; --input-bg: rgba(255, 255, 255, 0.5);
-      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
-      --glass-border: 1px solid rgba(0, 0, 0, 0.08);
-    }
-    [data-theme="ocean"] { --bg:#061e32;--panel:#0d2d47;--sidebar-bg:#061a2b;--ticker-bg:#061a2b;--th-bg:#0c2c45;--primary:#44c9ff;--border:#216389;--hover-bg:#123c5b;--strong-text:#edfaff;--text:#b5d5e8;--input-bg:#0a2a43;--glass-border:1px solid #216389; }
-    [data-theme="amoled"] { --bg:#000;--panel:#090909;--sidebar-bg:#000;--ticker-bg:#000;--th-bg:#080808;--primary:#ffb342;--border:#303030;--hover-bg:#171717;--strong-text:#fff;--text:#c4c4c4;--input-bg:#0b0b0b;--glass-border:1px solid #303030; }
-    [data-theme="ocean"] body {background:#061e32!important;}
-    [data-theme="amoled"] body {background:#000!important;}
-    [data-theme="ocean"] .sidebar,[data-theme="ocean"] .panel,[data-theme="ocean"] .toolbar,[data-theme="ocean"] .table-container {background:#0d2d47!important;border-color:#216389!important;}
-    [data-theme="amoled"] .sidebar,[data-theme="amoled"] .panel,[data-theme="amoled"] .toolbar,[data-theme="amoled"] .table-container {background:#090909!important;border-color:#303030!important;}
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; }
-    
-    body {
-      background: radial-gradient(circle at 50% 0%, #161a23 0%, #080b11 50%, #030508 100%);
-      color: var(--text); height: 100vh; display: flex; flex-direction: row; overflow: hidden; transition: background-color 0.3s, color 0.3s;
-      position: relative;
-    }
-    body::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-      background-image: linear-gradient(to right, rgba(243, 156, 18, 0.035) 1px, transparent 1px),
-                        linear-gradient(to bottom, rgba(243, 156, 18, 0.035) 1px, transparent 1px);
-      background-size: 50px 50px; z-index: -2; pointer-events: none;
-    }
-
-    .mono, td, th, .kpi-val, .ticker-price, .ticker-change, .badge, .treemap-tile, .barchart-val { font-family: 'JetBrains Mono', monospace !important; }
-
-    .panel, .kpi-card, .movers-panel, .toolbar, .table-container, .sidebar {
-      background: var(--panel); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: var(--glass-border); box-shadow: var(--glass-shadow);
-    }
-
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 4px; opacity: 0.5; }
-
-    /* Desktop Sidebar */
-    .sidebar { width: 260px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; padding: 1.5rem 1rem; z-index: 1000; transition: transform 0.3s ease; background: var(--sidebar-bg); }
-    .sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
-    .brand { font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; gap: 10px; color: var(--primary); margin-bottom: 2rem; padding-left: 0.5rem; text-shadow: 0 0 15px rgba(243, 156, 18, 0.3); font-family: 'JetBrains Mono', monospace; }
-    .dot { width: 10px; height: 10px; background: var(--green); border-radius: 50%; box-shadow: 0 0 10px var(--green); flex-shrink: 0; animation: pulseDot 2s infinite; }
-    @keyframes pulseDot { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
-
-    .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
-    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 0.8rem 1rem; font-size: 0.85rem; font-weight: 600; border-radius: 10px; cursor: pointer; text-align: left; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; text-decoration: none; }
-    .nav-btn:hover { background: var(--hover-bg); color: var(--strong-text); }
-    .nav-btn.active { background: rgba(243, 156, 18, 0.12); color: var(--primary); border: 1px solid rgba(243, 156, 18, 0.3); box-shadow: 0 0 20px rgba(243, 156, 18, 0.15); }
-    
-    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 999; backdrop-filter: blur(3px); }
-    .sidebar-overlay.show { display: block; }
-
-    .universe-dropdown { width: 100%; background: var(--input-bg); color: var(--strong-text); border: var(--glass-border); padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f39c12' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
-    .universe-dropdown option { background-color: #080b11; color: var(--strong-text); padding: 10px; }
-
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; background: var(--input-bg); border: var(--glass-border); border-radius: 10px; margin-top: 8px; cursor: pointer; }
-    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 34px; }
-    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: var(--muted); transition: .3s; border-radius: 50%; }
-    input:checked + .slider { background-color: rgba(243, 156, 18, 0.2); border-color: var(--primary); }
-    input:checked + .slider:before { transform: translateX(18px); background-color: var(--primary); }
-
-    .main-wrapper { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; width: 100%; min-width: 0; }
-    main { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; scroll-behavior: smooth; }
-
-    /* --- TERMINAL TICKER SCROLLER STYLES --- */
-    .market-ticker-container {
-      width: 100%; height: 40px; background: rgba(3, 5, 8, 0.9) !important; border-bottom: var(--glass-border);
-      display: flex; align-items: center; z-index: 40; position: relative; flex-shrink: 0; backdrop-filter: blur(12px); box-shadow: var(--glass-shadow);
-    }
-    .hamburger-btn, .theme-btn { background: transparent; border: none; color: var(--strong-text); cursor: pointer; padding: 0 15px; display: flex; align-items: center; justify-content: center; height: 100%; border-right: var(--glass-border); flex-shrink: 0; }
-    .theme-btn { border-left: var(--glass-border); border-right: none; }
-    
-    .ticker-wrapper {
-      flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; position: relative;
-      mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
-      -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
-    }
-    .market-ticker-track { display: inline-flex; animation: scrollTicker 45s linear infinite; white-space: nowrap; will-change: transform; }
-    .ticker-wrapper:hover .market-ticker-track { animation-play-state: paused; }
-    .ticker-item { display: inline-flex; align-items: center; padding: 0 20px; border-right: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.72rem; gap: 6px; }
-    .ticker-symbol { color: var(--muted); font-weight: 700; text-transform: uppercase; }
-    .ticker-price { color: var(--strong-text); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .ticker-change.positive { color: var(--green); font-weight: 600; }
-    .ticker-change.negative { color: var(--red); font-weight: 600; }
-    @keyframes scrollTicker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-    .kpi-card { border-radius: 12px; padding: 1rem; cursor: pointer; transition: all 0.2s; }
-    .kpi-card:hover { border-color: var(--primary) !important; transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
-    .kpi-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
-    .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--strong-text); }
-
-    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-    .movers-panel { border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; height: 320px; }
-    .movers-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; border-bottom: var(--glass-border); padding-bottom: 8px; }
-    .movers-list-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
-    .movers-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.4rem; border-bottom: var(--glass-border); font-size: 0.8rem; transition: background 0.2s; }
-    .movers-row:hover { background: var(--hover-bg); border-radius: 6px; }
-
-    .panel { border-radius: 12px; padding: 1.5rem; }
-    .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-radius: 12px; padding: 1rem; }
-    .filter-wrapper { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
-    .filter-btn { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; border-radius: 8px; background: var(--input-bg); color: var(--text); border: var(--glass-border); cursor: pointer; white-space: nowrap; transition: all 0.2s; }
-    .filter-btn:hover { border-color: var(--primary); color: var(--strong-text); }
-    .filter-btn.active { background: rgba(243, 156, 18, 0.15); color: var(--primary); border-color: var(--primary); font-weight: 700; box-shadow: 0 0 12px rgba(243, 156, 18, 0.2); }
-    
-    .search-box { background: var(--input-bg); border: var(--glass-border); color: var(--strong-text); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; outline: none; width: 100%; transition: border-color 0.2s; }
-    .search-box:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.15); }
-
-    .table-container { border-radius: 12px; overflow: auto; max-height: calc(100vh - 450px); min-height: 400px; }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap; }
-    th { padding: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; border-bottom: var(--glass-border); background: var(--th-bg); position: sticky; top: 0; z-index: 10; cursor: pointer; }
-    th:hover { color: var(--primary); }
-    td { padding: 0.9rem 1rem; border-bottom: var(--glass-border); transition: background 0.2s; }
-    tr:hover td { background: var(--hover-bg); }
-    .stock-link { color: var(--strong-text); text-decoration: none; font-weight: 700; cursor: pointer; }
-    .stock-link:hover { color: var(--primary); }
-
-    .watchlist-btn { background: transparent; border: none; cursor: pointer; font-size: 1.1rem; margin-right: 6px; transition: transform 0.2s; }
-    .watchlist-btn:hover { transform: scale(1.2); }
-    .watchlist-btn.starred { color: #f39c12; text-shadow: 0 0 8px rgba(243, 156, 18, 0.6); }
-
-    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
-    .badge-green { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.3); }
-    .badge-red { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid rgba(255, 23, 68, 0.3); }
-    .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
-    .badge-yellow { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
-    .badge-demand { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid var(--green); }
-    .badge-supply { background: rgba(255, 23, 68, 0.15); color: var(--red); border: 1px solid var(--red); }
-    .badge-gold { background: rgba(243, 156, 18, 0.15); color: var(--primary); border: 1px solid var(--primary); }
-    .badge-muted { background: rgba(255, 255, 255, 0.05); color: var(--muted); border: var(--glass-border); }
-    .val-up { color: var(--green); font-weight: 600; }
-    .val-down { color: var(--red); font-weight: 600; }
-
-    /* --- INNOVATIVE INSTITUTIONAL SCANNER RADAR LOADING ANIMATION --- */
-    .scanner-loading-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 4rem 1rem;
-      gap: 16px;
-      text-align: center;
-    }
-    .radar-container {
-      width: 60px;
-      height: 60px;
-      border: 2px solid rgba(243, 156, 18, 0.2);
-      border-radius: 50%;
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 0 20px rgba(243, 156, 18, 0.15);
-    }
-    .radar-beam {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      position: absolute;
-      background: conic-gradient(from 0deg at 50% 50%, rgba(243, 156, 18, 0.4) 0deg, transparent 60deg, transparent 360deg);
-      animation: spinRadar 1.8s linear infinite;
-    }
-    .radar-core {
-      width: 14px;
-      height: 14px;
-      background: var(--primary);
-      border-radius: 50%;
-      box-shadow: 0 0 12px var(--primary);
-      animation: pulseCore 1.2s ease-in-out infinite alternate;
-    }
-    @keyframes spinRadar {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    @keyframes pulseCore {
-      0% { transform: scale(0.8); opacity: 0.6; }
-      100% { transform: scale(1.2); opacity: 1; }
-    }
-    .scanner-loading-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: var(--primary);
-      letter-spacing: 0.5px;
-      text-shadow: 0 0 10px rgba(243, 156, 18, 0.3);
-    }
-    .scanner-loading-sub {
-      font-size: 0.75rem;
-      color: var(--muted);
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    /* Mobile Bottom Navigation Bar */
-    .bottom-nav { display: none; background: var(--sidebar-bg); border-top: var(--glass-border); padding: 0.5rem 1rem; justify-content: space-around; z-index: 100; flex-shrink: 0; backdrop-filter: blur(16px); }
-    .bnav-btn { background: transparent; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; font-size: 0.65rem; font-weight: 700; cursor: pointer; flex: 1; text-transform: uppercase; }
-    .bnav-btn.active { color: var(--primary); }
-    .bnav-btn .icon { font-size: 1.2rem; }
-
-    .sector-side-by-side { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.5rem; align-items: start; }
-    @media(max-width: 1200px) { .sector-side-by-side { grid-template-columns: 1fr; } }
-    .sec-section-title { font-size: 0.95rem; font-weight: 700; color: var(--strong-text); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
-
-    .sector-treemap-grid { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
-    .treemap-tile { border-radius: 8px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; cursor: pointer; transition: transform 0.15s ease; border: 1px solid rgba(255,255,255,0.12); text-decoration: none; min-height: 95px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-    .treemap-tile:hover { transform: scale(1.02); filter: brightness(1.15); z-index: 10; border-color: #fff; }
-    .tile-logo { width: 26px; height: 26px; border-radius: 50%; background: #ffffff; padding: 2px; object-fit: contain; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
-    .tile-logo-badge { width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
-    .tile-logo-shell {position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin-bottom:5px;flex-shrink:0}
-    .tile-logo-shell .tile-logo-badge {width:32px;height:32px;margin:0}
-    .tile-logo-shell .tile-logo {position:absolute;inset:0;width:36px;height:36px;border-radius:9px;background:#fff;padding:4px;margin:0;opacity:0;transition:opacity .18s ease}
-    .tile-logo-shell .tile-logo.tile-logo-ready {opacity:1}
-    @media(max-width:600px){.tile-logo-shell{width:30px;height:30px}.tile-logo-shell .tile-logo{width:30px;height:30px}}
-    .tile-name { font-weight: 800; font-size: 0.78rem; color: #ffffff; letter-spacing: 0.3px; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-    .tile-change { font-size: 0.72rem; font-weight: 700; color: #ffffff; margin-top: 2px; }
-
-    .ranking-list-col { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-    .barchart-row { display: flex; align-items: center; font-size: 0.78rem; border-radius: 8px; padding: 8px 12px; width: 100%; background: var(--input-bg); border: var(--glass-border); transition: all 0.2s ease; cursor: pointer; }
-    .barchart-row:hover { background: var(--hover-bg); border-color: var(--primary); transform: translateX(4px); }
-    .barchart-row.selected { background: rgba(243, 156, 18, 0.15); border: 1px solid var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
-    .barchart-label { width: 130px; min-width: 130px; flex-shrink: 0; text-align: left; padding-right: 8px; font-weight: 600; color: var(--strong-text); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    
-    .barchart-track { flex: 1; height: 16px; position: relative; display: flex; align-items: center; margin-right: 8px; }
-    .barchart-bar-wrapper { flex: 1; height: 10px; position: relative; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
-    .barchart-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); z-index: 1; }
-    .barchart-bar { position: absolute; height: 10px; top: 0; border-radius: 2px; z-index: 2; }
-    .barchart-bar.pos { left: 50%; background-color: var(--green); }
-    .barchart-bar.neg { right: 50%; background-color: var(--red); }
-    .barchart-val { width: 55px; min-width: 55px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; color: var(--strong-text); flex-shrink: 0; }
-
-    @media(max-width: 1024px) {
-      body { height: 100vh; overflow: hidden; width: 100%; position: relative; display: flex; flex-direction: row; }
-      .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); z-index: 1000; width: 260px; min-width: 260px; transition: transform 0.3s ease; }
-      .sidebar.open { transform: translateX(0); }
-      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
-      .main-wrapper { height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; width: 100%; }
-      main { padding: 0.8rem; overflow-y: auto; flex: 1; }
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
-      .movers-grid { grid-template-columns: 1fr; gap: 0.6rem; }
-    }
-
-/* StockFinder Pro — Obsidian Gold balanced motion */
-:root { --panel:rgba(13,18,27,.88); --gold-glow:rgba(243,156,18,.18); }
-body { background:radial-gradient(ellipse at 85% 8%,rgba(171,105,16,.10),transparent 42%),radial-gradient(ellipse at 15% 85%,rgba(115,76,20,.055),transparent 48%),#05080d; }
-body::before { background-image:linear-gradient(to right,rgba(243,156,18,.025) 1px,transparent 1px),linear-gradient(to bottom,rgba(243,156,18,.025) 1px,transparent 1px);background-size:48px 48px;animation:sf-grid-drift 32s linear infinite; }
-@keyframes sf-grid-drift { to {background-position:48px 48px;} }
-body::after {content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(420px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(243,156,18,.075),transparent 75%);opacity:.8;transition:opacity .3s;}
-.sidebar,.main-wrapper {position:relative;z-index:1;}
-.panel,.toolbar,.kpi-card,.movers-panel,.table-container {transition:border-color .25s ease,box-shadow .25s ease,transform .25s ease;}
-.panel:hover,.toolbar:hover {border-color:rgba(243,156,18,.27);}
-.kpi-card:hover {box-shadow:0 10px 30px rgba(0,0,0,.32),0 0 18px rgba(243,156,18,.08);}
-.sf-view-enter {animation:sf-view-in .32s cubic-bezier(.2,.7,.2,1) both;}
-@keyframes sf-view-in {from {opacity:.25;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
-.sf-skeleton {position:relative;overflow:hidden;background:linear-gradient(90deg,rgba(110,120,135,.10) 0%,rgba(243,156,18,.13) 48%,rgba(110,120,135,.10) 100%);background-size:220% 100%;animation:sf-shimmer 1.45s ease-in-out infinite;border-radius:5px;}
-@keyframes sf-shimmer {from{background-position:200% 0}to{background-position:-200% 0}}
-.sf-loading {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px 14px;min-height:220px;text-align:center;}
-.sf-loader-heading {font-size:.85rem;font-weight:700;color:var(--strong-text);letter-spacing:.02em;}
-.sf-loader-caption {font-size:.72rem;color:var(--muted);margin-top:5px;}
-.sf-line-track {width:min(260px,80%);height:2px;background:rgba(243,156,18,.13);border-radius:8px;position:relative;overflow:hidden;}
-.sf-line-track::after {content:"";position:absolute;inset:0 auto 0 0;width:35%;border-radius:8px;background:linear-gradient(90deg,transparent,#e6a13a,#ffe1a2,#e6a13a,transparent);box-shadow:0 0 8px rgba(243,156,18,.38);animation:sf-line-slide 1.6s ease-in-out infinite;}
-@keyframes sf-line-slide {from{transform:translateX(-110%)}to{transform:translateX(300%)}}
-.sf-zone-mark {display:flex;gap:5px;align-items:flex-end;height:34px;}
-.sf-zone-mark i {display:block;width:5px;height:var(--h);border-radius:2px;background:var(--c);opacity:.65;animation:sf-candle-wave 1.2s ease-in-out infinite;animation-delay:var(--d);}
-@keyframes sf-candle-wave {50%{opacity:1;transform:translateY(-4px)} }
-.sf-sector-loader {display:grid;grid-template-columns:repeat(5,22px);gap:5px;justify-content:center;}
-.sf-sector-loader i {height:18px;border-radius:3px;background:rgba(243,156,18,.15);animation:sf-tile 1.5s ease-in-out infinite;animation-delay:calc(var(--i)*.10s);}
-@keyframes sf-tile {50%{background:rgba(243,156,18,.55);transform:scale(.94)}}
-.sf-table-skeleton {padding:12px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
-.sf-table-skeleton .sf-skeleton {height:12px;}
-@media(max-width:700px){body::after{display:none}.sf-table-skeleton{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.sf-loading{min-height:180px;padding:26px 8px}.sf-sector-loader{grid-template-columns:repeat(5,18px)}}
-@media(prefers-reduced-motion:reduce){body::before,.sf-view-enter,.sf-skeleton,.sf-line-track::after,.sf-zone-mark i,.sf-sector-loader i{animation:none!important} .panel,.toolbar,.kpi-card{transition:none!important}}
-[data-theme="light"] body {background:#f3f4f6;}
-[data-theme="light"] body::after {opacity:.35;}
-
-  .sf-tab-transition{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:var(--bg,#090d14);background:color-mix(in srgb,var(--bg,#090d14) 96%,transparent);animation:sf-tab-reveal .8s ease forwards;pointer-events:none;}
-#view-sec,#view-watchlist{position:relative;min-height:220px;}
-@keyframes sf-tab-reveal{0%,65%{opacity:1}100%{opacity:0}}
-
-/* === StockFinder Pro: unified Trading Terminal theme (landing/login palette) === */
-:root:not([data-theme="light"]){
- --bg:#070d12;--panel:#101b23;--border:#26343e;--text:#c3d0d8;
- --muted:#93a5b1;--green:#20cf83;--red:#ff5a65;--primary:#f6aa2a;
- --sidebar-bg:#081017;--ticker-bg:#081017;--th-bg:#14232c;
- --hover-bg:rgba(246,170,42,.065);--bar-bg:#101b23;--bar-track:#26343e;
- --strong-text:#eef4f7;--input-bg:#0a141b;
- --glass-shadow:0 12px 36px rgba(0,0,0,.25);
- --glass-border:1px solid #26343e;
-}
-:root:not([data-theme="light"]) body{
- background:radial-gradient(ellipse at 85% 5%,rgba(19,54,46,.52),transparent 43%),#070d12;
-}
-:root:not([data-theme="light"]) body::before{
- background-image:linear-gradient(to right,rgba(71,110,115,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(71,110,115,.035) 1px,transparent 1px);
- background-size:52px 52px;animation:none;
-}
-:root:not([data-theme="light"]) body::after{
- background:radial-gradient(460px circle at var(--sf-mouse-x,50%) var(--sf-mouse-y,40%),rgba(32,207,131,.043),transparent 75%);
-}
-:root:not([data-theme="light"]) .sidebar{background:#081017;border-right:1px solid #26343e;box-shadow:none;}
-:root:not([data-theme="light"]) .brand{color:#eef4f7;font-family:'Plus Jakarta Sans',sans-serif;letter-spacing:-.65px;text-shadow:none;}
-:root:not([data-theme="light"]) .brand .dot{background:#20cf83;box-shadow:0 0 0 4px rgba(32,207,131,.09);}
-:root:not([data-theme="light"]) .panel,
-:root:not([data-theme="light"]) .kpi-card,
-:root:not([data-theme="light"]) .movers-panel,
-:root:not([data-theme="light"]) .toolbar,
-:root:not([data-theme="light"]) .table-container{
- background:linear-gradient(145deg,#14212a,#0c151c);border:1px solid #26343e;
- box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
-}
-:root:not([data-theme="light"]) .panel:hover,
-:root:not([data-theme="light"]) .toolbar:hover{border-color:#40515c;}
-:root:not([data-theme="light"]) .kpi-card:hover{border-color:#a06b21!important;box-shadow:0 12px 28px #0005;}
-:root:not([data-theme="light"]) .nav-btn.active{
- background:rgba(246,170,42,.11);color:#ffc45c;border:1px solid #8c642b;
- box-shadow:inset 3px 0 0 #f6aa2a;
-}
-:root:not([data-theme="light"]) .filter-btn.active{
- background:#463417;color:#ffbf53;border:1px solid #9a681b;box-shadow:none;
-}
-:root:not([data-theme="light"]) .filter-btn:hover,
-:root:not([data-theme="light"]) .search-box:focus{box-shadow:none;border-color:#b88131;}
-:root:not([data-theme="light"]) .ticker-item{border-right:1px solid #26343e;}
-:root:not([data-theme="light"]) .sf-line-track{background:#3d321f;}
-:root:not([data-theme="light"]) .sf-line-track::after{background:linear-gradient(90deg,transparent,#f6aa2a,#ffdc8a,transparent);box-shadow:none;}
-:root:not([data-theme="light"]) .sf-skeleton{background:linear-gradient(90deg,#182630,#30404b,#182630);background-size:220% 100%;}
-:root:not([data-theme="light"]) .sf-tab-transition{background:#070d12;}
-:root:not([data-theme="light"]) input,
-:root:not([data-theme="light"]) select{accent-color:#f6aa2a;}
-@media(max-width:700px){:root:not([data-theme="light"]) .sidebar{background:#081017;}}
-
-
-
-    /* Premium, low-saturation heatmap: keep market direction readable without solid neon fills. */
-    .sector-treemap-grid .treemap-tile {
-      position:relative; overflow:hidden; min-height:102px; gap:5px;
-      border:1px solid var(--border); border-radius:10px;
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 4px 12px rgba(0,0,0,.12);
-      transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
-    }
-    .sector-treemap-grid .treemap-tile.heatmap-positive {
-      background:linear-gradient(155deg,#16372f 0%,#10251f 60%,#0e1d1b 100%);
-      border-color:rgba(48,183,135,.30);
-    }
-    .sector-treemap-grid .treemap-tile.heatmap-negative {
-      background:linear-gradient(155deg,#40252e 0%,#2b1c25 60%,#1e1920 100%);
-      border-color:rgba(219,107,121,.30);
-    }
-    .sector-treemap-grid .treemap-tile::before {
-      content:"";position:absolute;inset:0 auto 0 0;width:3px;
-      background:var(--heat-accent);opacity:.9;
-    }
-    .sector-treemap-grid .heatmap-positive {--heat-accent:#36c79a;}
-    .sector-treemap-grid .heatmap-negative {--heat-accent:#f17c8a;}
-    .sector-treemap-grid .treemap-tile .tile-name {color:#edf5f4;text-shadow:none;}
-    .sector-treemap-grid .treemap-tile .tile-change {color:var(--heat-accent);font-weight:800;}
-    .sector-treemap-grid .treemap-tile:hover {
-      transform:translateY(-3px);filter:none;border-color:var(--heat-accent);
-      box-shadow:0 9px 24px rgba(0,0,0,.30),0 0 0 1px var(--heat-accent);
-    }
-    [data-theme="light"] .sector-treemap-grid .heatmap-positive {background:linear-gradient(145deg,#e8f7ef,#d9f0e6);border-color:#a5d8c0;--heat-accent:#087e57;}
-    [data-theme="light"] .sector-treemap-grid .heatmap-negative {background:linear-gradient(145deg,#fff0f1,#f9e0e4);border-color:#e9b4bc;--heat-accent:#b7354b;}
-    [data-theme="light"] .sector-treemap-grid .treemap-tile .tile-name {color:#18262b;}
-    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile{transition:none}.sector-treemap-grid .treemap-tile:hover{transform:none}}
-
-
-    /* Dynamic strongest bullish/bearish movers: animated travelling neon border. */
-    .sector-treemap-grid .treemap-tile.heatmap-momentum {
-      isolation:isolate; overflow:hidden; border:2px solid var(--heat-accent);
-      box-shadow:0 0 13px var(--heat-glow),0 0 26px var(--heat-glow),inset 0 0 13px var(--heat-glow);
-    }
-    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--heat-accent:#3fffc0;--heat-glow:rgba(22,235,146,.24);}
-    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--heat-accent:#ff627b;--heat-glow:rgba(255,48,86,.25);}
-    .sector-treemap-grid .treemap-tile.heatmap-momentum::before {
-      content:"";position:absolute;inset:-70%;width:auto;height:auto;
-      background:conic-gradient(from 0deg,transparent 0deg,transparent 230deg,var(--heat-accent) 286deg,#ffffff 307deg,var(--heat-accent) 327deg,transparent 355deg);
-      opacity:.85;animation:sfp-momentum-border-spin 3s linear infinite;z-index:0;
-    }
-    .sector-treemap-grid .treemap-tile.heatmap-momentum::after {
-      content:"";position:absolute;inset:2px;border-radius:7px;
-      background:linear-gradient(155deg,var(--momentum-bg1),var(--momentum-bg2));z-index:0;pointer-events:none;
-    }
-    .sector-treemap-grid .heatmap-momentum.heatmap-positive {--momentum-bg1:#075c42;--momentum-bg2:#10362d;}
-    .sector-treemap-grid .heatmap-momentum.heatmap-negative {--momentum-bg1:#842436;--momentum-bg2:#451e2b;}
-    .sector-treemap-grid .treemap-tile.heatmap-momentum > * {position:relative;z-index:1;}
-    .sector-treemap-grid .treemap-tile.heatmap-momentum:hover {box-shadow:0 0 19px var(--heat-glow),0 0 35px var(--heat-glow);}
-    @keyframes sfp-momentum-border-spin {to{transform:rotate(360deg)}}
-    @media(prefers-reduced-motion:reduce){.sector-treemap-grid .treemap-tile.heatmap-momentum::before{animation:none}}
-
-/* About Sector Heatmap */
-.sfp-heatmap-info-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem}
-.sfp-heatmap-info-item{padding:1rem;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.018)}
-.sfp-heatmap-info-item strong{display:block;color:var(--strong-text);font-size:.8rem;margin-bottom:.4rem}
-.sfp-heatmap-info-item p{color:var(--muted);font-size:.76rem;line-height:1.65;margin:0}
-@media(max-width:780px){.sfp-heatmap-info-grid{grid-template-columns:1fr}}
-
-/* Light theme repair: full variable parity and high-contrast controls */
-:root[data-theme="light"] {
-  color-scheme:light;
-  --bg:#f4f7fb;--panel:#ffffff;--card:#ffffff;--border:#dbe3ec;
-  --text:#334155;--muted:#64748b;--green:#07835b;--red:#c52d43;
-  --primary:#a7640a;--sidebar-bg:#ffffff;--ticker-bg:#ffffff;
-  --th-bg:#eef3f8;--hover-bg:#edf4fb;--bar-bg:#f1f5f9;
-  --bar-track:#e2e8f0;--strong-text:#142235;--input-bg:#ffffff;
-  --glass-shadow:0 5px 20px rgba(29,50,78,.065);
-  --glass-border:1px solid #dbe3ec;
-}
-:root[data-theme="light"] body {background:#f4f7fb;color:var(--text)}
-:root[data-theme="light"] body::before {background-image:linear-gradient(to right,rgba(100,116,139,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(100,116,139,.035) 1px,transparent 1px)}
-:root[data-theme="light"] body::after {opacity:.08}
-:root[data-theme="light"] .sidebar {background:#fff;border-right:1px solid #dbe3ec;box-shadow:2px 0 16px rgba(25,45,70,.04)}
-:root[data-theme="light"] .brand {color:#142235;text-shadow:none}
-:root[data-theme="light"] .panel,
-:root[data-theme="light"] .kpi-card,
-:root[data-theme="light"] .movers-panel,
-:root[data-theme="light"] .toolbar,
-:root[data-theme="light"] .table-container {background:#fff;border:1px solid #dbe3ec;box-shadow:0 4px 16px rgba(25,45,70,.05)}
-:root[data-theme="light"] .market-ticker-container {background:#fff!important;border-bottom:1px solid #dbe3ec;box-shadow:none}
-:root[data-theme="light"] .ticker-item {border-right:1px solid #e2e8f0}
-:root[data-theme="light"] .hamburger-btn,
-:root[data-theme="light"] .theme-btn {color:#1e293b;border-color:#dbe3ec}
-:root[data-theme="light"] .nav-btn.active,
-:root[data-theme="light"] .filter-btn.active {background:#fff4e2;border-color:#e8c38d;color:#92590b;box-shadow:none}
-:root[data-theme="light"] .nav-btn:hover,
-:root[data-theme="light"] .filter-btn:hover {background:#f1f5f9}
-:root[data-theme="light"] .universe-dropdown,
-:root[data-theme="light"] .search-box,
-:root[data-theme="light"] .filter-btn,
-:root[data-theme="light"] input,
-:root[data-theme="light"] select {background-color:#fff;color:#142235;border-color:#cbd5e1}
-:root[data-theme="light"] .universe-dropdown option {background:#fff;color:#142235}
-:root[data-theme="light"] .bottom-nav {background:#fff;border-top:1px solid #dbe3ec}
-:root[data-theme="light"] .barchart-bar-wrapper {background:#edf2f7}
-:root[data-theme="light"] .badge-muted {background:#f1f5f9}
-:root[data-theme="light"] .sf-tab-transition {background:#f4f7fb}
-:root[data-theme="light"] .sf-skeleton {background:linear-gradient(90deg,#e5ebf2,#f8fafc,#e5ebf2);background-size:220% 100%}
-:root[data-theme="light"] .sf-line-track {background:#f3e4cc}
-:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-positive {--momentum-bg1:#d8f3e7;--momentum-bg2:#ecfaf3;--heat-accent:#07835b;--heat-glow:rgba(7,131,91,.18)}
-:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum.heatmap-negative {--momentum-bg1:#ffe1e5;--momentum-bg2:#fff1f3;--heat-accent:#c52d43;--heat-glow:rgba(197,45,67,.18)}
-:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-name {color:#142235}
-:root[data-theme="light"] .sector-treemap-grid .treemap-tile.heatmap-momentum .tile-change {color:var(--heat-accent)}
-
-
-    /* Compact view: applied to the whole terminal, not only table wrappers. */
-    body.sfp-compact main {padding:.85rem 1.1rem}
-    body.sfp-compact .toolbar {padding:.6rem .75rem;margin-bottom:.75rem;gap:.5rem}
-    body.sfp-compact .panel {padding:.9rem}
-    body.sfp-compact .kpi-grid {gap:.55rem;margin-bottom:.8rem}
-    body.sfp-compact .kpi-card {padding:.65rem .8rem}
-    body.sfp-compact .kpi-val {font-size:1.3rem}
-    body.sfp-compact .movers-grid {gap:.7rem;margin-bottom:.8rem}
-    body.sfp-compact .movers-panel {height:245px;padding:.7rem}
-    body.sfp-compact .movers-row {padding:.25rem .35rem;font-size:.73rem}
-    body.sfp-compact .table-container {min-height:260px;max-height:calc(100vh - 300px)}
-    body.sfp-compact table {font-size:.74rem}
-    body.sfp-compact th {padding:.52rem .65rem;font-size:.65rem}
-    body.sfp-compact td {padding:.42rem .65rem}
-    body.sfp-compact .filter-btn {padding:.35rem .6rem;font-size:.69rem}
-    body.sfp-compact .search-box {padding:.42rem .6rem}
-    body.sfp-compact .sector-side-by-side {gap:.8rem}
-    body.sfp-compact .sector-treemap-grid {gap:4px}
-    body.sfp-compact .treemap-tile {min-height:72px;padding:7px 5px;border-radius:6px}
-    body.sfp-compact .tile-logo-shell {width:25px;height:25px;margin-bottom:2px}
-    body.sfp-compact .tile-logo-shell .tile-logo {width:25px;height:25px}
-    body.sfp-compact .tile-logo-shell .tile-logo-badge {width:23px;height:23px;font-size:.48rem}
-    body.sfp-compact .tile-name {font-size:.67rem}
-    body.sfp-compact .tile-change {font-size:.7rem}
-    body.sfp-compact .sfp-heatmap-info-item {padding:.65rem}
-    @media(max-width:700px){body.sfp-compact main{padding:.65rem}body.sfp-compact .panel{padding:.7rem}}
-
-
-/* StockFinder Pro: mobile and tablet responsive polish */
-@media (max-width:1024px) {
-  html,body {width:100%;max-width:100%;overscroll-behavior-x:none}
-  .main-wrapper {min-width:0!important;max-width:100vw;height:100dvh!important;padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))!important}
-  .sidebar {position:fixed!important;z-index:1100!important;height:100dvh!important;max-height:100dvh;overflow-y:auto;transform:translateX(-105%);margin-left:0!important;opacity:1!important;pointer-events:auto!important}
-  .sidebar.open {transform:translateX(0)!important}
-  .sidebar-overlay.show {z-index:1050!important}
-  .bottom-nav {z-index:900!important;padding-bottom:env(safe-area-inset-bottom,0px);min-height:58px}
-  .main-wrapper main {min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
-  .table-container {max-width:100%;overflow-x:auto!important;-webkit-overflow-scrolling:touch;min-height:0;max-height:min(65dvh,650px)}
-  .table-container table {min-width:680px}
-  .panel,.toolbar,.movers-panel,.kpi-card {min-width:0;max-width:100%}
-  .sector-side-by-side {grid-template-columns:minmax(0,1fr)!important}
-  .sector-treemap-grid {min-width:0}
-  .sector-treemap-grid .treemap-tile {min-width:0;flex-basis:calc(33.333% - 6px)!important;box-sizing:border-box}
-  .bottom-nav .bnav-btn {min-width:0;flex:1;touch-action:manipulation}
-}
-@media (max-width:600px) {
-  .main-wrapper main {padding:10px!important}
-  .panel {padding:12px!important;margin-bottom:12px!important}
-  .toolbar {padding:10px!important;gap:8px!important}
-  .kpi-grid {grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
-  .movers-grid {grid-template-columns:minmax(0,1fr)!important}
-  .market-ticker-container {height:44px;min-height:44px}
-  .hamburger-btn,.theme-btn {min-width:44px;padding:0 11px}
-  .ticker-item {padding:0 12px;font-size:11px}
-  .sector-treemap-grid {gap:7px!important}
-  .sector-treemap-grid .treemap-tile {flex:1 1 calc(50% - 7px)!important;min-height:105px;padding:10px 5px!important}
-  .sector-treemap-grid .treemap-tile .tile-name {font-size:11px;max-width:100%}
-  .sector-treemap-grid .treemap-tile .tile-change {font-size:12px}
-  .barchart-label {width:95px;min-width:95px;font-size:11px}
-  .barchart-val {width:48px;min-width:48px;font-size:11px}
-  .bottom-nav {padding-left:3px;padding-right:3px}
-  .bottom-nav .bnav-btn {padding:6px 2px;font-size:10px}
-  .bottom-nav .bnav-btn .icon {font-size:18px}
-  #rr-calculator-modal .panel {width:min(440px,calc(100vw - 24px))!important;max-height:85dvh;overflow-y:auto}
-  input,select,textarea {max-width:100%;box-sizing:border-box}
-}
-@media (max-width:360px) {
-  .sector-treemap-grid .treemap-tile {padding:8px 3px!important}
-  .sector-treemap-grid .treemap-tile .tile-name {font-size:10px}
-}
-
-
-/* StockFinder Pro unified redesign / terminal polish */
-:root:not([data-theme="light"]){--bg:#070d12;--panel:#101b23;--border:#30414c;--primary:#f6aa2a;--green:#20cf83;--red:#ff5a65;--strong-text:#eef4f7;--muted:#93a5b1;--sidebar-bg:#081017}
-:root:not([data-theme="light"]) .market-ticker-container{background:#081017!important;border-bottom:1px solid #30414c;box-shadow:none}
-:root:not([data-theme="light"]) .panel,:root:not([data-theme="light"]) .toolbar,:root:not([data-theme="light"]) .kpi-card,:root:not([data-theme="light"]) .movers-panel,:root:not([data-theme="light"]) .table-container{background:linear-gradient(145deg,#14232c,#0c151c);border-color:#30414c;border-radius:13px}
-:root:not([data-theme="light"]) .sidebar{border-right:1px solid #30414c}.brand{letter-spacing:-.6px}.nav-btn{border-radius:9px}.kpi-card{position:relative;overflow:hidden}.kpi-card:before{content:'';position:absolute;inset:0 0 auto;height:2px;background:linear-gradient(90deg,transparent,#f6aa2a55,transparent)}.panel h3{letter-spacing:-.25px}button,input,select{font-family:inherit}.filter-btn{min-height:34px}.filter-btn:focus-visible,.nav-btn:focus-visible,.hamburger-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-@media(max-width:1024px){.sidebar.collapsed{margin-left:0;opacity:1;pointer-events:auto}.sidebar.open{transform:translateX(0)}.bottom-nav{padding-bottom:max(8px,env(safe-area-inset-bottom));min-height:58px}.main-wrapper{padding-bottom:calc(60px + env(safe-area-inset-bottom))}}
-@media(max-width:600px){main{padding:10px!important}.panel{padding:13px!important}.toolbar{padding:10px!important}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kpi-val{font-size:1.25rem}.sector-side-by-side{grid-template-columns:minmax(0,1fr)}.sector-treemap-grid{gap:5px}.sector-treemap-grid .treemap-tile{min-width:0;min-height:84px;padding:8px 5px}.tile-name{font-size:.64rem}.barchart-label{min-width:88px;width:88px;font-size:.66rem}.barchart-val{width:47px;min-width:47px}.table-container{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.table-container table{min-width:740px}.movers-panel{height:280px}.filter-wrapper{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:3px}.filter-btn{flex-shrink:0}.search-wrapper{width:100%}.search-box{width:100%}#smart-orb-container{grid-template-columns:1fr!important}}
-
-/* Ensure theme-specific overrides beat legacy dark terminal rules. */
-:root[data-theme="ocean"] .market-ticker-container{background:#071b2b!important;border-color:#245571!important}
-:root[data-theme="amoled"] .market-ticker-container{background:#000!important;border-color:#2d2d2d!important}
-/* Account actions stay together at bottom of left sidebar, immediately above clock. */
-.sfp-account-nav{display:flex;flex-direction:column;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
-.sfp-account-nav .nav-btn{display:flex;align-items:center;text-decoration:none;width:100%;box-sizing:border-box;padding:12px 14px;color:var(--strong-text)}
-.sfp-account-nav .sfp-logout{border:1px dashed rgba(246,170,42,.5);color:var(--primary)}
-:root[data-theme="ocean"]{--bg:#071c2b;--panel:#0c2b41;--border:#245571;--primary:#40caff;--green:#25e0b1;--strong-text:#effaff;--muted:#a2bfd1;--sidebar-bg:#071b2b}
-:root[data-theme="amoled"]{--bg:#000;--panel:#080808;--border:#2d2d2d;--primary:#ffb342;--green:#20cf83;--strong-text:#f5f5f5;--muted:#a5a5a5;--sidebar-bg:#000}
-:root[data-theme="amoled"] .panel,:root[data-theme="amoled"] .toolbar,:root[data-theme="amoled"] .kpi-card,:root[data-theme="amoled"] .movers-panel,:root[data-theme="amoled"] .table-container{background:#080808!important}
-:root[data-theme="ocean"] .panel,:root[data-theme="ocean"] .toolbar,:root[data-theme="ocean"] .kpi-card,:root[data-theme="ocean"] .movers-panel,:root[data-theme="ocean"] .table-container{background:#0c2b41!important}
-
-/* v15: landing-consistent sidebar identity + readable responsive terminal */
-.sfp-sidebar-brand{display:flex!important;align-items:center!important;gap:10px!important;margin-bottom:24px!important;padding:9px 7px!important;text-decoration:none!important;white-space:nowrap;min-width:0;text-shadow:none!important;letter-spacing:-.5px!important}
-.sfp-brand-mark{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #c98b2d;border-radius:12px;background:linear-gradient(145deg,#1c2b2c,#0b151c);color:#ffac28;font-size:33px;line-height:1;box-shadow:0 0 17px #ffac2820}
-.sfp-brand-name{display:block;min-width:0;color:var(--strong-text);font-family:'Plus Jakarta Sans',sans-serif;font-size:17px;font-weight:800;letter-spacing:-.65px;line-height:1.1}
-.sfp-brand-name>span{color:#ffac28}.sfp-brand-name small{display:block;margin-top:5px;font-size:7.5px;font-weight:700;letter-spacing:.6px;color:var(--muted)}
-.sfp-sidebar-brand .dot{margin-left:auto!important;flex:0 0 7px!important;width:7px!important;height:7px!important}
-@media(max-width:1024px){
-  .sidebar{width:min(310px,88vw)!important;min-width:0!important;padding:20px 16px!important}
-  .sidebar .nav-btn{min-height:47px;font-size:14px!important;display:flex;align-items:center}
-  .sidebar .universe-dropdown{min-height:46px;font-size:14px!important;width:100%}
-  .sidebar .toggle-row{min-height:48px}
-  .bottom-nav{min-height:66px!important}
-  .bottom-nav .bnav-btn{min-height:54px;font-size:11px!important;line-height:1.25;gap:4px}
-  .bottom-nav .bnav-btn .icon{font-size:21px!important}
-}
-@media(max-width:600px){
-  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-  body{font-size:14px!important}
-  .main-wrapper main{padding:13px!important;padding-bottom:22px!important}
-  .panel{padding:15px!important;border-radius:13px!important;margin-bottom:14px!important}
-  .panel h3{font-size:15px!important;line-height:1.4}
-  .panel p,.toolbar label,.toolbar span{font-size:12px;line-height:1.45}
-  .toolbar{padding:12px!important;gap:10px!important;flex-wrap:wrap!important}
-  .toolbar select,.toolbar input,.toolbar button,.filter-btn,.search-box,.universe-dropdown{font-size:14px!important;min-height:42px!important}
-  .search-wrapper{min-width:0;width:100%!important}
-  .search-box{width:100%!important}
-  .filter-wrapper{max-width:100%;overflow-x:auto;scrollbar-width:thin;-webkit-overflow-scrolling:touch;gap:7px!important}
-  .filter-btn{flex:0 0 auto;padding:9px 12px!important;white-space:nowrap}
-  .kpi-grid{gap:10px!important}
-  .kpi-card{padding:13px!important;min-height:95px}
-  .kpi-val{font-size:21px!important;line-height:1.3}
-  .kpi-label{font-size:11px!important;line-height:1.4}
-  .table-container{overflow-x:auto!important;max-width:100%!important;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
-  .table-container table{min-width:750px!important;font-size:12px!important}
-  .table-container th,.table-container td{padding:12px 10px!important;white-space:nowrap}
-  .sector-treemap-grid .treemap-tile{min-height:118px!important;padding:12px 7px!important}
-  .sector-treemap-grid .treemap-tile .tile-name{font-size:12px!important;line-height:1.3}
-  .sector-treemap-grid .treemap-tile .tile-change{font-size:14px!important}
-  .market-ticker-container{height:50px!important;min-height:50px!important}
-  .hamburger-btn,.theme-btn{min-width:48px!important}
-  .ticker-item{font-size:12px!important}
-  input,select,textarea{font-size:16px!important}
-}
-@media(max-width:380px){
-  .main-wrapper main{padding:10px!important}
-  .panel{padding:12px!important}
-  .bottom-nav .bnav-btn{font-size:10px!important}
-  .sfp-brand-name{font-size:16px}
-}
-
-/* StockFinder Pro mobile-first layout refresh — presentation only */
-@media (max-width: 700px) {
-  html, body { width:100%; max-width:100%; overflow-x:hidden; }
-  body { height:100dvh!important; font-size:13px!important; }
-  .main-wrapper { width:100%!important; height:100dvh!important; padding-bottom:calc(62px + env(safe-area-inset-bottom,0px))!important; }
-  .main-wrapper main, body.sfp-compact .main-wrapper main { padding:10px 10px 22px!important; overflow-x:hidden!important; }
-  .market-ticker-container { height:44px!important; min-height:44px!important; }
-  .hamburger-btn,.theme-btn { min-width:44px!important; padding:0 11px!important; }
-  .bottom-nav { min-height:60px!important; padding:5px 4px max(5px,env(safe-area-inset-bottom,0px))!important; gap:2px; }
-  .bottom-nav .bnav-btn { min-width:0; font-size:9px!important; gap:3px; line-height:1.15; padding:5px 1px!important; }
-  .bottom-nav .bnav-btn .icon { font-size:19px!important; }
-  .panel,body.sfp-compact .panel { padding:12px!important; margin-bottom:10px!important; border-radius:12px!important; }
-  .panel h3 { font-size:14px!important; line-height:1.35; }
-  .panel p { line-height:1.5; }
-  #view-scr > .panel:first-child { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:9px!important; }
-  #view-scr > .panel:first-child > div { min-width:0; max-width:100%!important; }
-  #view-scr > .panel:first-child > div:last-child { width:100%; justify-content:space-between!important; gap:12px!important; }
-  #view-scr > .panel:first-child > div:last-child > div:first-child { text-align:left!important; }
-  #view-scr > .panel:first-child > div:last-child > div:last-child { width:90px!important; flex:0 0 90px; }
-  #smart-orb-container { grid-template-columns:minmax(0,1fr)!important; gap:8px!important; }
-  #view-scr > .panel:nth-child(2) > div:first-child { gap:8px; }
-  #smart-orb-refresh-btn { min-width:74px; }
-  .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:8px!important; margin-bottom:10px!important; }
-  .kpi-card,body.sfp-compact .kpi-card { min-width:0; min-height:76px!important; padding:12px!important; border-radius:11px; }
-  .kpi-title { font-size:10px!important; line-height:1.3; overflow-wrap:anywhere; }
-  .kpi-val,body.sfp-compact .kpi-val { font-size:22px!important; }
-  .movers-grid { grid-template-columns:minmax(0,1fr)!important; gap:9px!important; margin-bottom:10px!important; }
-  .movers-panel,body.sfp-compact .movers-panel { height:auto!important; min-height:0; max-height:225px; padding:12px!important; }
-  .movers-list-scroll { max-height:165px; }
-  .movers-row { font-size:12px!important; gap:8px; }
-  .toolbar,body.sfp-compact .toolbar { display:flex!important; flex-direction:column; align-items:stretch!important; padding:10px!important; gap:10px!important; margin-bottom:10px!important; }
-  .filter-wrapper { flex:0 0 auto!important; width:100%; max-width:100%!important; display:flex!important; flex-wrap:nowrap!important; overflow-x:auto!important; gap:6px!important; padding:1px 1px 5px!important; scrollbar-width:thin; }
-  .filter-btn,body.sfp-compact .filter-btn { flex:0 0 auto; min-height:36px!important; padding:8px 11px!important; font-size:11px!important; }
-  .search-wrapper { width:100%!important; min-width:0!important; }
-  .search-box,body.sfp-compact .search-box { width:100%!important; min-width:0; min-height:42px!important; font-size:16px!important; padding:9px 12px!important; }
-  .table-container,body.sfp-compact .table-container { width:100%; max-width:100%!important; min-height:0!important; max-height:58dvh!important; overflow:auto!important; border-radius:10px!important; }
-  .table-container table,body.sfp-compact .table-container table { min-width:710px!important; font-size:12px!important; }
-  .table-container th,.table-container td,body.sfp-compact .table-container th,body.sfp-compact .table-container td { padding:10px 9px!important; }
-  #view-scr #table-wrapper th:nth-child(2),#view-scr #table-wrapper td:nth-child(2) { position:sticky;left:0;z-index:3;background:var(--th-bg);box-shadow:1px 0 0 var(--border); }
-  #view-scr #table-wrapper th:nth-child(2) { z-index:12; }
-  #view-zones > .panel > div:first-child { display:flex!important; flex-direction:column; align-items:stretch!important; gap:12px!important; }
-  #view-zones > .panel > div:first-child > div { min-width:0; width:100%; }
-  #view-zones > .panel > div:first-child > div:last-child { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; }
-  #view-zones > .panel > div:first-child > div:last-child > select { width:100%!important; min-width:0!important; min-height:42px; font-size:12px!important; padding:8px!important; }
-  #zones-cmp-distance { grid-column:1/-1; }
-  #zones-search { grid-column:1/-1; width:100%!important; font-size:16px!important; }
-  #tf-buttons-wrapper { grid-column:1/-1; }
-  .sector-side-by-side { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:10px!important; }
-  .sector-treemap-grid { gap:6px!important; }
-  .sector-treemap-grid .treemap-tile,body.sfp-compact .sector-treemap-grid .treemap-tile { flex:1 1 calc(50% - 6px)!important; min-width:0!important; min-height:90px!important; padding:9px 5px!important; }
-  .sector-treemap-grid .treemap-tile .tile-name { font-size:10px!important; }
-  .sector-treemap-grid .treemap-tile .tile-change { font-size:12px!important; }
-  .barchart-label { width:85px!important; min-width:85px!important; }
-  .barchart-row { padding:8px!important; }
-  .sfp-heatmap-info-grid { grid-template-columns:1fr!important; }
-  #rr-calculator-modal .panel { width:calc(100vw - 20px)!important; max-width:460px; max-height:85dvh!important; overflow-y:auto; }
-  input,select,textarea { max-width:100%; }
-}
-@media(max-width:370px) {
-  .main-wrapper main { padding:8px!important; }
-  .panel { padding:10px!important; }
-  .bottom-nav .bnav-btn { font-size:8px!important; }
-}
-
-
-/* Pullback back-navigation: keeps the user inside the terminal. */
-.sfp-pullback-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
-.sfp-pullback-back{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-color:var(--primary);color:var(--primary);min-height:38px}
-.sfp-pullback-back:hover{background:var(--hover-bg)}
-@media(max-width:600px){.sfp-pullback-heading{gap:10px}.sfp-pullback-back{min-height:42px}}
-/* Pullback scanner: visible, correctly spaced timeframe/filter arrows */
-#view-pullback .toolbar label {display:inline-flex;align-items:center;gap:9px;flex-wrap:nowrap;color:var(--strong-text);font-size:.78rem;font-weight:650;min-width:0}
-#view-pullback .toolbar select.universe-dropdown {
-  appearance:none;-webkit-appearance:none;-moz-appearance:none;
-  width:auto!important;min-width:142px;max-width:100%;min-height:42px;
-  padding:10px 38px 10px 13px!important;
-  background-color:var(--input-bg);
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f6aa2a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")!important;
-  background-position:right 12px center!important;background-size:16px 16px!important;
-  background-repeat:no-repeat!important;
-  border:1px solid var(--border);border-radius:9px;color:var(--strong-text);
-  line-height:1.25;cursor:pointer;
-}
-#view-pullback .toolbar select.universe-dropdown:focus-visible {outline:2px solid var(--primary);outline-offset:2px}
-#view-pullback .toolbar select.universe-dropdown option {background:#101b23;color:#eef4f7}
-:root[data-theme="light"] #view-pullback .toolbar select.universe-dropdown option {background:#fff;color:#142235}
-:root[data-theme="ocean"] #view-pullback .toolbar select.universe-dropdown option {background:#0c2b41;color:#effaff}
-:root[data-theme="amoled"] #view-pullback .toolbar select.universe-dropdown option {background:#080808;color:#fff}
-@media(max-width:600px){
- #view-pullback .toolbar {align-items:stretch!important}
- #view-pullback .toolbar label {width:100%;justify-content:space-between}
- #view-pullback .toolbar select.universe-dropdown {width:min(210px,65%)!important;min-width:0}
-}
-
-
-/* Match the landing-page brand identity in the terminal sidebar. */
-.sfp-sidebar-brand{gap:0!important;padding-left:7px!important;padding-right:0!important;align-items:flex-start!important;font-family:Inter,'Segoe UI',Arial,sans-serif!important;text-shadow:none!important}
-.sfp-sidebar-brand .sfp-brand-mark{display:inline!important;flex:0 0 auto!important;width:auto!important;height:auto!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--primary)!important;font-size:23px!important;font-weight:850!important;line-height:1.1!important;margin-right:6px!important}
-.sfp-sidebar-brand .sfp-brand-name{font-family:Inter,'Segoe UI',Arial,sans-serif!important;font-size:19px!important;font-weight:850!important;letter-spacing:-.7px!important;line-height:1.15!important;color:var(--strong-text)!important}
-.sfp-sidebar-brand .sfp-brand-name em{font-style:normal!important;color:var(--primary)!important}
-.sfp-sidebar-brand .sfp-brand-name small{display:block!important;margin:5px 0 0!important;font-size:7.3px!important;font-weight:700!important;letter-spacing:.8px!important;white-space:nowrap!important;color:var(--muted)!important}
-.sfp-sidebar-brand #api-status{margin:7px 0 0 auto!important;flex:0 0 7px!important}
-
-/* Stock news badge and modal */
-.sfp-chart-link{display:inline-block;margin-left:5px;margin-right:3px;color:var(--muted);font-size:13px;font-weight:800;text-decoration:none;vertical-align:middle}
-.sfp-chart-link:hover{color:var(--primary)}
-.sfp-news-badge{display:inline-flex;align-items:center;margin-left:7px;padding:3px 7px;border:1px solid var(--primary);border-radius:6px;background:rgba(246,170,42,.12);color:var(--primary);font-size:10px;font-weight:800;cursor:pointer;vertical-align:middle}
-.sfp-news-badge:hover{background:rgba(246,170,42,.24)}
-.sfp-news-new{animation:sfp-news-flash 1.1s ease-in-out infinite;border-color:var(--green);color:var(--green)}
-@keyframes sfp-news-flash{50%{box-shadow:0 0 12px var(--green)}}
-.sfp-news-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:5000;display:none;align-items:center;justify-content:center;padding:15px}
-.sfp-news-dialog{width:min(650px,100%);max-height:85dvh;overflow:auto;background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 25px 80px #0008}
-.sfp-news-item{display:block;padding:14px 4px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--strong-text);line-height:1.5;font-size:14px}
-.sfp-news-item:hover{color:var(--primary)}
-.sfp-news-meta{display:block;color:var(--muted);font-size:11px;margin-top:5px}
-
-/* Market pulse strip */
-.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 12px;overflow-x:auto;flex-shrink:0;background:var(--sidebar-bg);border-bottom:1px solid var(--border);scrollbar-width:thin}
-.sfp-pulse-item{display:flex;align-items:center;gap:9px;white-space:nowrap;flex-shrink:0;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--strong-text);text-decoration:none;background:var(--panel);font-size:12px}
-.sfp-pulse-item:hover{border-color:var(--primary)}
-.sfp-pulse-symbol{font-weight:800}.sfp-pulse-price{font-family:'JetBrains Mono',monospace;font-weight:700}
-.sfp-pulse-positive{color:var(--green)}.sfp-pulse-negative{color:var(--red)}
-.sfp-pulse-alert{border-color:var(--red);animation:sfp-pulse-flash 1.5s ease-in-out infinite}
-@keyframes sfp-pulse-flash{50%{box-shadow:0 0 12px rgba(255,90,101,.35)}}
-.sfp-pulse-time{font-size:10px;color:var(--muted);flex-shrink:0}
-@media(max-width:600px){.sfp-market-pulse{padding:6px 8px}.sfp-pulse-item{padding:6px 8px;font-size:11px}}
-
-/* Market Pulse alignment v2: clean, consistent, full-width row below sector ticker */
-.sfp-market-pulse{width:100%;min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;align-items:stretch;gap:10px;padding:9px 16px;background:var(--sidebar-bg);border-bottom:1px solid var(--border);overflow:visible}
-.sfp-market-pulse .sfp-pulse-item{min-width:0;min-height:48px;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;column-gap:10px;row-gap:2px;padding:9px 12px;text-align:center;white-space:normal;border-radius:9px;font-size:12px}
-.sfp-market-pulse .sfp-pulse-symbol{font-size:11px;letter-spacing:.025em;white-space:nowrap}
-.sfp-market-pulse .sfp-pulse-price{white-space:nowrap;font-size:12px}
-.sfp-market-pulse .sfp-pulse-time{display:flex;align-items:center;justify-content:flex-end;text-align:right;max-width:160px;line-height:1.4}
-@media(max-width:1250px){.sfp-market-pulse{grid-template-columns:repeat(4,minmax(0,1fr))}.sfp-market-pulse .sfp-pulse-time{grid-column:1/-1;justify-content:center;max-width:none}}
-@media(max-width:760px){.sfp-market-pulse{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow-x:auto;scrollbar-width:thin}.sfp-market-pulse .sfp-pulse-item{min-width:180px;min-height:43px;flex-shrink:0;padding:7px 10px}.sfp-market-pulse .sfp-pulse-time{min-width:115px;flex-shrink:0;text-align:left;justify-content:flex-start}}
-.sfp-pulse-chart-icon{flex-shrink:0;color:var(--primary);opacity:.92;vertical-align:middle;transition:transform .2s ease}
-.sfp-pulse-item:hover .sfp-pulse-chart-icon{transform:translateY(-2px);opacity:1}
-
-/* STOCKFINDER PRO V3 — separate workspaces, no stacked dashboard */
-.sfp-main-tabs{display:flex;align-items:center;gap:6px;padding:9px 16px;overflow-x:auto;flex-shrink:0;background:#0b121e;border-bottom:1px solid rgba(233,182,91,.15);scrollbar-width:thin;white-space:nowrap}
-.sfp-main-tab{flex-shrink:0;display:inline-flex;align-items:center;gap:7px;padding:10px 15px;background:transparent;color:#a3b1c3;border:1px solid transparent;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;transition:background .2s,border-color .2s,color .2s,transform .2s}
-.sfp-main-tab:hover{color:#f4d29b;background:rgba(233,182,91,.07);transform:translateY(-1px)}
-.sfp-main-tab.is-active{color:#f1c77d;background:rgba(233,182,91,.12);border-color:rgba(233,182,91,.33);box-shadow:inset 0 -2px rgba(233,182,91,.6)}
-#view-scr{display:block!important}
-#view-scr[style*="display: none"],#view-scr[style*="display:none"]{display:none!important}
-#view-scr .sfp-workspace[hidden]{display:none!important}
-#view-scr .sfp-workspace:not([hidden]){display:flex!important;flex-direction:column;gap:16px;min-width:0;animation:sfp-pane-in .28s ease both}
-#view-scr .sfp-workspace > *{margin-top:0!important;margin-bottom:0!important;min-width:0}
-.sfp-page-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 0 3px;border-bottom:1px solid rgba(233,182,91,.12);padding-bottom:15px}
-.sfp-page-kicker{font:700 10px 'JetBrains Mono',monospace;letter-spacing:1.6px;color:#d9ad65}
-.sfp-page-head h2{color:var(--strong-text);font-size:clamp(20px,2vw,27px);letter-spacing:-.7px;margin:5px 0}
-.sfp-page-head p{font-size:12px;color:var(--muted);line-height:1.5}
-.sfp-live-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;border:1px solid var(--border);padding:9px 11px;border-radius:100px;white-space:nowrap}
-.sfp-live-pill i{width:7px;height:7px;border-radius:50%;background:#e9b65b;box-shadow:0 0 8px #e9b65b66}
-#sfp-pane-overview .sfp-intelligence{width:100%}
-#sfp-pane-overview .kpi-grid{width:100%}
-#sfp-pane-stocks .toolbar{width:100%}
-#sfp-pane-stocks #table-wrapper{width:100%;min-height:calc(100vh - 355px)!important;max-height:calc(100vh - 355px)!important}
-#sfp-pane-movers .movers-grid{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))!important}
-#sfp-pane-movers .movers-panel{max-height:calc(100vh - 330px)!important;min-height:300px!important}
-#sfp-pane-movers .movers-list-scroll{max-height:none!important}
-@keyframes sfp-pane-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:760px){.sfp-main-tabs{padding:8px 10px;gap:4px}.sfp-main-tab{padding:9px 11px;font-size:11px}.sfp-page-head{align-items:flex-start}.sfp-page-head p{max-width:270px}#sfp-pane-movers .movers-grid{grid-template-columns:1fr!important}#sfp-pane-stocks #table-wrapper{min-height:55vh!important;max-height:60vh!important}}
-@media(prefers-reduced-motion:reduce){#view-scr .sfp-workspace:not([hidden]){animation:none!important}.sfp-main-tab{transition:none!important}}
-
-
-/* StockFinder Pro — Institutional Market Movers */
-#sfp-pane-movers .sfpm-board{border:1px solid #26354a;border-radius:16px;background:linear-gradient(160deg,#111c2b,#0b131e);overflow:hidden;min-height:460px;box-shadow:0 16px 45px #0002}
-#sfp-pane-movers .sfpm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid #253448}
-#sfp-pane-movers .sfpm-tabs{display:flex;gap:6px;flex-wrap:wrap}
-#sfp-pane-movers .sfpm-tab{border:1px solid #29394c;border-radius:9px;padding:10px 14px;background:#142234;color:#aebfd2;cursor:pointer;font-weight:650;font-size:12px;transition:background .2s,border-color .2s,color .2s}
-#sfp-pane-movers .sfpm-tab.is-active{background:#342a19;color:#f4c676;border-color:#9b7534}
-#sfp-pane-movers .sfpm-tab span{opacity:.72;margin-left:4px}
-#sfp-pane-movers .sfpm-actions{display:flex;align-items:center;gap:12px;color:#8197ad;font-size:11px}
-#sfp-pane-movers #sfpm-search{min-width:170px;background:#0b1420;color:#f1f5f9;border:1px solid #2b3b50;border-radius:8px;padding:10px 12px;outline:none}
-#sfp-pane-movers #sfpm-search:focus{border-color:#d9a64c}
-#sfp-pane-movers .sfpm-table-wrap{overflow:auto;max-height:calc(100vh - 330px);min-height:320px}
-#sfp-pane-movers .sfpm-table{width:100%;min-width:680px;border-collapse:collapse;table-layout:fixed}
-#sfp-pane-movers .sfpm-table th{position:sticky;top:0;z-index:2;background:#111d2b;color:#8298b0;padding:15px 18px;text-align:left;font-size:10px;letter-spacing:.08em;border-bottom:1px solid #2a3b50}
-#sfp-pane-movers .sfpm-table th:first-child{width:31%}#sfp-pane-movers .sfpm-table th:last-child{text-align:right}
-#sfp-pane-movers .sfpm-table td{padding:15px 18px;border-bottom:1px solid #223144;color:#cbd6e3;font-size:13px}
-#sfp-pane-movers .sfpm-row{transition:background .2s}#sfp-pane-movers .sfpm-row:hover{background:#192a3d}
-#sfp-pane-movers .sfpm-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-#sfp-pane-movers .sfpm-name .stock-link{color:#eff5fb;font-size:13px}
-#sfp-pane-movers .sfpm-table small{display:block;color:#8ca1b8;font-size:11px;margin-top:5px}
-#sfp-pane-movers .sfpm-num{font-variant-numeric:tabular-nums;white-space:nowrap}
-#sfp-pane-movers .sfpm-volume{color:#b5c6d8;font-size:12px}
-#sfp-pane-movers .sfpm-move-track{width:100%;max-width:135px;height:5px;border-radius:9px;background:#2a3b4e;overflow:hidden}
-#sfp-pane-movers .sfpm-move-fill{height:100%;background:#39d8a3;border-radius:9px;transition:width .55s ease}
-#sfp-pane-movers .sfpm-falling .sfpm-move-fill{background:#fb7185}
-#sfp-pane-movers .sfpm-table .sfpm-change{text-align:right;font-size:14px;font-weight:750;color:#39d8a3}
-#sfp-pane-movers .sfpm-table .sfpm-falling .sfpm-change{color:#fb7185}
-#sfp-pane-movers .sfpm-table .sfpm-empty{text-align:center;padding:60px 18px;color:#8ca1b8}
-#sfp-pane-movers .sfpm-foot{padding:13px 18px;color:#7e92a9;font-size:11px;border-top:1px solid #26354a}
-@media(max-width:800px){#sfp-pane-movers .sfpm-toolbar{align-items:stretch}#sfp-pane-movers .sfpm-actions{width:100%;justify-content:space-between}#sfp-pane-movers .sfpm-table-wrap{max-height:65vh}}
-@media(prefers-reduced-motion:reduce){#sfp-pane-movers .sfpm-row,#sfp-pane-movers .sfpm-move-fill{transition:none}}
-
-
-/* Single navigation source: left sidebar (mobile: hamburger drawer). */
-.bottom-nav{display:none!important}
-@media(max-width:1024px){.main-wrapper{padding-bottom:0!important}}
-
-/* Market Command v6 — compact institutional alignment, not a giant hero banner */
-.sfp-command .vfx-head{padding:14px 18px!important}.sfp-command .vfx-head h3{font-size:19px!important}
-.sfp-index-trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:#2a3849;border-bottom:1px solid #2a3849}
-.sfp-index-cell{background:#101b29;padding:13px 18px;font-size:11px;color:#a5b5c7;display:flex;align-items:center;justify-content:space-between;gap:8px}.sfp-index-cell strong{font-size:17px;color:#cbd5e1;font-family:'JetBrains Mono',monospace}.sfp-index-cell.is-up strong{color:#36d7a1}.sfp-index-cell.is-down strong{color:#fa7386}
-.sfp-command .sfp-align-stage{min-height:180px!important}.sfp-align-content{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:27px 24px 38px}.sfp-align-content .vfx-direction{font-size:clamp(21px,2.3vw,31px)!important;margin:10px 0!important}.sfp-align-content .vfx-stage-sub{font-size:11px!important}.sfp-align-steps{display:flex;gap:7px;flex:0 0 auto}.sfp-align-steps>div{background:#0b1522dd;border:1px solid #32445a;padding:12px 13px;min-width:115px;border-radius:8px}.sfp-align-steps small{display:block;color:#90a4bb;font-size:9px;letter-spacing:.6px;margin-bottom:7px}.sfp-align-steps strong{font-size:12px;color:#f2f6fb}.sfp-command .vfx-corner-label{display:none!important}
-.sfp-leader-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:#28394c}.sfp-leader{padding:18px 20px;background:#0e1927;min-width:0;border-top:2px solid transparent}.sfp-leader-up{border-top-color:#29c995}.sfp-leader-down{border-top-color:#f16a80}.sfp-leader-title{font-size:10px;letter-spacing:.8px;font-weight:800;color:#37d6a3;display:flex;justify-content:space-between;gap:8px}.sfp-leader-down .sfp-leader-title{color:#fb758a}.sfp-leader-title span{font-size:9px;color:#a2b5ca;letter-spacing:0;font-weight:600}.sfp-leader-sector{font-size:22px;font-weight:800;color:#f0f4fa;margin-top:11px}.sfp-leader-stock{font-size:15px;font-weight:700;color:#dce6f3;margin-top:5px}.sfp-leader-meta{font-size:11px;color:#9cb0c6;margin-top:5px}.sfp-evidence{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px}.sfp-evidence-chip{border:1px solid #314357;border-radius:5px;background:#152234;color:#b4c5d8;font-size:10px;padding:6px 7px}.sfp-evidence-chip b{color:#e1ebf6}.sfp-command-foot{padding:10px 17px;border-top:1px solid #2b394b;display:flex;justify-content:space-between;gap:10px;color:#8ca1b8;font-size:10px}.sfp-hidden-compat{display:none!important}
-@media(max-width:1050px){.sfp-align-content{flex-direction:column;align-items:stretch}.sfp-align-steps{flex-wrap:wrap}.sfp-align-steps>div{flex:1}}
-@media(max-width:650px){.sfp-index-trio{grid-template-columns:1fr}.sfp-index-cell{padding:9px 13px}.sfp-leader-grid{grid-template-columns:1fr}.sfp-align-content{padding:22px 14px 38px}.sfp-align-steps>div{min-width:90px}.sfp-command-foot{flex-direction:column}}
-
-
-/* Two side-by-side Market Movers panels; page scrolling only */
-#sfp-pane-movers .sfpm-dual-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
-#sfp-pane-movers .sfpm-side{min-width:0;border:1px solid #28384b;border-radius:13px;background:#101b29;overflow:hidden}
-#sfp-pane-movers .sfpm-side-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #29394a;font-size:14px;color:#e7f0fa}
-#sfp-pane-movers .sfpm-up .sfpm-side-head strong{color:#43d9a7}#sfp-pane-movers .sfpm-down .sfpm-side-head strong{color:#ff788e}
-#sfp-pane-movers .sfpm-side-head span{font-size:11px;color:#9aafc6}
-#sfp-pane-movers .sfpm-dual-table{width:100%;table-layout:fixed;border-collapse:collapse;white-space:normal}
-#sfp-pane-movers .sfpm-dual-table th{position:static;background:#142132;padding:10px 9px;font-size:10px;letter-spacing:.04em;color:#8ea4bc}
-#sfp-pane-movers .sfpm-dual-table th:nth-child(1){width:37%}#sfp-pane-movers .sfpm-dual-table th:nth-child(2){width:25%}#sfp-pane-movers .sfpm-dual-table th:nth-child(3){width:16%}#sfp-pane-movers .sfpm-dual-table th:nth-child(4){width:22%;text-align:right}
-#sfp-pane-movers .sfpm-dual-table td{padding:9px 9px;border-bottom:1px solid #253346;font-size:12px;color:#d1deeb}
-#sfp-pane-movers .sfpm-dual-table tr:last-child td{border-bottom:none}
-#sfp-pane-movers .sfpm-dual-table tr:hover td{background:#192b3d}
-#sfp-pane-movers .sfpm-dual-stock{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}
-#sfp-pane-movers .sfpm-dual-stock .stock-link{font-size:12px;overflow-wrap:anywhere}
-#sfp-pane-movers .sfpm-dual-table small{display:block;font-size:10px;color:#8ea3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#sfp-pane-movers .sfpm-dual-table .sfpm-num{font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
-#sfp-pane-movers .sfpm-dual-table .sfpm-dual-change{text-align:right;font-weight:750;font-size:12px}
-#sfp-pane-movers .sfpm-up .sfpm-dual-change{color:#42d6a3}#sfp-pane-movers .sfpm-down .sfpm-dual-change{color:#ff788e}
-#sfp-pane-movers .sfpm-dual-table .sfpm-empty{text-align:center;padding:28px 10px;color:#8ea3b8}
-#sfp-pane-movers .sfpm-dual-note{padding:12px 4px;color:#8095aa;font-size:11px}
-@media(max-width:1050px){#sfp-pane-movers .sfpm-dual-grid{grid-template-columns:1fr}}
-@media(max-width:600px){#sfp-pane-movers .sfpm-dual-table td{padding:9px 6px}#sfp-pane-movers .sfpm-dual-table th{padding:9px 6px}#sfp-pane-movers .sfpm-dual-stock .stock-link{font-size:11px}}
-
-
-#sfp-pane-movers .sfpm-dual-stock .stock-link{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
-
-/* StockFinder Pro mobile readability fix — final override */
-@media(max-width:700px){
- html{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}
- body{font-size:16px!important}
- .main-wrapper main{padding:14px 12px 26px!important}
- .panel,body.sfp-compact .panel{padding:16px!important;margin-bottom:14px!important}
- .panel h3{font-size:17px!important}
- .panel p,.toolbar label,.toolbar span{font-size:14px!important}
- .toolbar,body.sfp-compact .toolbar{padding:14px!important;gap:12px!important}
- .filter-btn,body.sfp-compact .filter-btn{font-size:14px!important;min-height:46px!important;padding:11px 14px!important}
- .toolbar select,.toolbar input,.universe-dropdown,#view-pullback .toolbar select.universe-dropdown{font-size:16px!important;min-height:46px!important}
- .search-box,body.sfp-compact .search-box{font-size:16px!important;min-height:48px!important}
- .bottom-nav{min-height:72px!important;padding:7px 4px max(8px,env(safe-area-inset-bottom,0px))!important}
- .bottom-nav .bnav-btn{font-size:11px!important;line-height:1.25!important;min-height:56px!important;gap:5px!important}
- .bottom-nav .bnav-btn .icon{font-size:23px!important}
- .main-wrapper{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
- .kpi-title{font-size:12px!important}.kpi-val,body.sfp-compact .kpi-val{font-size:23px!important}
- .movers-panel,body.sfp-compact .movers-panel{max-height:310px!important}
- .movers-list-scroll{max-height:240px!important}.movers-row{font-size:14px!important;min-height:44px}
- .table-container,body.sfp-compact .table-container{max-height:62dvh!important;overflow-x:auto!important}
- .table-container table,body.sfp-compact .table-container table{min-width:760px!important;font-size:14px!important}
- .table-container th,.table-container td,body.sfp-compact .table-container th,body.sfp-compact .table-container td{padding:14px 12px!important;font-size:13px!important}
- .stock-link{font-size:15px!important;text-decoration:underline;text-underline-offset:3px}
- #view-zones > .panel > div:first-child > div:last-child > select{font-size:15px!important;min-height:48px!important}
- #zones-search{font-size:16px!important;min-height:48px!important}
- .sector-treemap-grid .treemap-tile,body.sfp-compact .sector-treemap-grid .treemap-tile{min-height:118px!important;padding:13px 8px!important}
- .sector-treemap-grid .treemap-tile .tile-name{font-size:13px!important}
- .sector-treemap-grid .treemap-tile .tile-change{font-size:15px!important}
- .barchart-label{font-size:13px!important;width:100px!important;min-width:100px!important}
- .barchart-val{font-size:13px!important}
- #view-pullback .toolbar label{font-size:15px!important}
- .sfp-pullback-back{font-size:14px!important;min-height:46px!important}
- .sidebar .nav-btn{font-size:16px!important;min-height:52px!important}
-}
-
-</style>
-<style>
-/* Compact Obsidian Gold alignment */
-#view-scr .sfp-intelligence{margin:0 0 14px!important;padding:16px!important;border:1px solid rgba(243,156,18,.26)!important;min-height:0!important}
-.sfp-intel-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:13px}.sfp-intel-head h3{color:var(--strong-text);font-size:18px!important;margin:4px 0}.sfp-intel-head p,.sfp-intel-head>span{font-size:11px;color:var(--muted)}.sfp-eyebrow{color:var(--primary);font-size:10px;font-weight:800;letter-spacing:1.4px}.sfp-intel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.sfp-intel-tile{background:rgba(19,31,43,.75);border:1px solid var(--border);border-radius:11px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:7px}.sfp-intel-tile>span{color:var(--muted);font-size:11px}.sfp-intel-tile strong{color:var(--strong-text);font-size:17px;overflow-wrap:anywhere}.sfp-intel-tile small{color:var(--text);font-size:11px}.sfp-intel-note{margin-top:11px;color:var(--muted);font-size:11px}
-#view-scr .movers-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}#view-scr .movers-panel{max-height:200px!important;min-height:100px!important}#view-scr .toolbar{flex-direction:row!important;align-items:center!important}#view-scr .toolbar .filter-wrapper{flex:1 1 620px!important;width:auto!important}#view-scr .toolbar .search-wrapper{flex:0 1 230px;width:230px!important}#view-scr .toolbar .search-box{font-size:12px!important;min-height:36px!important}
-@media(max-width:900px){.sfp-intel-grid{grid-template-columns:1fr}#view-scr .movers-grid{grid-template-columns:1fr!important}#view-scr .toolbar{flex-direction:column!important}#view-scr .toolbar .filter-wrapper{flex:0 0 auto!important;width:100%!important}#view-scr .toolbar .search-wrapper{width:100%!important;flex:0 0 auto!important}.sfp-intel-head{align-items:flex-start;flex-direction:column}}
-</style>
-<style>
-
-/* STOCKFINDER PRO — AURORA GOLD V2: unified layout, motion & hierarchy */
-:root{--sf2-gold:#e9b65b;--sf2-border:rgba(232,183,91,.16);--sf2-surface:#111a28;--sf2-deep:#080e18;--sf2-muted:#8e9cb0}
-body{background:radial-gradient(ellipse 70% 45% at 80% -10%,rgba(181,121,31,.105),transparent),#080d16!important}
-.main-wrapper{min-width:0!important}
-.main-wrapper main{padding:20px clamp(14px,2.2vw,34px) 36px!important;scrollbar-gutter:stable;scroll-behavior:smooth}
-.sidebar{background:#0a101b!important;border-right:1px solid var(--sf2-border)!important;box-shadow:8px 0 30px rgba(0,0,0,.16)!important}
-.sidebar-nav{gap:5px!important}.sidebar .nav-btn{border-radius:10px!important;min-height:43px;transition:background .2s,border-color .2s,transform .2s!important}.sidebar .nav-btn:hover{transform:translateX(3px)}
-.market-ticker-container{height:42px!important;min-height:42px!important;background:#0b121d!important;box-shadow:none!important}
-.sfp-market-pulse{background:#0c1421!important;border-bottom:1px solid var(--sf2-border)!important;gap:8px!important;padding:8px 16px!important}
-.sfp-market-pulse .sfp-pulse-item{background:#131e2c!important;border:1px solid var(--sf2-border)!important;border-radius:10px!important;min-height:46px!important;transition:background .2s,transform .2s!important}
-.sfp-market-pulse .sfp-pulse-item:hover{transform:translateY(-2px);background:#1b2a3c!important}
-#view-scr{display:flex!important;flex-direction:column!important;gap:14px!important;min-width:0!important}
-#view-scr > *{min-width:0!important;margin-top:0!important;margin-bottom:0!important}
-#view-scr > .sfp-intelligence{order:0!important}
-#view-scr > .kpi-grid{order:1!important}
-#view-scr > .toolbar{order:2!important}
-#view-scr > .table-container{order:3!important}
-#view-scr > .movers-grid{order:4!important}
-#view-scr > :not(.sfp-intelligence):not(.kpi-grid):not(.toolbar):not(.table-container):not(.movers-grid){order:5}
-#view-scr .sfp-intelligence{padding:20px!important;background:linear-gradient(135deg,rgba(23,35,51,.98),rgba(12,20,32,.98))!important;border:1px solid rgba(232,183,91,.26)!important;border-radius:17px!important;box-shadow:0 14px 40px rgba(0,0,0,.16)!important}
-#view-scr .sfp-intel-head{margin-bottom:17px!important;gap:12px!important}
-#view-scr .sfp-intel-head h3{font-size:clamp(17px,1.6vw,22px)!important;letter-spacing:-.025em}
-#view-scr .sfp-intel-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important}
-#view-scr .sfp-intel-tile{min-width:0!important;min-height:104px!important;border:1px solid rgba(232,183,91,.13)!important;border-radius:12px!important;background:linear-gradient(140deg,#172436,#101a29)!important;padding:16px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:8px!important;transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease!important}
-#view-scr .sfp-intel-tile:hover{transform:translateY(-3px);border-color:rgba(232,183,91,.48)!important;box-shadow:0 12px 24px rgba(0,0,0,.23)!important}
-#view-scr .sfp-intel-tile strong{font-size:clamp(15px,1.3vw,20px)!important;line-height:1.2;overflow-wrap:anywhere}
-#view-scr .sfp-intel-tile small{line-height:1.45!important}
-#view-scr .sfp-intel-note{margin-top:13px!important;padding-top:12px!important;border-top:1px solid rgba(232,183,91,.12)}
-#view-scr .kpi-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important}
-#view-scr .kpi-card{min-height:95px!important;padding:16px!important;background:#121e2d!important;border:1px solid var(--sf2-border)!important;border-radius:13px!important;box-shadow:none!important;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s!important}
-#view-scr .kpi-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sf2-gold);opacity:.55}
-#view-scr .kpi-card:hover{transform:translateY(-3px)!important;border-color:rgba(232,183,91,.4)!important;box-shadow:0 10px 25px rgba(0,0,0,.2)!important}
-#view-scr .kpi-val{font-size:clamp(21px,2vw,28px)!important;line-height:1.25!important}
-#view-scr .toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(185px,245px)!important;align-items:center!important;gap:12px!important;background:#101a29!important;border:1px solid var(--sf2-border)!important;padding:12px!important;border-radius:13px!important;box-shadow:none!important}
-#view-scr .toolbar .filter-wrapper{display:flex!important;flex:initial!important;width:100%!important;min-width:0!important;flex-wrap:wrap!important;overflow:visible!important;gap:7px!important}
-#view-scr .toolbar .filter-btn{min-height:35px!important;padding:8px 11px!important;font-size:11px!important;line-height:1.2!important;white-space:nowrap!important}
-#view-scr .toolbar .search-wrapper{width:100%!important;min-width:0!important;flex:initial!important}
-#view-scr .toolbar .search-box{height:39px!important;min-height:39px!important;width:100%!important;background:#0b1420!important}
-#view-scr #table-wrapper{max-height:58vh!important;min-height:240px!important;overflow:auto!important;background:#0e1725!important;border:1px solid var(--sf2-border)!important;border-radius:14px!important;box-shadow:none!important}
-#view-scr #table-wrapper table{min-width:960px!important}
-#view-scr #table-wrapper th{background:#172235!important;color:#aebad0!important;font-size:10px!important;letter-spacing:.04em;padding:13px 12px!important;border-bottom:1px solid rgba(232,183,91,.2)!important}
-#view-scr #table-wrapper td{padding:12px!important;border-bottom:1px solid rgba(255,255,255,.055)!important;font-size:12px!important}
-#view-scr #table-wrapper tbody tr:hover td{background:rgba(232,183,91,.055)!important}
-#view-scr .movers-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
-#view-scr .movers-panel{height:auto!important;min-height:150px!important;max-height:250px!important;padding:15px!important;background:#111c2a!important;border:1px solid var(--sf2-border)!important;border-radius:13px!important;box-shadow:none!important}
-#view-scr .movers-list-scroll{max-height:180px!important;overflow-y:auto!important}
-.panel,.toolbar,.table-container{border-radius:14px}
-@keyframes sf2-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-#view-scr > .sfp-intelligence,#view-scr > .kpi-grid,#view-scr > .toolbar,#view-scr > .table-container,#view-scr > .movers-grid{animation:sf2-rise .55s both cubic-bezier(.2,.7,.2,1)}
-#view-scr > .kpi-grid{animation-delay:.07s}#view-scr > .toolbar{animation-delay:.13s}#view-scr > .table-container{animation-delay:.19s}#view-scr > .movers-grid{animation-delay:.25s}
-@keyframes sf2-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-#view-scr .scanner-loading-wrapper{padding:32px 14px!important;min-height:150px!important}
-#view-scr .radar-container{border-radius:999px!important;width:62px!important;height:5px!important;border:0!important;background:linear-gradient(90deg,transparent,rgba(233,182,91,.4),#f4d99c,rgba(233,182,91,.4),transparent)!important;background-size:200% 100%!important;animation:sf2-shimmer 1.7s linear infinite!important;box-shadow:0 0 14px rgba(233,182,91,.2)!important}
-#view-scr .radar-beam,#view-scr .radar-core{display:none!important}
-@media(max-width:1150px){#view-scr .toolbar{grid-template-columns:1fr!important}#view-scr .toolbar .filter-wrapper{flex-wrap:nowrap!important;overflow-x:auto!important;padding-bottom:4px!important}#view-scr .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:760px){.main-wrapper main{padding:11px 10px 24px!important}#view-scr{gap:10px!important}#view-scr .sfp-intelligence{padding:14px!important}#view-scr .sfp-intel-grid{grid-template-columns:1fr!important;gap:8px!important}#view-scr .sfp-intel-tile{min-height:70px!important;padding:12px!important;gap:4px!important}#view-scr .sfp-intel-head{flex-direction:column!important;align-items:flex-start!important}#view-scr .kpi-grid{gap:8px!important}#view-scr .kpi-card{min-height:80px!important;padding:12px!important}#view-scr .movers-grid{grid-template-columns:1fr!important}#view-scr .toolbar{display:flex!important;flex-direction:column!important;align-items:stretch!important}#view-scr .toolbar .filter-wrapper{flex-wrap:nowrap!important;overflow-x:auto!important}#view-scr .toolbar .filter-btn{flex-shrink:0!important}#view-scr #table-wrapper{max-height:55vh!important}#view-scr #table-wrapper table{min-width:920px!important}}
-@media(prefers-reduced-motion:reduce){#view-scr > *,#view-scr .radar-container{animation:none!important}#view-scr .kpi-card,#view-scr .sfp-intel-tile,.sidebar .nav-btn{transition:none!important;transform:none!important}}
-
-
-/* Institutional VFX Terminal — scoped to Market Intelligence only */
-#view-scr .sfp-vfx-terminal{padding:0!important;overflow:hidden;background:#0a111b!important;border:1px solid #263446!important;border-radius:15px!important;box-shadow:0 14px 35px rgba(0,0,0,.2)!important}
-.sfp-vfx-terminal .vfx-head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:20px 22px 16px;border-bottom:1px solid #233044}
-.vfx-kicker{font:700 10px/1.4 inherit;letter-spacing:1.7px;color:#d6ae6d;display:flex;align-items:center;gap:8px}.vfx-status-dot{width:7px;height:7px;border-radius:50%;background:#66778b;display:inline-block}.vfx-status-dot.is-ready{background:#39d9a2;box-shadow:0 0 12px rgba(57,217,162,.35)}
-.sfp-vfx-terminal .vfx-head h3{font-size:21px!important;letter-spacing:-.4px!important;color:#e9f0f8!important;margin:7px 0 4px!important}.vfx-head h3 em{font-size:9px;font-style:normal;font-weight:700;letter-spacing:1px;color:#8da1b8;border:1px solid #33445b;border-radius:4px;padding:4px 6px;vertical-align:middle;margin-left:8px}.vfx-head p{font-size:11px;color:#9aadc3}.vfx-head-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}.vfx-head-right>span{color:#98a9bb;font-size:11px}.vfx-head-right button{cursor:pointer;background:#1a2839;color:#d8e5f3;border:1px solid #384c63;border-radius:6px;padding:7px 10px;font-size:10px;font-weight:700;letter-spacing:.6px}
-.vfx-stage{position:relative;min-height:265px;overflow:hidden;background:radial-gradient(ellipse at 75% 45%,rgba(41,69,95,.19),transparent 55%),linear-gradient(115deg,#0c1624,#0a111b);isolation:isolate;transition:background .5s}
-.vfx-stage[data-direction="up"]{background:radial-gradient(ellipse at 80% 45%,rgba(23,110,83,.16),transparent 60%),linear-gradient(115deg,#0c1624,#0a111b)}.vfx-stage[data-direction="down"]{background:radial-gradient(ellipse at 80% 45%,rgba(133,42,62,.15),transparent 60%),linear-gradient(115deg,#0c1624,#0a111b)}
-#vfx-canvas,.vfx-stage-grid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.vfx-stage-grid{opacity:.25;background-image:linear-gradient(#263a50 1px,transparent 1px),linear-gradient(90deg,#263a50 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(90deg,transparent 0%,#000 65%)}
-.vfx-stage-copy{position:relative;z-index:1;padding:47px 26px 55px;max-width:72%;pointer-events:none}.vfx-overline{font-size:10px;font-weight:700;letter-spacing:1.6px;color:#91a6bd}.vfx-direction{font-size:clamp(24px,3.2vw,40px);font-weight:800;line-height:1.18;letter-spacing:-1.2px;color:#edf3fa;margin:12px 0 4px}.vfx-stage[data-direction="up"] .vfx-direction,.vfx-stage[data-direction="up"] .vfx-change{color:#36d5a0}.vfx-stage[data-direction="down"] .vfx-direction,.vfx-stage[data-direction="down"] .vfx-change{color:#fb7a8e}.vfx-stage[data-direction="flat"] .vfx-direction,.vfx-stage[data-direction="flat"] .vfx-change{color:#e5ba73}.vfx-change{font-size:20px;font-weight:700;color:#b5c6d9;font-variant-numeric:tabular-nums}.vfx-stage-sub{font-size:11px;color:#a9bbcf;margin-top:8px}.vfx-corner-label{position:absolute;right:22px;top:23px;z-index:1;font-size:10px;letter-spacing:1px;color:#a9bdd1;border:1px solid #34475d;padding:7px 10px;background:rgba(10,17,27,.65)}.vfx-stage-foot{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;gap:12px;padding:12px 24px;border-top:1px solid #243449;font-size:9px;letter-spacing:.8px;color:#8196ad;z-index:1}
-.vfx-data-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid #253448}.vfx-data-cell{padding:18px 18px;min-width:0;border-right:1px solid #253448;display:flex;flex-direction:column;gap:8px}.vfx-data-cell:last-child{border-right:0}.vfx-data-cell>span{font-size:10px;color:#90a4bc;letter-spacing:.9px;font-weight:700}.vfx-data-cell strong{font-size:clamp(14px,1.3vw,19px);color:#eef3f9;overflow-wrap:anywhere}.vfx-data-cell small{font-size:10px;color:#91a6bd;line-height:1.4}.vfx-breadth-track{display:flex;height:5px;background:#253448;overflow:hidden}.vfx-breadth-track>div{width:0;transition:width .8s cubic-bezier(.2,.7,.2,1)}#vfx-advance-bar{background:#2dd5a0}#vfx-flat-bar{background:#c5a15e}#vfx-decline-bar{background:#f16d84}.vfx-footer{display:flex;justify-content:space-between;gap:15px;padding:12px 20px;font-size:10px;color:#859ab1;line-height:1.5}
-@media(max-width:1050px){.vfx-data-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.vfx-data-cell:nth-child(2){border-right:0}.vfx-data-cell:nth-child(-n+2){border-bottom:1px solid #253448}}
-@media(max-width:600px){.sfp-vfx-terminal .vfx-head{padding:16px;align-items:flex-start;flex-direction:column}.vfx-head h3 em{display:none}.vfx-head-right{width:100%;justify-content:space-between}.vfx-stage{min-height:275px}.vfx-stage-copy{padding:65px 16px 55px;max-width:100%}.vfx-direction{font-size:28px}.vfx-corner-label{top:13px;right:13px;font-size:8px}.vfx-stage-foot{padding:10px 14px;font-size:8px}.vfx-data-cell{padding:13px 12px}.vfx-data-cell strong{font-size:14px}.vfx-footer{flex-direction:column;gap:3px}}
-@media(prefers-reduced-motion:reduce){.vfx-breadth-track>div,.vfx-stage{transition:none!important}}
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .login-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); backdrop-filter: blur(16px); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
+    .btn-login { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; transition: background 0.2s; }
+    .btn-login:hover { background: #e67e22; }
+    .forgot-link { display: block; text-align: right; margin-top: 0.5rem; font-size: 0.75rem; color: var(--primary); text-decoration: none; }
+    .forgot-link:hover { text-decoration: underline; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--strong-text); }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
 </style>
 </head>
 <body>
-
-  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-  <aside class="sidebar" id="app-sidebar">
-    <a class="brand sfp-sidebar-brand" href="/" aria-label="StockFinder Pro landing page"><span class="sfp-brand-mark" aria-hidden="true">⌕</span><span class="sfp-brand-name">StockFinder<em>Pro</em><small>TRADING SCREENER &amp; ZONE ANALYSIS</small></span><span class="dot" id="api-status" title="API connection status"></span></a>
-    <div class="sidebar-nav">
-      <button class="nav-btn" onclick="sfpNavigate('overview')" data-sfp-side="overview"><span style="font-size:1.1rem;">◈</span> Market Overview</button>
-      <button class="nav-btn active" id="btn-scr" onclick="sfpNavigate('stocks')" data-sfp-side="stocks"><span style="font-size:1.1rem;">📊</span> Live Screener</button>
-      <button class="nav-btn" onclick="sfpNavigate('movers')" data-sfp-side="movers"><span style="font-size:1.1rem;">↗</span> Market Movers</button>
-      <button class="nav-btn" data-sfp-side="pullback" onclick="sfpNavigate('pullback')"><span style="font-size:1.1rem;">⌁</span> Pullback Scanner</button>
-      <button class="nav-btn" id="btn-sec" onclick="sfpNavigate('sec')" data-sfp-side="sec"><span style="font-size:1.1rem;">🥧</span> Sector Heatmap</button>
-      <button class="nav-btn" id="btn-zones" onclick="sfpNavigate('zones')" data-sfp-side="zones"><span style="font-size:1.1rem;">🎯</span> D&S Zones</button>
-      <button class="nav-btn" id="btn-watchlist" onclick="sfpNavigate('watchlist')" data-sfp-side="watchlist"><span style="font-size:1.1rem;">⭐</span> My Watchlist</button>
-    </div>
-    <div style="margin-top: auto;">
-        <label style="font-size: 0.7rem; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: block;">MARKET UNIVERSE</label>
-        <select id="universe-selector" class="universe-dropdown" onchange="switchUniverse(this.value)">
-          <option value="FO">📊 F&O Universe (Default)</option>
-          <option value="NIFTY500">📈 NIFTY 500</option>
-          <option value="MIDCAP">🚀 Nifty Midcap 150</option>
-          <option value="SMALLCAP">⚡ Nifty Smallcap 250</option>
-          <option value="TOTALMARKET">🌐 Nifty Total Market</option>
-        </select>
+  <div class="login-card">
+    <div style="text-align:center;margin-bottom:16px"><a href="/" style="color:#edf5fa;text-decoration:none;font-weight:800;font-size:14px">◉ STOCKFINDER <span style="color:#32d596">PRO</span></a></div>
+    <div class="brand">Welcome Back</div>
+    <p style="text-align:center;color:#9fb0bd;font-size:12px;line-height:1.7;margin:-12px 0 24px">Sign in to access your stock screener, demand &amp; supply zones and market analysis tools.</p>
+    {% if error %}
+      <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    <form action="/login" method="POST">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
       </div>
-      <div class="toggle-row" onclick="document.getElementById('compact-toggle').click()">
-        <span class="toggle-label">⚏ Compact View</span>
-        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="compact-toggle" onchange="toggleCompactMode(this.checked)"><span class="slider"></span></label>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+        <a href="/forgot-password" class="forgot-link">Forgot Password?</a>
       </div>
-      <div class="toggle-row" onclick="document.getElementById('auto-refresh-toggle').click()">
-        <span class="toggle-label">🔄 Auto-Refresh</span>
-        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)"><span class="slider"></span></label>
-      </div>
-      <div class="sfp-account-nav" aria-label="Account menu">
-        <a href="/account/profile" class="nav-btn">👤 &nbsp; Profile</a>
-        <a href="/settings" class="nav-btn">⚙️ &nbsp; Settings</a>
-        <a href="/logout" class="nav-btn sfp-logout">🚪 &nbsp; Logout</a>
-      </div>
-      <div class="mono" style="font-size: 0.75rem; color: var(--muted); margin-top: 1.5rem; text-align: center;">MARKET TIME<br><span id="clock" style="color:var(--strong-text); font-size: 1.1rem; font-weight: 700; display: block; margin-top: 4px;">--:--:--</span></div>
-    </div>
-  </aside>
-
-  <div class="main-wrapper">
-    <!-- Smooth Terminal Ticker Scroller -->
-    <div class="market-ticker-container">
-      <button class="hamburger-btn" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
-      <div class="ticker-wrapper"><div class="market-ticker-track" id="tickerTrack"><div class="ticker-item"><span class="ticker-symbol" style="color:var(--muted);">Loading Sector Ticker...</span></div></div></div>
-      <button class="theme-btn" id="theme-icon-btn" onclick="toggleThemeBtn()">☀️</button>
-    </div>
-    <!-- Dedicated Market Pulse row, below the existing sector ticker -->
-    <div class="sfp-market-pulse" id="sfpMarketPulse" aria-label="Market indices and crude oil prices"><span class="sfp-pulse-time">Loading market prices…</span></div>
-
-    <main>
-      <!-- ================= SCREENER VIEW ================= -->
-      <div id="view-scr">
-        <div class="sfp-workspace" id="sfp-pane-overview" hidden>
-          <div class="sfp-page-head"><div><span class="sfp-page-kicker">MARKET / OVERVIEW</span><h2>Market Overview</h2><p>Market direction, sector participation and activity summary</p></div></div>
-        <section class="sfp-intelligence sfp-vfx-terminal panel sfp-command" id="sfp-vfx-terminal" aria-label="Market Alignment Intelligence">
-          <header class="vfx-head"><div><span class="vfx-kicker"><i class="vfx-status-dot" id="vfx-dot"></i> MARKET INTELLIGENCE / LIVE ALIGNMENT</span><h3>Market Command <em>DATA DRIVEN</em></h3><p>Index direction → strongest sector → strongest qualifying stock. No sector heatmap duplication.</p></div><div class="vfx-head-right"><span id="sfp-intel-updated">Awaiting data</span></div></header>
-          <div class="sfp-index-trio" id="sfp-index-trio" aria-label="Index trends"><div class="sfp-index-cell">NIFTY 50<strong>Awaiting feed</strong></div><div class="sfp-index-cell">BANK NIFTY<strong>Awaiting feed</strong></div><div class="sfp-index-cell">SENSEX<strong>Awaiting feed</strong></div></div>
-          <div class="vfx-stage sfp-align-stage" id="vfx-stage" data-direction="unknown">
-            <canvas id="vfx-canvas" aria-hidden="true"></canvas><div class="vfx-stage-grid" aria-hidden="true"></div>
-            <div class="sfp-align-content"><div><span class="vfx-overline">MARKET ALIGNMENT · INDEX / BREADTH / LEADERSHIP</span><div class="vfx-direction" id="sfp-market-trend">Awaiting market data</div><div class="vfx-stage-sub" id="sfp-market-detail">Market state needs valid index and stock quotes</div></div><div class="sfp-align-steps" aria-label="Alignment layers"><div><small>01 · INDICES</small><strong id="sfp-align-indices">—</strong></div><div><small>02 · PARTICIPATION</small><strong id="sfp-align-breadth">—</strong></div><div><small>03 · LEADERSHIP</small><strong id="sfp-align-leadership">—</strong></div></div></div>
-            <div class="vfx-corner-label" id="vfx-market-state">FEED PENDING</div><div class="vfx-stage-foot"><span id="vfx-source">AWAITING VERIFIED DATA</span><span id="vfx-nifty-change">—</span></div>
-          </div>
-          <div class="sfp-leader-grid"><article class="sfp-leader sfp-leader-up"><div class="sfp-leader-title">↗ UPSIDE LEADERSHIP <span id="sfp-up-confirm">Pending</span></div><div class="sfp-leader-sector" id="sfp-up-sector">Awaiting sector data</div><div class="sfp-leader-stock" id="sfp-up-stock">—</div><div class="sfp-leader-meta" id="sfp-up-meta">No verified confirmation yet</div><div class="sfp-evidence" id="sfp-up-evidence"></div></article><article class="sfp-leader sfp-leader-down"><div class="sfp-leader-title">↘ DOWNSIDE LEADERSHIP <span id="sfp-down-confirm">Pending</span></div><div class="sfp-leader-sector" id="sfp-down-sector">Awaiting sector data</div><div class="sfp-leader-stock" id="sfp-down-stock">—</div><div class="sfp-leader-meta" id="sfp-down-meta">No verified confirmation yet</div><div class="sfp-evidence" id="sfp-down-evidence"></div></article></div>
-          <div class="sfp-command-foot"><span id="sfp-feed-status">Live quotes required. Missing technical feeds are marked unavailable.</span><span>ADX · VWAP · ORDER FLOW: displayed only when real readings are supplied</span></div>
-          <div class="sfp-hidden-compat" aria-hidden="true"><span id="sfp-stock-trend"></span><span id="sfp-stock-detail"></span><span id="vfx-breadth"></span><span id="vfx-breadth-label"></span><span id="vfx-pressure"></span><span id="vfx-pressure-detail"></span><span id="vfx-alignment"></span><span id="vfx-alignment-detail"></span><span id="sfp-market-trend-compat"></span><span id="vfx-advance-bar"></span><span id="vfx-flat-bar"></span><span id="vfx-decline-bar"></span></div>
-        </section>
-        <div class="kpi-grid">
-          <div class="kpi-card" onclick="setFilter('Long Buildup')"><div class="kpi-title" style="color:var(--green);">Long Buildup</div><div class="kpi-val" id="k-lb">--</div></div>
-          <div class="kpi-card" onclick="setFilter('Short Buildup')"><div class="kpi-title" style="color:var(--red);">Short Buildup</div><div class="kpi-val" id="k-sb">--</div></div>
-          <div class="kpi-card" onclick="setFilter('Short Covering')"><div class="kpi-title" style="color:#38bdf8;">Short Covering</div><div class="kpi-val" id="k-sc">--</div></div>
-          <div class="kpi-card" onclick="setFilter('Long Unwinding')"><div class="kpi-title" style="color:#fbbf24;">Long Unwinding</div><div class="kpi-val" id="k-lu">--</div></div>
-        </div>
-
-        </div>
-        <div class="sfp-workspace" id="sfp-pane-movers" hidden>
-          <div class="sfp-page-head"><div><span class="sfp-page-kicker">MARKET / MOVERS</span><h2>Market Movers</h2><p>Rising and falling stocks, separated from the live screener</p></div></div>
-        <section class="sfpm-dual-grid" aria-label="Market Movers">
-          <div class="sfpm-side sfpm-up"><div class="sfpm-side-head"><strong>↗ Top 20 Rising Stocks</strong><span id="sfpm-up-count">—</span></div>
-            <table class="sfpm-dual-table"><thead><tr><th>Stock / Sector</th><th>LTP</th><th>Volume</th><th>Change</th></tr></thead><tbody id="sfpm-up-rows"><tr><td colspan="4" class="sfpm-empty">Waiting for market feed…</td></tr></tbody></table></div>
-          <div class="sfpm-side sfpm-down"><div class="sfpm-side-head"><strong>↘ Top 20 Falling Stocks</strong><span id="sfpm-down-count">—</span></div>
-            <table class="sfpm-dual-table"><thead><tr><th>Stock / Sector</th><th>LTP</th><th>Volume</th><th>Change</th></tr></thead><tbody id="sfpm-down-rows"><tr><td colspan="4" class="sfpm-empty">Waiting for market feed…</td></tr></tbody></table></div>
-        </section>
-        <div class="sfpm-dual-note">Top 20 in each direction · Live screener feed · Volume activity only when supplied · No trade signals</div>
-
-        </div>
-        <div class="sfp-workspace" id="sfp-pane-stocks">
-          <div class="sfp-page-head"><div><span class="sfp-page-kicker">SCREENER / LIVE STOCKS</span><h2>Live Stock Screener</h2><p>Filters and market observations in one focused workspace</p></div><span class="sfp-live-pill"><i></i> Data as available</span></div>
-        <div class="toolbar">
-          <div class="filter-wrapper" id="screener-filters">
-            <button class="filter-btn active" onclick="setFilter('VOL_SHOCKER', this)">💥 VOL SHOCKERS</button>
-            <button class="filter-btn" onclick="openPullbackScanner()">📈 PULLBACK SCANNER</button>
-            <button class="filter-btn" onclick="setFilter('OPEN=LOW', this)">🟢 OPEN=LOW</button>
-            <button class="filter-btn" onclick="setFilter('OPEN=HIGH', this)">🔴 OPEN=HIGH</button>
-            <button class="filter-btn" onclick="setFilter('Long Buildup', this)">LONG</button>
-            <button class="filter-btn" onclick="setFilter('Short Buildup', this)">SHORT</button>
-          </div>
-          <div class="search-wrapper"><input type="text" id="search" class="search-box" placeholder="🔍 SEARCH SYMBOL..." oninput="renderTable()" /></div>
-        </div>
-
-        <div class="table-container" id="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 35px; text-align: center;">⭐</th>
-                <th onclick="toggleSort('symbol')">Symbol ↕</th>
-                <th onclick="toggleSort('ltp')">LTP (₹) ↕</th>
-                <th onclick="toggleSort('pricePct')">Chg % ↕</th>
-                <th onclick="toggleSort('volume')">Volume ↕</th>
-                <th onclick="toggleSort('oiPct')">OI % ↕</th>
-                <th onclick="toggleSort('buildup')">Buildup ↕</th>
-                <th onclick="toggleSort('momentumScore')">Momentum ▼</th>
-                <th>PRICE TREND</th>
-                <th>MARKET OBSERVATION</th>
-              </tr>
-            </thead>
-            <tbody id="tbody">
-              <tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">Loading Market Data...</td></tr>
-            </tbody>
-          </table>
-        </div>
-        </div>
-      </div>
-
-
-      <!-- PULLBACK SCANNER VIEW -->
-      <div id="view-pullback" style="display:none">
-        <div class="panel">
-          <div class="sfp-pullback-heading"><h3 style="color:var(--strong-text);margin:0">📈 Pullback Scanner</h3><button type="button" class="filter-btn sfp-pullback-back" onclick="sfpNavigate('stocks')" aria-label="Back to Live Screener">← Back to Screener</button></div>
-          <p style="font-size:.76rem;margin-bottom:16px">5-minute and 15-minute Swing / Candle Pullbacks. EMA 9/20 trend required; VWAP and sector alignment are optional confirmations. Completed candles only.</p>
-          <div class="toolbar" style="gap:10px">
-            <label>Timeframe <select class="universe-dropdown" style="width:auto" id="pb-tf" onchange="fetchPullbacks(true)"><option value="5">5 Minutes</option><option value="15">15 Minutes</option></select></label>
-            <label>Setup <select class="universe-dropdown" style="width:auto" id="pb-pattern" onchange="renderPullbacks()"><option value="All">Both Types</option><option value="Swing Pullback">Swing Pullback</option><option value="Candle Pullback">Candle Pullback</option></select></label>
-            <label>Direction <select class="universe-dropdown" style="width:auto" id="pb-direction" onchange="renderPullbacks()"><option value="All">All</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option></select></label>
-            <label>Momentum <select class="universe-dropdown" style="width:auto" id="pb-momentum" onchange="renderPullbacks()"><option value="All">All Momentum</option><option value="Strong">Strong</option><option value="Moderate">Moderate</option></select></label>
-            <button class="filter-btn" onclick="fetchPullbacks(true)">↻ Refresh</button>
-          </div>
-          <div id="pb-status" style="font-size:.78rem;margin-bottom:10px;color:var(--muted)">Waiting for scan...</div>
-          <div class="table-container" style="min-height:300px;max-height:calc(100vh - 350px)">
-            <table><thead><tr><th>Stock</th><th>Type</th><th>Signal</th><th>Pullback IST</th><th>Momentum</th><th>Trigger ₹</th><th>Sector</th><th>Alignment</th><th>VWAP</th></tr></thead>
-            <tbody id="pb-tbody"><tr><td colspan="9">Open scanner to load results</td></tr></tbody></table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================= WATCHLIST VIEW ================= -->
-      <div id="view-watchlist" style="display: none;">
-        <div class="panel">
-          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text); margin-bottom: 0.5rem;">⭐ My Custom Watchlist</h3>
-          <p style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem;">Quick tracking of your bookmarked stocks across market sessions.</p>
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 35px; text-align: center;">⭐</th>
-                  <th>Symbol</th>
-                  <th>LTP (₹)</th>
-                  <th>Chg %</th>
-                  <th>Volume</th>
-                  <th>Buildup</th>
-                  <th>Momentum</th>
-                  <th>Sector</th>
-                </tr>
-              </thead>
-              <tbody id="watchlist-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================= SECTOR VIEW ================= -->
-      <div id="view-sec" style="display: none;">
-        <div class="panel" style="background: transparent; border: none; padding: 0; box-shadow: none;">
-          <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 1.5rem; background: var(--input-bg); padding: 0.8rem 1rem; border-radius: 8px;">
-            <span>📊 Market Breadth: <strong style="color:var(--green);" id="breadth-adv">--</strong> Adv / <strong style="color:var(--red);" id="breadth-dec">--</strong> Dec</span>
-            <span>📦 Total Volume: <strong style="color:var(--strong-text);" id="breadth-vol">--</strong></span>
-          </div>
-          <div class="sector-side-by-side">
-            <div class="panel">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                <div class="sec-section-title" id="heatmap-section-header">🟩 Sector Heatmap</div>
-                <button class="filter-btn" id="reset-heatmap-btn" onclick="selectedHeatmapSector=null; renderSectors();" style="display: none; background: rgba(243, 156, 18, 0.15); color: var(--primary); padding: 0.3rem 0.6rem; font-size: 0.7rem;">⬅ Back to Sectors</button>
-              </div>
-              <div id="sec-heatmap-section" class="sector-treemap-grid" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Heatmap...</div></div>
-            </div>
-            <div class="panel">
-              <div class="sec-section-title">📊 PERFORMANCE RANKINGS</div>
-              <div class="ranking-list-col" id="sec-bars-section" style="max-height: 520px; overflow-y: auto; margin-top: 1rem;"><div style="color: var(--muted);">Loading Rankings...</div></div>
-            </div>
-          </div>
-          <section class="panel" aria-labelledby="about-sector-heatmap-title" style="margin-top:1.25rem;padding:1.5rem;background:linear-gradient(135deg,var(--panel),var(--input-bg));border:1px solid var(--border);">
-            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.7rem;">
-              <span style="color:var(--primary);font-size:1.15rem;">▦</span>
-              <h3 id="about-sector-heatmap-title" style="margin:0;color:var(--strong-text);font-size:1.05rem;">About Sector Heatmap</h3>
-            </div>
-            <p style="color:var(--muted);font-size:.83rem;line-height:1.8;margin:0 0 1rem;max-width:950px;">The Sector Heatmap gives you a quick visual overview of market strength and weakness across stock-market sectors. Each tile shows the sector's average percentage price change for the stocks currently included in your selected market universe.</p>
-            <div class="sfp-heatmap-info-grid">
-              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--green);">●</span> Green — Positive Momentum</strong><p>Sectors with a positive average price change. A stronger reading can help you identify areas showing relative buying interest.</p></div>
-              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--red);">●</span> Red — Negative Momentum</strong><p>Sectors with a negative average price change. Use these readings to spot weaker areas of the market.</p></div>
-              <div class="sfp-heatmap-info-item"><strong><span style="color:var(--primary);">↗</span> Explore Individual Stocks</strong><p>Click any sector tile to see its constituent stocks, then use the performance rankings to compare sectors.</p></div>
-            </div>
-            <p style="color:var(--muted);font-size:.73rem;line-height:1.7;margin:1rem 0 0;border-top:1px solid var(--border);padding-top:.8rem;">Trading tip: Use sector strength as context alongside price action, volume, and demand/supply zones—not as a standalone buy or sell signal. Sector readings reflect the stocks available in the current data set.</p>
-          </section>
-        </div>
-      </div>
-
-      <!-- ================= DEMAND & SUPPLY ZONES VIEW ================= -->
-      <div id="view-zones" style="display: none;">
-        <div class="panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
-            <div>
-              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--strong-text);">Institutional Demand & Supply Zones</h3>
-              <p style="font-size: 0.72rem; color: var(--muted); margin-top: 3px;">Auto-scans past candles to detect unviolated Proximal and Distal levels.</p>
-            </div>
-            
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <select id="zones-bias-filter" aria-label="Demand or Supply zones" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
-                <option value="ALL">Demand &amp; Supply</option>
-                <option value="DEMAND">Demand Only</option>
-                <option value="SUPPLY">Supply Only</option>
-              </select>
-              <select id="zones-status-filter" aria-label="Fresh or Tested zones" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
-                <option value="all">All Statuses</option>
-                <option value="fresh">Fresh Zones</option>
-                <option value="tested">Tested Zones</option>
-              </select>
-              <select id="zones-cmp-distance" aria-label="Maximum distance from current market price" onchange="renderZonesTable()" style="background:var(--panel);color:var(--strong-text);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.6rem;font-size:0.75rem;cursor:pointer;">
-                <option value="nearest">Nearest Zone / First from CMP</option>
-                <option value="1">Within 1% of CMP</option>
-                <option value="2">Within 2% of CMP</option>
-                <option value="5">Within 5% of CMP</option>
-                <option value="10">Within 10% of CMP</option>
-                <option value="20">Within 20% of CMP</option>
-                <option value="all" selected>All Zones</option>
-              </select>
-              <input type="text" id="zones-search" class="search-box mono" placeholder="🔍 SEARCH SYMBOL..." oninput="renderZonesTable()" style="width: 160px; padding: 0.4rem 0.8rem; font-size: 0.75rem;" />
-              <div class="filter-wrapper" id="tf-buttons-wrapper">
-                <button class="filter-btn active" id="tf-btn-day" onclick="fetchZones('day', this)">Daily</button>
-                <button class="filter-btn" id="tf-btn-week" onclick="fetchZones('week', this)">Weekly</button>
-                <button class="filter-btn" id="tf-btn-month" onclick="fetchZones('month', this)">Monthly</button>
-                <button class="filter-btn" id="tf-btn-quarter" onclick="fetchZones('quarter', this)">Quarterly</button>
-                <button class="filter-btn" id="tf-btn-halfyear" onclick="fetchZones('halfyear', this)">Half-Yearly</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="table-container" style="max-height: calc(100vh - 280px); min-height: 400px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>SYMBOL</th>
-                  <th>BIAS</th>
-                  <th>PATTERN</th>
-                  <th>CURRENT PRICE</th>
-                  <th>PROXIMAL LINE</th>
-                  <th>DISTAL LINE</th>
-                  <th>ZONE STATUS</th>
-                  <th>ACTION</th>
-                </tr>
-              </thead>
-              <tbody id="zones-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">Select a timeframe to scan zones...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </main>
-
-    <!-- Mobile Bottom Navigation Bar -->
-    <nav class="bottom-nav">
-      <button class="bnav-btn active" id="bnav-scr" onclick="sfpNavigate('stocks')"><span class="icon">📊</span><span>Screener</span></button>
-      <button class="bnav-btn" id="bnav-sec" onclick="switchTab('sec')"><span class="icon">🥧</span><span>Sectors</span></button>
-      <button class="bnav-btn" id="bnav-zones" onclick="switchTab('zones')"><span class="icon">🎯</span><span>Zones</span></button>
-      <button class="bnav-btn" id="bnav-watchlist" onclick="switchTab('watchlist')"><span class="icon">⭐</span><span>Watchlist</span></button>
-    </nav>
+      <button type="submit" class="btn-login">Login to Terminal 🚀</button>
+    </form>
+    <a href="/signup" class="back-link">New to StockFinder Pro? Create an account</a>
+    <div style="display:flex;justify-content:center;gap:17px;flex-wrap:wrap;margin-top:22px;font-size:12px"><a href="/#features" style="color:#9fb0bd">Features</a><a href="/#pricing" style="color:#9fb0bd">Plans</a><a href="/#contact" style="color:#9fb0bd">Contact Support</a><a href="/" style="color:#9fb0bd">Home</a></div>
   </div>
-
-  <!-- Smart Position Sizing & R:R Calculator Modal -->
-  <div id="rr-calculator-modal" class="sidebar-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
-    <div class="panel" style="width: 440px; background: var(--sidebar-bg) !important; border: 1px solid var(--primary); position: relative;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: var(--glass-border); padding-bottom: 10px; margin-bottom: 15px;">
-        <h3 style="font-size: 0.95rem; color: var(--primary);">🎯 Smart Position Sizing & R:R Calculator</h3>
-        <button onclick="closeRRCalculator()" style="background: transparent; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer;">✕</button>
-      </div>
-      
-      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.8rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Symbol & Bias:</span>
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <strong id="calc-symbol" class="mono" style="color: var(--strong-text);">--</strong>
-            <div style="display: flex; gap: 4px;" id="bias-toggle-group">
-              <button class="filter-btn active" id="bias-long-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('DEMAND')">LONG</button>
-              <button class="filter-btn" id="bias-short-btn" style="padding: 2px 8px; font-size: 0.65rem;" onclick="setTradeBias('SUPPLY')">SHORT</button>
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Entry Price ($P_{entry}$):</span>
-          <input type="number" id="calc-entry-input" class="search-box mono" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Stop-Loss Points ($P_{sl}$ pts):</span>
-          <input type="number" id="calc-sl-pts" class="search-box mono" value="15" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--muted);">Total Risk Capital ($Risk_{total}$):</span>
-          <input type="number" id="calc-max-risk" class="search-box mono" value="2000" style="width: 140px; padding: 4px 8px; text-align: right;" oninput="recalculateTradeMetrics()" />
-        </div>
-
-        <div style="background: var(--input-bg); padding: 12px; border-radius: 8px; border: var(--glass-border); margin-top: 4px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Calculated Stop-Loss Price:</span>
-            <strong id="calc-sl-price" class="mono val-down">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Risk Per Share:</span>
-            <strong id="calc-risk-per-share" class="mono" style="color: var(--strong-text);">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
-            <span style="color: var(--strong-text); font-weight: 700;">Trade Quantity (Shares):</span>
-            <strong id="calc-qty" class="mono" style="color: var(--primary); font-size: 0.95rem;">0 Shares</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span style="color: var(--muted);">Total Investment Value:</span>
-            <strong id="calc-total-inv" class="mono" style="color: var(--strong-text);">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-top: var(--glass-border); padding-top: 6px;">
-            <span style="color: var(--muted);">Target 1:2 (Reward):</span>
-            <strong id="calc-t2" class="mono val-up">₹0.00</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--muted);">Target 1:3 (Reward):</span>
-            <strong id="calc-t3" class="mono val-up">₹0.00</strong>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let currentTab = 'scr', currentFilter = 'VOL_SHOCKER', currentUniverse = 'FO', currentZoneTF = 'day';
-    let marketStocks = [], sectorsData = [], rawZonesData = [];
-    let watchlistSymbols = new Set();
-    let selectedHeatmapSector = null;
-    let autoRefreshInterval = null, tickerInterval = null, fetchRequestId = 0;
-    let sortColumn = 'pricePct', sortDirection = 'desc';
-    let activeTradeData = {};
-
-    // Official company website favicons. Unknown symbols retain the initials badge.
-    // Using explicit symbol-to-domain mappings prevents incorrect company logos.
-    const STOCK_LOGO_DOMAINS = Object.freeze({
-      RELIANCE:'ril.com', ONGC:'ongcindia.com', OIL:'oil-india.com', BPCL:'bharatpetroleum.in',
-      IOC:'iocl.com', HINDPETRO:'hindustanpetroleum.com', HPCL:'hindustanpetroleum.com',
-      POWERGRID:'powergrid.in', NTPC:'ntpc.co.in', TATAPOWER:'tatapower.com',
-      ADANIPOWER:'adanipower.com', ADANIGREEN:'adanigreenenergy.com', ADANIENSOL:'adanienergysolutions.com',
-      ADANIENT:'adanienterprises.com', COALINDIA:'coalindia.in', GAIL:'gailonline.com',
-      IREDA:'ireda.in', SUZLON:'suzlon.com', JSWENERGY:'jswenergy.in',
-      NHPC:'nhpcindia.com', SJVN:'sjvn.nic.in', NLCINDIA:'nlcindia.in',
-      CESC:'cesc.co.in', TORNTPOWER:'torrentpower.com', CGPOWER:'cgglobal.com',
-      BHEL:'bhel.com', IEX:'iexindia.com', POWERINDIA:'hitachienergy.com',
-      WAAREEENER:'waaree.com', INOXWIND:'inoxwind.com', PREMIERENE:'premierenergies.com',
-      PETRONET:'petronetlng.in', GUJGASLTD:'gujaratgas.com', MGL:'mahanagargas.com',
-      IGL:'iglonline.net', AEGISLOG:'aegisindia.com', CASTROLIND:'castrol.com',
-      HDFCBANK:'hdfcbank.com', ICICIBANK:'icicibank.com', SBIN:'sbi.co.in',
-      AXISBANK:'axisbank.com', KOTAKBANK:'kotak.com', INDUSINDBK:'indusind.com',
-      BANKBARODA:'bankofbaroda.in', PNB:'pnbindia.in', CANBK:'canarabank.com',
-      INFY:'infosys.com', TCS:'tcs.com', WIPRO:'wipro.com', HCLTECH:'hcltech.com',
-      TECHM:'techmahindra.com', LTIM:'ltimindtree.com', PERSISTENT:'persistent.com',
-      TATAMOTORS:'tatamotors.com', MARUTI:'marutisuzuki.com', M_M:'mahindra.com',
-      EICHERMOT:'eicher.in', BAJAJ_AUTO:'bajajauto.com', HEROMOTOCO:'heromotocorp.com',
-      BHARTIARTL:'airtel.in', ITC:'itcportal.com', HINDUNILVR:'hul.co.in',
-      TITAN:'titancompany.in', ASIANPAINT:'asianpaints.com', ULTRACEMCO:'ultratechcement.com',
-      SUNPHARMA:'sunpharma.com', DRREDDY:'drreddys.com', CIPLA:'cipla.com',
-      APOLLOHOSP:'apollohospitals.com', DIVISLAB:'divislabs.com',
-      TATASTEEL:'tatasteel.com', JSWSTEEL:'jsw.in', HINDALCO:'hindalco.com',
-      BAJFINANCE:'bajajfinserv.in', BAJAJFINSV:'bajajfinserv.in', HDFCLIFE:'hdfclife.com',
-      SBILIFE:'sbilife.co.in', DMART:'dmartindia.com', TRENT:'trentlimited.com',
-      ZOMATO:'eternal.com', ETERNAL:'eternal.com', INDIGO:'goindigo.in',
-      GODREJPROP:'godrejproperties.com', DLF:'dlf.in', LODHA:'lodhagroup.com',
-      LT:'larsentoubro.com', BEL:'bel-india.in', HAL:'hal-india.co.in',
-      GRASIM:'grasim.com', PIDILITIND:'pidilite.com', BRITANNIA:'britannia.co.in',
-      NESTLEIND:'nestle.in', DABUR:'dabur.com', TATACONSUM:'tataconsumer.com',
-      // Additional sector heatmap mappings; unmapped stocks keep the safe initials fallback.
-      MAXHEALTH:'maxhealthcare.in', PPLPHARMA:'piramalpharma.com',
-      FORTIS:'fortishealthcare.com', MANKIND:'mankindpharma.com',
-      ALKEM:'alkemlabs.com', GLENMARK:'glenmarkpharma.com',
-      LUPIN:'lupin.com', TORNTPHARM:'torrentpharma.com',
-      BIOCON:'biocon.com', AUROPHARMA:'aurobindo.com',
-      ZYDUSLIFE:'zyduslife.com', LAURUSLABS:'lauruslabs.com',
-      ABB:'new.abb.com', ASTRAL:'astralltd.com', BDL:'bdl-india.in',
-      COFORGE:'coforge.com', OFSS:'oracle.com', MPHASIS:'mphasis.com',
-      KPITTECH:'kpit.com', CAMS:'camsonline.com', CDSL:'cdslindia.com',
-      BSE:'bseindia.com', MCX:'mcxindia.com', IRFC:'irfc.co.in',
-      RVNL:'rvnl.org', JIOFIN:'jfs.in', ANGELONE:'angelone.in',
-      NYKAA:'nykaa.com', VBL:'varunbeverages.com',
-      MARICO:'marico.com', COLPAL:'colgatepalmolive.co.in',
-      JUBLFOOD:'jublfood.com', GODREJCP:'godrejcp.com',
-      APOLLOHOSP:'apollohospitals.com', AUBANK:'aubank.in',
-      FEDERALBNK:'federalbank.co.in', IDFCFIRSTB:'idfcfirstbank.com',
-      UNIONBANK:'unionbankofindia.co.in', YESBANK:'yesbank.in',
-      RBLBANK:'rblbank.com', BANDHANBNK:'bandhanbank.com',
-      BANKINDIA:'bankofindia.co.in', INDIANB:'indianbank.in',
-      MUTHOOTFIN:'muthootfinance.com', MANAPPURAM:'manappuram.com',
-      LTF:'ltfinance.com', RECLTD:'recindia.nic.in', PFC:'pfcindia.com',
-      SHRIRAMFIN:'shriramfinance.in', CHOLAFIN:'cholamandalam.com',
-      POLICYBZR:'policybazaar.com', PAYTM:'paytm.com',
-      KFINTECH:'kfintech.com', HDFCAMC:'hdfcfund.com',
-      ICICIPRULI:'iciciprulife.com', ICICIGI:'icicilombard.com',
-      MOTHERSON:'motherson.com', TVSMOTOR:'tvsmotor.com',
-      BALKRISIND:'bkt-tires.com', BOSCHLTD:'bosch.in',
-      ASHOKLEY:'ashokleyland.com', BAJAJ_AUTO:'bajajauto.com',
-      M_AND_M:'mahindra.com', 'M&M':'mahindra.com',
-      'BAJAJ AUTO':'bajajauto.com',
-      UNOMINDA:'unominda.com', TIINDIA:'tiiindia.com',
-      SIEMENS:'siemens.com', HAVELLS:'havells.com',
-      VOLTAS:'voltas.com', POLYCAB:'polycab.com',
-      KEI:'kei-ind.com', DIXON:'dixoninfo.com',
-      CUMMINSIND:'cummins.com', MAZDOCK:'mazagondock.in',
-      COCHINSHIP:'cochinshipyard.in', SOLARINDS:'solargroup.com',
-      INDHOTEL:'ihcltata.com', CONCOR:'concorindia.co.in',
-      DELHIVERY:'delhivery.com', NAUKRI:'infoedge.in',
-      INDUSTOWER:'industowers.com', IDEA:'myvi.in',
-      PAGEIND:'jockey.in', SWIGGY:'swiggy.com',
-      ATHER:'atherenergy.com', SAGILITY:'sagilityhealth.com'
-    });
-
-    function getStockLogoUrl(symbol) {
-      const key = String(symbol || '').trim().toUpperCase();
-      const domain = STOCK_LOGO_DOMAINS[key];
-      return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
-    }
-
-    function createStockLogoMarkup(symbol) {
-      const safeSymbol = String(symbol || '').replace(/[^A-Za-z0-9&._-]/g, '');
-      const initials = safeSymbol.slice(0, 3).toUpperCase();
-      const badge = `<span class="tile-logo-badge" aria-hidden="true">${initials}</span>`;
-      const url = getStockLogoUrl(symbol);
-      if (!url) return badge;
-      // Display the initials until a real image successfully loads.
-      return `<span class="tile-logo-shell">${badge}<img src="${url}" class="tile-logo" alt="${safeSymbol} logo" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('tile-logo-ready')" onerror="this.remove()"></span>`;
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      applySfpTheme(localStorage.getItem('theme') || 'dark');
-      try { toggleCompactMode(localStorage.getItem('sfp_compact_view') === '1'); } catch(e) { toggleCompactMode(false); }
-      loadWatchlistFromStorage();
-      fetchTickerBar(); fetchData(); startIntervals(); fetchSmartORBSignals();
-    });
-
-    function loadWatchlistFromStorage() {
-      try {
-        const saved = localStorage.getItem('stock_finder_watchlist');
-        watchlistSymbols = saved ? new Set(JSON.parse(saved)) : new Set();
-      } catch (e) { watchlistSymbols = new Set(); }
-    }
-
-    function toggleWatchlist(symbol) {
-      symbol = symbol.toUpperCase();
-      if (watchlistSymbols.has(symbol)) watchlistSymbols.delete(symbol);
-      else watchlistSymbols.add(symbol);
-      try { localStorage.setItem('stock_finder_watchlist', JSON.stringify(Array.from(watchlistSymbols))); } catch (e) {}
-      renderTable();
-      if (currentTab === 'watchlist') renderWatchlistTable();
-    }
-
-    async function fetchSmartORBSignals(forceRefresh = false) {
-      const container = document.getElementById('smart-orb-container');
-      const btn = document.getElementById('smart-orb-refresh-btn');
-      if (btn && btn.disabled) return;
-      if (btn && forceRefresh) { btn.disabled = true; btn.textContent = '⏳ Refreshing...'; }
-      try {
-        const res = await fetch(`/api/smart-orb?refresh=${forceRefresh ? '1' : '0'}&_t=${Date.now()}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (json.status !== 'success') throw new Error(json.message || 'Unable to refresh signals');
-        if (json.status === 'success' && json.data && json.data.length > 0) {
-          container.innerHTML = json.data.map(s => `
-            <div style="background: var(--input-bg); padding: 0.8rem; border-radius: 8px; border: var(--glass-border);">
-              <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
-                <span class="badge ${s.bias && s.bias.includes('BULLISH') ? 'badge-green' : 'badge-red'}">${s.bias}</span>
-            </div>
-              <div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">Sector: ${s.sector || 'N/A'} | LTP: ₹${s.ltp || '0.00'}</div>
-              <div style="font-size: 0.7rem; color: var(--primary); margin-top: 4px;">${s.reason}</div>
-            </div>
-          `).join('');
-        } else {
-          container.innerHTML = `<div style="color: var(--muted); font-size: 0.8rem;">No matching ORB setups found.</div>`;
-        }
-      } catch (e) { container.innerHTML = `<div style="color: var(--red); font-size: 0.8rem;">⚠️ Failed to load ORB data: ${String(e.message || e).replace(/[<>&"']/g, '')}</div>`; }
-      finally { if (btn && forceRefresh) { btn.disabled = false; btn.textContent = '🔄 Refresh'; } }
-    }
-
-    function applySfpTheme(theme) {
-      const valid = ['dark','light','ocean','amoled'];
-      theme = valid.includes(theme) ? theme : 'dark';
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('theme', theme);
-      const btn = document.getElementById('theme-icon-btn');
-      if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
-    }
-    function toggleThemeBtn() {
-      applySfpTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-    }
-
-    function toggleSidebar() {
-      const sb = document.getElementById('app-sidebar'), ov = document.getElementById('sidebar-overlay');
-      if (window.innerWidth <= 1024) { sb.classList.toggle('open'); ov.classList.toggle('show'); }
-      else { sb.classList.toggle('collapsed'); }
-    }
-
-
-    let pbData=[],pbPolling=null;
-    function openPullbackScanner(){switchTab('pullback');fetchPullbacks();}
-    async function fetchPullbacks(force=false){
-      if(pbPolling){clearTimeout(pbPolling);pbPolling=null;}
-      const tf=document.getElementById('pb-tf').value;
-      const status=document.getElementById('pb-status');
-      status.textContent='Scanning  '+tf+'-minute candles and sector indices...';
-      try{
-        const response=await fetch('/api/pullback-scanner?tf='+tf+(force?'&refresh=1':'')+'&_t='+Date.now(),{cache:'no-store'});
-        const result=await response.json();
-        if(!response.ok||result.status!=='success')throw new Error(result.message||'Scanner unavailable');
-        pbData=result.data||[];
-        status.textContent=result.done?(result.message?('Scan error: '+result.message):('Scan complete • '+result.completed+' checked • '+pbData.length+' qualified')):((result.stage||'Scanning')+' • '+result.completed+(result.total?' / '+result.total:'')+' checked • '+pbData.length+' qualified');
-        renderPullbacks();
-        if(!result.done&&currentTab==='pullback')pbPolling=setTimeout(fetchPullbacks,3500);
-      }catch(e){status.textContent='Scan error: '+e.message;}
-    }
-    function renderPullbacks(){
-      const dir=document.getElementById('pb-direction').value;
-      const momentum=document.getElementById('pb-momentum').value;
-      const pattern=document.getElementById('pb-pattern').value;
-      const list=pbData.filter(x=>(dir==='All'||x.direction===dir)&&(momentum==='All'||x.momentum===momentum)&&(pattern==='All'||x.pattern===pattern));
-      const esc=x=>String(x??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-      document.getElementById('pb-tbody').innerHTML=list.length?list.map(x=>`<tr>
-        <td><a class="stock-link" target="_blank" rel="noopener" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(x.symbol)}">${esc(x.symbol)}</a></td>
-        <td>${esc(x.pattern)}</td>
-        <td><span class="badge ${x.direction==='Bullish'?'badge-green':'badge-red'}">${esc(x.direction)} ${esc(x.state)}</span></td>
-        <td>${esc(x.time)}</td><td>${esc(x.momentum)}</td>
-        <td>₹${esc(x.triggerPrice)}</td>
-        <td>${esc(x.sector)}</td><td>${esc(x.alignment)}</td><td>${esc(x.vwap)}</td>
-      </tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:2rem">No qualified pullbacks yet (or scan in progress).</td></tr>';
-    }
-
-    function sfpHighlightSidebar(tab) {
-      const normalized = tab === 'scr' ? 'stocks' : tab;
-      document.querySelectorAll('.sidebar-nav [data-sfp-side]').forEach(btn => {
-        const active = btn.dataset.sfpSide === normalized;
-        btn.classList.toggle('active', active);
-        if (active) btn.setAttribute('aria-current', 'page');
-        else btn.removeAttribute('aria-current');
-      });
-    }
-    function sfpNavigate(tab) {
-      if (['overview','stocks','movers'].includes(tab)) {
-        switchTab('scr');
-        document.querySelectorAll('#view-scr .sfp-workspace').forEach(p => {
-          p.hidden = p.id !== 'sfp-pane-' + tab;
-        });
-      } else if (tab === 'pullback') {
-        if (typeof openPullbackScanner === 'function') openPullbackScanner();
-        else switchTab('pullback');
-      } else {
-        switchTab(tab);
-      }
-      document.querySelectorAll('.sfp-main-tab').forEach(btn => {
-        const active = btn.dataset.sfpTab === tab;
-        btn.classList.toggle('is-active', active);
-        btn.setAttribute('aria-current', active ? 'page' : 'false');
-      });
-      sfpHighlightSidebar(tab);
-      const main = document.querySelector('.main-wrapper main');
-      if (main) main.scrollTop = 0;
-    }
-    function switchTab(tab) {
-      currentTab = tab;
-      if (typeof sfpHighlightSidebar === "function") sfpHighlightSidebar(tab);
-      document.querySelectorAll('.sfp-main-tab').forEach(btn => btn.classList.toggle('is-active', btn.dataset.sfpTab === (tab === 'scr' ? 'stocks' : tab)));
-      ['scr', 'sec', 'zones', 'watchlist', 'pullback'].forEach(t => {
-        const btn = document.getElementById(`btn-${t}`), bnav = document.getElementById(`bnav-${t}`), view = document.getElementById(`view-${t}`);
-        if(btn) btn.classList.toggle('active', t === tab);
-        if(bnav) bnav.classList.toggle('active', t === tab);
-        if(view) { view.style.display = t === tab ? 'block' : 'none'; if (t === tab) { view.classList.remove('sf-view-enter'); void view.offsetWidth; view.classList.add('sf-view-enter'); } }
-      });
-      if (tab === 'sec') { sfShowTabTransition('sec'); setTimeout(() => { sfpUpdateIntelligence();
-        if (currentTab === 'sec') renderSectors(); }, 650); }
-      if (tab === 'watchlist') { sfShowTabTransition('watchlist'); setTimeout(() => { if (currentTab === 'watchlist') renderWatchlistTable(); }, 650); }
-      if (tab === 'zones') fetchZones(currentZoneTF, document.getElementById(`tf-btn-${currentZoneTF}`));
-    }
-
-    function toggleCompactMode(c) {
-      document.body.classList.toggle('sfp-compact', Boolean(c));
-      document.querySelectorAll('.table-container').forEach(tc => tc.classList.toggle('compact', Boolean(c)));
-      const toggle = document.getElementById('compact-toggle');
-      if (toggle) toggle.checked = Boolean(c);
-      try { localStorage.setItem('sfp_compact_view', c ? '1' : '0'); } catch(e) {}
-    }
-    function toggleAutoRefresh(c) { c ? startIntervals() : stopIntervals(); }
-    function startIntervals() { if (!autoRefreshInterval) autoRefreshInterval = setInterval(fetchData, 60000); if (!tickerInterval) tickerInterval = setInterval(fetchTickerBar, 30000); }
-    function stopIntervals() { clearInterval(autoRefreshInterval); clearInterval(tickerInterval); autoRefreshInterval = null; tickerInterval = null; }
-
-    async function switchUniverse(type) {
-      currentUniverse = type;
-      marketStocks = []; sectorsData = []; rawZonesData = [];
-      selectedHeatmapSector = null;
-      await fetchData(); fetchTickerBar();
-      if (currentTab === 'zones') fetchZones(currentZoneTF);
-    }
-
-    async function fetchTickerBar() {
-      try {
-        const res = await fetch(`/api/ticker-bar?universe=${encodeURIComponent(currentUniverse)}&_t=${Date.now()}`, { cache: 'no-store' });
-        const json = await res.json();
-        if(json.status === 'success' && json.data.length > 0) {
-          const track = document.getElementById('tickerTrack');
-          const html = json.data.map(item => `
-            <div class="ticker-item">
-              <span class="ticker-symbol">${item.symbol}</span>
-              <span class="ticker-price">${item.price ? '₹' + item.price : ''}</span>
-              <span class="ticker-change ${item.isPositive ? 'positive' : 'negative'}">${item.change}</span>
-            </div>
-          `).join('');
-          track.innerHTML = html + html;
-        }
-      } catch(e) {}
-    }
-
-    async function fetchData() {
-      const reqId = ++fetchRequestId, reqUniv = currentUniverse;
-      try {
-        const [res1, res2] = await Promise.all([
-          fetch(`/api/screener?filter=ALL&universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' }),
-          fetch(`/api/sectors?universe=${encodeURIComponent(reqUniv)}&_t=${Date.now()}`, { cache: 'no-store' })
-        ]);
-        if (reqId !== fetchRequestId || reqUniv !== currentUniverse) return;
-        const d1 = await res1.json(), d2 = await res2.json();
-        if (d1.status !== 'success') { const status=document.getElementById('sfp-feed-status'); if(status) status.textContent = d1.message || 'Market data temporarily unavailable. Retry shortly.'; }
-        if (d1.status === 'success') {
-          sfDataEverLoaded = true;
-          marketStocks = d1.data || [];
-          document.getElementById('clock').innerText = d1.timestamp || '--:--:--';
-          updateKPIs(marketStocks); renderMovers(d1.topGainers, d1.topLosers); renderTable(); sfpUpdateIntelligence();
-          if (currentTab === 'watchlist') renderWatchlistTable();
-        }
-        if (d2.status === 'success') {
-          sectorsData = d2.data || [];
-          sfpUpdateIntelligence();
-          if (d2.marketBreadth) {
-            document.getElementById('breadth-adv').innerText = d2.marketBreadth.advances;
-            document.getElementById('breadth-dec').innerText = d2.marketBreadth.declines;
-            document.getElementById('breadth-vol').innerText = Number(d2.marketBreadth.totalVolume).toLocaleString('en-IN');
-            updateMarketPulseMeter(d2.marketBreadth, marketStocks);
-          }
-        }
-        if (currentTab === 'sec') renderSectors();
-      } catch(e) { const status=document.getElementById('sfp-feed-status'); if(status) status.textContent='Unable to refresh stock data. Existing values may be stale.'; }
-    }
-
-    function updateMarketPulseMeter(breadth, stocks) {
-      if (!document.getElementById("pulse-status-text")) return;
-      if (!breadth || !stocks || stocks.length === 0) return;
-      const adv = breadth.advances || 0;
-      const dec = breadth.declines || 0;
-      const total = adv + dec || 1;
-      const breadthScore = (adv / total) * 50;
-      const positiveStocks = stocks.filter(s => (s.pricePct || 0) > 0).length;
-      const momentumScore = (positiveStocks / stocks.length) * 50;
-      const finalScore = Math.round(breadthScore + momentumScore);
-
-      let statusText = "NEUTRAL", statusColor = "var(--primary)", descText = "Balanced market conditions";
-      if (finalScore >= 75) {
-        statusText = `EXTREME GREED (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Aggressive bullish participation";
-      } else if (finalScore >= 55) {
-        statusText = `BULLISH (${finalScore}/100)`; statusColor = "var(--green)"; descText = "Strong buying momentum across sectors";
-      } else if (finalScore <= 25) {
-        statusText = `EXTREME FEAR (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Heavy selling pressure / panic";
-      } else if (finalScore <= 45) {
-        statusText = `BEARISH (${finalScore}/100)`; statusColor = "var(--red)"; descText = "Weak breadth and downward pressure";
-      }
-
-      const statusEl = document.getElementById('pulse-status-text');
-      const barEl = document.getElementById('pulse-meter-bar');
-      const descEl = document.getElementById('pulse-desc');
-      if (statusEl) { statusEl.innerText = statusText; statusEl.style.color = statusColor; }
-      if (barEl) { barEl.style.width = finalScore + '%'; }
-      if (descEl) { descEl.innerText = descText; }
-    }
-
-    function updateKPIs(stocks) {
-      let c = {'Long Buildup':0, 'Short Buildup':0, 'Short Covering':0, 'Long Unwinding':0};
-      (stocks || []).forEach(s => { if(c[s.buildup] !== undefined) c[s.buildup]++; });
-      document.getElementById('k-lb').innerText = c['Long Buildup'];
-      document.getElementById('k-sb').innerText = c['Short Buildup'];
-      document.getElementById('k-sc').innerText = c['Short Covering'];
-      document.getElementById('k-lu').innerText = c['Long Unwinding'];
-    }
-
-    function sfpRenderMoverRows() { /* Compatibility: movers render via renderMovers */ }
-    function renderMovers(g, l) {
-      const safe = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-      const money = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '₹' + Number(v).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
-      const renderSide = (items, direction, id) => {
-        const list = (Array.isArray(items) ? items : []).filter(s => s && Number.isFinite(Number(s.pricePct)) && (direction === 'up' ? Number(s.pricePct) > 0 : Number(s.pricePct) < 0))
-          .sort((a,b) => direction === 'up' ? Number(b.pricePct)-Number(a.pricePct) : Number(a.pricePct)-Number(b.pricePct)).slice(0,20);
-        const tbody = document.getElementById(id);
-        if (!tbody) return;
-        tbody.innerHTML = list.length ? list.map(s => {
-          const symbol = String(s.symbol || '').toUpperCase().replace(/[^A-Z0-9_.-]/g,'');
-          const pct = Number(s.pricePct);
-          const mult = Number(s.volMultiplier);
-          const volume = Number.isFinite(mult) && mult > 0 ? mult.toFixed(1) + '×' : '—';
-          return `<tr><td><div class="sfpm-dual-stock"><a class="stock-link" href="https://in.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(symbol)}" target="_blank" rel="noopener noreferrer">${safe(symbol)}</a>${typeof sfpNewsBadge === 'function' ? sfpNewsBadge(symbol) : ''}</div><small>${safe(s.sector || 'Sector unavailable')}</small></td><td class="sfpm-num">${money(s.ltp)}</td><td class="sfpm-num">${volume}</td><td class="sfpm-num sfpm-dual-change">${pct>0?'+':''}${pct.toFixed(2)}%</td></tr>`;
-        }).join('') : `<tr><td colspan="4" class="sfpm-empty">No ${direction === 'up' ? 'rising' : 'falling'} stocks in current feed</td></tr>`;
-        const count = document.getElementById(direction === 'up' ? 'sfpm-up-count' : 'sfpm-down-count');
-        if (count) count.textContent = list.length + ' stocks';
-      };
-      renderSide(g, 'up', 'sfpm-up-rows');
-      renderSide(l, 'down', 'sfpm-down-rows');
-    }
-
-    function toggleSort(col) {
-      if (sortColumn === col) sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
-      else { sortColumn = col; sortDirection = 'desc'; }
-      renderTable();
-    }
-
-    function renderTable() {
-      const search = document.getElementById('search').value.toLowerCase();
-      let filtered = [...marketStocks];
-      if (currentFilter === 'OPEN=LOW') filtered = filtered.filter(s => s.candleTag === 'OPEN=LOW');
-      else if (currentFilter === 'OPEN=HIGH') filtered = filtered.filter(s => s.candleTag === 'OPEN=HIGH');
-      else if (currentFilter === 'VOL_SHOCKER') filtered = filtered.filter(s => (s.volMultiplier || 0) >= 1.5);
-      else if (currentFilter !== 'ALL') filtered = filtered.filter(s => s.buildup === currentFilter);
-
-      if (search) filtered = filtered.filter(s => s.symbol.toLowerCase().includes(search) || s.name.toLowerCase().includes(search));
-
-      filtered.sort((a, b) => {
-        let vA = a[sortColumn], vB = b[sortColumn];
-        if (typeof vA === 'string') return sortDirection === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
-        return sortDirection === 'asc' ? Number(vA || 0) - Number(vB || 0) : Number(vB || 0) - Number(vA || 0);
-      });
-
-      const tbody = document.getElementById('tbody');
-      if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:3rem; color:var(--muted);">No matching stocks found.</td></tr>`; return; }
-
-      tbody.innerHTML = filtered.map(s => {
-        const isStarred = watchlistSymbols.has(s.symbol.toUpperCase());
-        const defaultBias = s.pricePct >= 0 ? 'DEMAND' : 'SUPPLY';
-        const defaultSLPts = Math.max(5, Number(s.ltp * 0.01).toFixed(1));
-        
-        return `
-          <tr>
-            <td style="text-align: center;"><button class="watchlist-btn ${isStarred ? 'starred' : ''}" onclick="toggleWatchlist('${s.symbol}')">${isStarred ? '★' : '☆'}</button></td>
-            <td>
-              <span class="live-pulse-dot" style="background-color: ${s.pricePct >= 0 ? 'var(--green)' : 'var(--red)'};"></span>
-              <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}
-              ${s.candleTag === 'OPEN=LOW' ? '<span class="badge badge-green">OPEN=LOW</span>' : s.candleTag === 'OPEN=HIGH' ? '<span class="badge badge-red">OPEN=HIGH</span>' : ''}
-              <div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div>
-            </td>
-            <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
-            <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
-            <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
-            <td class="${s.oiPct >= 0 ? 'val-up' : 'val-down'}">${s.oiPct != null && Number.isFinite(Number(s.oiPct)) ? (s.oiPct > 0 ? '+' : '') + Number(s.oiPct).toFixed(2) + '%' : (s.oi != null ? 'OI '+Number(s.oi).toLocaleString('en-IN') : '—')}</td>
-            <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : s.buildup === 'Short Buildup' ? 'badge-red' : 'badge-blue'}">${s.buildup || 'CASH'}</span></td>
-            <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
-            <td><canvas class="sparkline-canvas" width="90" height="28" data-prices='${JSON.stringify(s.sparkline || [])}' data-change='${s.pricePct}'></canvas></td>
-            <td>
-              <button class="filter-btn" style="padding: 4px 10px; font-size: 0.7rem; background: rgba(243,156,18,0.15); color: var(--primary); border: 1px solid rgba(243,156,18,0.3);" onclick="openRRCalculator('${s.symbol}', ${s.ltp}, ${defaultSLPts}, '${defaultBias}')">🎯 R:R</button>
-            </td>
-          </tr>
-        `;
-      }).join('');
-      drawSparklines();
-    }
-
-    function renderWatchlistTable() {
-      const tbody = document.getElementById('watchlist-tbody');
-      const watchStocks = marketStocks.filter(s => watchlistSymbols.has(s.symbol.toUpperCase()));
-      if (!watchStocks.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No stocks in watchlist yet. Click the star icon (☆) on any stock in the screener to bookmark it.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = watchStocks.map(s => `
-        <tr>
-          <td style="text-align: center;"><button class="watchlist-btn starred" onclick="toggleWatchlist('${s.symbol}')">★</button></td>
-          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="stock-link">${s.symbol}</a>${sfpNewsBadge(s.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${s.sector || ''}</div></td>
-          <td style="font-weight:600;">₹${Number(s.ltp || 0).toFixed(2)}</td>
-          <td class="${s.pricePct >= 0 ? 'val-up' : 'val-down'}">${s.pricePct > 0 ? '+' : ''}${s.pricePct}%</td>
-          <td style="color:var(--muted);">${Number(s.volume || 0).toLocaleString('en-IN')}</td>
-          <td><span class="badge ${s.buildup === 'Long Buildup' ? 'badge-green' : 'badge-red'}">${s.buildup || 'CASH'}</span></td>
-          <td style="color:var(--primary); font-weight:600;">${Number(s.momentumScore || 0).toFixed(1)}</td>
-          <td><span style="font-size:0.75rem; color:var(--muted);">${s.sector || '-'}</span></td>
-        </tr>
-      `).join('');
-    }
-
-    function drawSparklines() {
-      document.querySelectorAll('.sparkline-canvas').forEach(canvas => {
-        const ctx = canvas.getContext('2d'), prices = JSON.parse(canvas.getAttribute('data-prices') || '[]');
-        const isPositive = parseFloat(canvas.getAttribute('data-change') || '0') >= 0;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (prices.length < 2) return;
-        const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
-        ctx.beginPath();
-        prices.forEach((price, index) => {
-          const x = 3 + (index / (prices.length - 1)) * (canvas.width - 6);
-          const y = 3 + (canvas.height - 6) - ((price - min) / range) * (canvas.height - 6);
-          if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.strokeStyle = isPositive ? '#2ecc71' : '#e74c3c';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
-      });
-    }
-
-    function setFilter(flt, el) {
-      currentFilter = flt;
-      if (el) { document.querySelectorAll('#screener-filters .filter-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); }
-      renderTable();
-    }
-
-    function filterHeatmapBySector(secName) {
-      selectedHeatmapSector = secName;
-      renderSectors();
-    }
-
-    function renderSectors() {
-      if (!sectorsData.length) return;
-      let sortedSectors = [...sectorsData].sort((a, b) => b.avgChange - a.avgChange);
-      const maxChange = Math.max(...sortedSectors.map(s => Math.abs(s.avgChange || 0)), 1);
-      // Select the strongest positive and negative sectors from CURRENT market data.
-      // No fixed percentage threshold: ranks are recalculated on every render.
-      const validSectors = sortedSectors.filter(s => Number.isFinite(Number(s.avgChange)));
-      const topBullSector = validSectors.find(s => Number(s.avgChange) > 0)?.sector;
-      const topBearSector = [...validSectors].reverse().find(s => Number(s.avgChange) < 0)?.sector;
-
-      const heatmapContainer = document.getElementById('sec-heatmap-section');
-      const headerTitle = document.getElementById('heatmap-section-header');
-      const resetBtn = document.getElementById('reset-heatmap-btn');
-
-      if (selectedHeatmapSector) {
-        headerTitle.innerText = `STOCKS: ${selectedHeatmapSector}`;
-        resetBtn.style.display = 'inline-block';
-        let sectorStocks = marketStocks.filter(s => (s.sector || '').toUpperCase() === selectedHeatmapSector.toUpperCase());
-        sectorStocks.sort((a, b) => (b.pricePct || 0) - (a.pricePct || 0));
-        const validStocks = sectorStocks.filter(s => Number.isFinite(Number(s.pricePct)));
-        const topBullStock = validStocks.find(s => Number(s.pricePct) > 0)?.symbol;
-        const topBearStock = [...validStocks].reverse().find(s => Number(s.pricePct) < 0)?.symbol;
-
-        heatmapContainer.innerHTML = sectorStocks.map(s => {
-          const pct = Number(s.pricePct || 0);
-          const tileTone = (pct < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((pct > 0 && s.symbol === topBullStock) || (pct < 0 && s.symbol === topBearStock) ? ' heatmap-momentum' : '');
-          const arrow = pct >= 0 ? '▲' : '▼';
-
-          return `
-            <a href="https://in.tradingview.com/chart/?symbol=NSE%3A${s.symbol}" target="_blank" class="treemap-tile ${tileTone}" style="flex: 1 1 110px;">
-              ${createStockLogoMarkup(s.symbol)}
-              <div class="tile-name">${s.symbol}</div>
-              <div class="tile-change">${arrow} ${pct > 0 ? '+' : ''}${pct}%</div>
-            </a>
-          `;
-        }).join('') || `<div style="color: var(--muted); padding: 1rem;">No stocks found.</div>`;
-      } else {
-        headerTitle.innerText = `🟩 Sector Heatmap`;
-        resetBtn.style.display = 'none';
-
-        heatmapContainer.innerHTML = sortedSectors.map(sec => {
-          const avg = sec.avgChange || 0;
-          const tileTone = (avg < 0 ? 'heatmap-negative' : 'heatmap-positive') + ((avg > 0 && sec.sector === topBullSector) || (avg < 0 && sec.sector === topBearSector) ? ' heatmap-momentum' : '');
-          return `<div class="treemap-tile ${tileTone}" style="flex: 1 1 120px;" onclick="filterHeatmapBySector('${sec.sector}')"><div class="tile-name">${sec.sector}</div><div class="tile-change">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%</div></div>`;
-        }).join('');
-      }
-
-      document.getElementById('sec-bars-section').innerHTML = sortedSectors.map(sec => {
-        const isPos = sec.avgChange >= 0, widthPct = (Math.abs(sec.avgChange) / maxChange) * 48;
-        const isSelected = selectedHeatmapSector && selectedHeatmapSector.toUpperCase() === sec.sector.toUpperCase();
-        return `
-          <div class="barchart-row ${isSelected ? 'selected' : ''}" onclick="filterHeatmapBySector('${sec.sector}')">
-            <div class="barchart-label">${sec.sector}</div>
-            <div class="barchart-track">
-              <div class="barchart-bar-wrapper">
-                <div class="barchart-center"></div>
-                <div class="barchart-bar ${isPos ? 'pos' : 'neg'}" style="width: ${widthPct}%;"></div>
-              </div>
-            </div>
-            <div class="barchart-val">${sec.avgChange > 0 ? '+' : ''}${sec.avgChange.toFixed(2)}%</div>
-          </div>`;
-      }).join('');
-    }
-
-    // Timeframe + universe cache: avoids repeated server scans during normal navigation.
-    const zoneResponseCache = new Map();
-    const ZONE_RESPONSE_TTL_MS = 10 * 60 * 1000;
-    // Coincidence lookups are sequential to avoid saturating Upstox.
-    const CONFLUENCE_TFS = ['day', 'week', 'month', 'quarter', 'halfyear'];
-    const CONFLUENCE_NAMES = {day:'Daily', week:'Weekly', month:'Monthly', quarter:'Quarterly', halfyear:'Half-Yearly'};
-    const confluenceCompleted = new Set();
-    const confluenceUnavailable = new Set();
-    const confluencePending = new Set();
-    const confluenceRunning = new Set();
-    function zoneOverlap(a,b) {
-      if (a.symbol !== b.symbol || a.bias !== b.bias) return false;
-      const aLo=Math.min(Number(a.proximal),Number(a.distal));
-      const aHi=Math.max(Number(a.proximal),Number(a.distal));
-      const bLo=Math.min(Number(b.proximal),Number(b.distal));
-      const bHi=Math.max(Number(b.proximal),Number(b.distal));
-      return [aLo,aHi,bLo,bHi].every(Number.isFinite) && Math.max(aLo,bLo)<=Math.min(aHi,bHi);
-    }
-    function zoneActionHTML(z) {
-      const tags=[];
-      if (z.strongZone === true) tags.push('<span class="badge badge-demand">Strong Zone</span>');
-      const names=[];
-      let pending=false;
-      for (const tf of CONFLUENCE_TFS) {
-        if (tf === currentZoneTF) continue;
-        const key=`${currentUniverse}:${tf}`;
-        const cached=zoneResponseCache.get(key);
-        if (!cached || Date.now()-cached.savedAt>=ZONE_RESPONSE_TTL_MS) {if (!confluenceUnavailable.has(key)) pending=true;continue;}
-        if (cached.data.some(other=>zoneOverlap(z,other))) names.push(CONFLUENCE_NAMES[tf]);
-      }
-      if (names.length) tags.push(`<span class="badge badge-gold">Coinciding with ${names.join(', ')}</span>`);
-      if (pending) tags.push('<span class="badge badge-muted">Checking other TFs...</span>');
-      else if (!names.length && CONFLUENCE_TFS.some(tf=>tf!==currentZoneTF && confluenceUnavailable.has(`${currentUniverse}:${tf}`))) tags.push('<span class="badge badge-muted">TF data temporarily unavailable</span>');
-      else if (!names.length) tags.push('<span class="badge badge-muted">No Coincidence</span>');
-      return tags.join(' ');
-    }
-    async function checkConfluenceInBackground(universe, activeTF) {
-      if (confluenceRunning.has(universe)) return;
-      confluenceRunning.add(universe);
-      try {
-        // No automatic heavy scans of other timeframes on every click.
-        // Only request already-precomputed snapshots when the server says ready.
-        const statusRes = await fetch(`/api/zone-cache-status?universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
-        if (!statusRes.ok) { console.debug('Confluence status HTTP',statusRes.status); return; }
-        const status = await statusRes.json();
-        for (const tf of CONFLUENCE_TFS) {
-          if (tf === activeTF || currentUniverse !== universe) continue;
-          const key = `${universe}:${tf}`;
-          const entry = status.timeframes && status.timeframes[tf];
-          if (!entry || !entry.ready) { confluenceUnavailable.delete(key); confluencePending.add(key); continue; }
-          const cached = zoneResponseCache.get(key);
-          if (cached && Date.now()-cached.savedAt<ZONE_RESPONSE_TTL_MS) continue;
-          try {
-            const res = await fetch(`/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(universe)}`, {cache:'no-store'});
-            const result = await res.json();
-            if (res.ok && result.status==='success' && result.done && Array.isArray(result.data)) {
-              zoneResponseCache.set(key,{data:result.data,savedAt:Date.now()});
-              confluenceUnavailable.delete(key);
-              confluencePending.delete(key);
-            } else { confluenceUnavailable.add(key); }
-          } catch(err) { confluenceUnavailable.add(key); }
-        }
-        if (currentUniverse===universe) renderZonesTable();
-      } catch(err) { console.debug('Confluence status unavailable',err); }
-      finally { confluenceRunning.delete(universe); }
-    }
-
-
-    // Refresh the confluence status while the zone screen is open.
-    // This only reads completed server snapshots; it never triggers scans.
-    setInterval(() => {
-      if (document.hidden) return;
-      if (confluencePending.size || confluenceUnavailable.size) {
-        checkConfluenceInBackground(currentUniverse, currentZoneTF);
-      }
-    }, 20000);
-
-    function zoneLoaderHTML(tf) {
-      const label = ({day:'Daily',week:'Weekly',month:'Monthly',quarter:'Quarterly',halfyear:'Half-Yearly'})[tf] || tf;
-      const bars = [16,26,20,33,23,14,28,19].map((h,i)=>`<i style="--h:${h}px;--d:${i*.11}s;--c:${i%3===0?'#2ecc71':'#e6a13a'}"></i>`).join('');
-      return `<tr><td colspan="8"><div class="sf-loading" role="status" aria-live="polite"><div class="sf-zone-mark" aria-hidden="true">${bars}</div><div><div class="sf-loader-heading">Finding ${label} Institutional Zones</div><div class="sf-loader-caption" id="zone-scan-progress">Analyzing demand & supply levels...</div></div><div class="sf-line-track" aria-hidden="true"></div></div></td></tr>`;
-    }
-    function sfTableSkeletonRows(columns=10,rows=5) {
-      return Array.from({length:rows},()=>`<tr><td colspan="${columns}"><div class="sf-table-skeleton" aria-hidden="true">${Array.from({length:4},()=>'<div class="sf-skeleton"></div>').join('')}</div></td></tr>`).join('');
-    }
-    function sfSectorLoaderHTML() {
-      return `<div class="sf-loading" role="status"><div class="sf-sector-loader" aria-hidden="true">${Array.from({length:15},(_,i)=>`<i style="--i:${i}"></i>`).join('')}</div><div class="sf-loader-heading">Loading Sector Heatmap</div><div class="sf-loader-caption">Preparing sector performance...</div></div>`;
-    }
-    let sfDataEverLoaded = false;
-    function sfShowInitialLoaders() {
-      const body = document.getElementById('tbody');
-      if (body && !sfDataEverLoaded) body.innerHTML = sfTableSkeletonRows(10,6);
-      const heatmap = document.getElementById('sec-heatmap-section');
-      if (heatmap && !sectorsData.length) heatmap.innerHTML = sfSectorLoaderHTML();
-      const bars = document.getElementById('sec-bars-section');
-      if (bars && !sectorsData.length) bars.innerHTML = '<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-caption">Preparing rankings...</div></div>';
-    }
-    document.addEventListener('DOMContentLoaded', () => {
-      sfShowInitialLoaders();
-      let lastMove = 0;
-      document.addEventListener('pointermove', e => {
-        if (e.pointerType === 'touch' || Date.now()-lastMove < 45) return;
-        lastMove=Date.now();
-        document.body.style.setProperty('--sf-mouse-x',`${e.clientX}px`);
-        document.body.style.setProperty('--sf-mouse-y',`${e.clientY}px`);
-      },{passive:true});
-    });
-
-    function sfShowTabTransition(tab) {
-      const view = document.getElementById(`view-${tab}`);
-      if (!view) return;
-      const existing = view.querySelector('.sf-tab-transition');
-      if (existing) existing.remove();
-      const overlay = document.createElement('div');
-      overlay.className = 'sf-tab-transition';
-      overlay.innerHTML = tab === 'sec' ? sfSectorLoaderHTML() : `<div class="sf-loading"><div class="sf-line-track"></div><div class="sf-loader-heading">Preparing Watchlist</div></div>`;
-      view.appendChild(overlay);
-      setTimeout(() => overlay.remove(), 850);
-    }
-    let zoneRequestSequence = 0;
-
-    async function fetchZones(tf, btnElement = null, forceRefresh = false) {
-      currentZoneTF = tf;
-      const requestSequence = ++zoneRequestSequence;
-      const requestUniverse = currentUniverse;
-      const cacheKey = `${requestUniverse}:${tf}`;
-      const activeButton = btnElement || document.getElementById(`tf-btn-${tf}`);
-      document.querySelectorAll('#tf-buttons-wrapper .filter-btn').forEach(b => b.classList.remove('active'));
-      if (activeButton) activeButton.classList.add('active');
-      const tbody = document.getElementById('zones-tbody');
-
-      rawZonesData = [];
-      const loaderStartedAt = Date.now();
-      const holdLoader = async () => { const remaining = 1250 - (Date.now() - loaderStartedAt); if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining)); };
-      const cached = zoneResponseCache.get(cacheKey);
-      if (!forceRefresh && cached && Date.now() - cached.savedAt < ZONE_RESPONSE_TTL_MS) {
-        tbody.innerHTML = zoneLoaderHTML(tf);
-        await holdLoader();
-        if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
-        rawZonesData = cached.data;
-        renderZonesTable();
-        checkConfluenceInBackground(requestUniverse, tf);
-        return;
-      }
-
-      tbody.innerHTML = zoneLoaderHTML(tf);
-
-
-      try {
-        const startedAt = Date.now();
-        let previousCompleted = -1;
-        while (true) {
-          if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
-          const url = `/api/zone-screener?tf=${encodeURIComponent(tf)}&universe=${encodeURIComponent(requestUniverse)}${forceRefresh && previousCompleted === -1 ? '&refresh=1' : ''}`;
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12000);
-          let data;
-          try {
-            const res = await fetch(url, {signal: controller.signal, cache: 'no-store'});
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            data = await res.json();
-          } finally { clearTimeout(timeout); }
-          if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
-          if (data.status !== 'success' || !Array.isArray(data.data)) throw new Error(data.message || 'Invalid response');
-          rawZonesData = data.data;
-          if (data.data.length) {
-            await holdLoader();
-            if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
-            renderZonesTable();
-          }
-          if (data.done) {
-            if (data.message) throw new Error(data.message);
-            zoneResponseCache.set(cacheKey, {data: data.data, savedAt: Date.now()});
-            confluenceUnavailable.delete(cacheKey);
-            confluencePending.delete(cacheKey);
-            checkConfluenceInBackground(requestUniverse, tf);
-            if (!data.data.length) { await holdLoader(); if (requestSequence !== zoneRequestSequence) return; }
-            if (!data.data.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;">Scan completed. No matching zones found for ${tf.toUpperCase()}.</td></tr>`;
-            return;
-          }
-          if (Date.now() - startedAt > 120000) {
-            if (!data.data.length) throw new Error('Scan timed out after 2 minutes. Check Render logs / Upstox API.');
-            return; // Keep the partial results visible rather than spinning forever.
-          }
-          if (data.completed !== previousCompleted || !data.data.length) {
-            previousCompleted = data.completed;
-            const msg = `Scanning ${tf.toUpperCase()}: ${data.completed || 0}/${data.total || '?'} stocks checked, ${data.data.length} zones found`;
-            if (!data.data.length) { const statusText = document.getElementById('zone-scan-progress'); if (statusText) statusText.textContent = msg; }
-            const status = document.getElementById('zone-scan-progress');
-            if (status) status.textContent = msg;
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
-      } catch (e) {
-        if (requestSequence !== zoneRequestSequence || currentUniverse !== requestUniverse || currentZoneTF !== tf) return;
-        console.error('Zone scan failed:', e);
-        if (!rawZonesData.length) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--red);">⚠️ ${String(e.message || 'Network error')}</td></tr>`;
-      }
-    }
-
-    function renderZonesTable() {
-      const searchVal = document.getElementById('zones-search').value.toLowerCase().trim();
-      let filteredZones = [...rawZonesData];
-
-      if (searchVal) {
-        filteredZones = filteredZones.filter(z => z.symbol.toLowerCase().includes(searchVal) || (z.sector && z.sector.toLowerCase().includes(searchVal)));
-      }
-
-      const biasFilter = document.getElementById('zones-bias-filter').value;
-      if (biasFilter !== 'ALL') filteredZones = filteredZones.filter(z => z.bias === biasFilter);
-
-      const statusFilter = document.getElementById('zones-status-filter').value;
-      if (statusFilter !== 'all') {
-        filteredZones = filteredZones.filter(z => {
-          const count = Number(z.testCount);
-          if (Number.isFinite(count) && z.testCount !== undefined && z.testCount !== null) {
-            return statusFilter === 'fresh' ? count === 0 : count > 0;
-          }
-          const status = String(z.status || '').toLowerCase();
-          return statusFilter === 'fresh' ? status.includes('fresh') : status.includes('tested') && !status.includes('untested');
-        });
-      }
-
-      // CMP-based price-side proximity. The zone boundary nearest the CMP is used.
-      const distanceSetting = document.getElementById('zones-cmp-distance').value;
-      function cmpDistance(z) {
-        const cmp = Number(z.ltp), proximal = Number(z.proximal), distal = Number(z.distal);
-        if (!(cmp > 0) || !(proximal > 0) || !(distal > 0)) return Infinity;
-        if (cmp >= Math.min(proximal, distal) && cmp <= Math.max(proximal, distal)) return 0;
-        if (z.bias === 'DEMAND') return proximal <= cmp ? (cmp - proximal) / cmp * 100 : Infinity;
-        if (z.bias === 'SUPPLY') return proximal >= cmp ? (proximal - cmp) / cmp * 100 : Infinity;
-        return Infinity;
-      }
-      // All Zones must not discard historical zones based on CMP direction.
-      if (distanceSetting !== 'all') filteredZones = filteredZones.filter(z => Number.isFinite(cmpDistance(z)));
-      filteredZones.sort((a, b) => cmpDistance(a) - cmpDistance(b) || a.symbol.localeCompare(b.symbol));
-      if (distanceSetting === 'nearest') {
-        // Only the closest demand and closest supply for each stock.
-        const seen = new Set();
-        filteredZones = filteredZones.filter(z => {
-          const key = z.symbol + ':' + z.bias;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      } else if (distanceSetting !== 'all') {
-        const maxPct = Number(distanceSetting);
-        filteredZones = filteredZones.filter(z => cmpDistance(z) <= maxPct);
-      }
-
-      const tbody = document.getElementById('zones-tbody');
-      if (!filteredZones.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:3rem; color:var(--muted);">No matching zones found.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = filteredZones.map(z => `
-        <tr>
-          <td><a href="https://in.tradingview.com/chart/?symbol=NSE%3A${z.symbol}" target="_blank" class="stock-link">${z.symbol}</a>${sfpNewsBadge(z.symbol)}<div style="font-size:0.65rem; color:var(--muted);">${z.sector || ''}</div></td>
-          <td><span class="${z.bias === 'DEMAND' ? 'badge-demand' : 'badge-supply'} badge">${z.bias}</span></td>
-          <td style="font-weight:700;">${z.pattern}</td>
-          <td>₹${Number(z.ltp || 0).toFixed(2)}</td>
-          <td style="font-weight:700; color:${z.bias === 'DEMAND' ? 'var(--green)' : 'var(--red)'};">₹${Number(z.proximal || 0).toFixed(2)}</td>
-          <td style="color:var(--strong-text);">₹${Number(z.distal || 0).toFixed(2)}</td>
-          <td><span class="badge ${z.status.includes('In Zone') ? 'badge-gold' : 'badge-muted'}">${z.status}</span></td>
-          <td style="min-width:180px;white-space:normal;line-height:1.9">${zoneActionHTML(z)}</td>
-        </tr>
-      `).join('');
-    }
-
-    function openRRCalculator(symbol, entryPrice, defaultSLPts, bias) {
-      activeTradeData = { symbol, bias };
-      document.getElementById('calc-symbol').innerText = symbol;
-      setTradeBias(bias);
-      document.getElementById('calc-entry-input').value = Number(entryPrice).toFixed(2);
-      document.getElementById('calc-sl-pts').value = defaultSLPts;
-      recalculateTradeMetrics();
-      document.getElementById('rr-calculator-modal').style.display = 'flex';
-    }
-
-    function setTradeBias(bias) {
-      activeTradeData.bias = bias;
-      const longBtn = document.getElementById('bias-long-btn');
-      const shortBtn = document.getElementById('bias-short-btn');
-      if (bias === 'DEMAND') { longBtn.classList.add('active'); shortBtn.classList.remove('active'); }
-      else { shortBtn.classList.add('active'); longBtn.classList.remove('active'); }
-      recalculateTradeMetrics();
-    }
-
-    function recalculateTradeMetrics() {
-      const entry = parseFloat(document.getElementById('calc-entry-input').value) || 0;
-      const slPts = parseFloat(document.getElementById('calc-sl-pts').value) || 0;
-      const maxRisk = parseFloat(document.getElementById('calc-max-risk').value) || 0;
-      const bias = activeTradeData.bias;
-
-      if (entry <= 0 || slPts <= 0) return;
-
-      const slPrice = bias === 'DEMAND' ? entry - slPts : entry + slPts;
-      const riskPerShare = Math.abs(entry - slPrice);
-      const quantity = riskPerShare > 0 ? Math.floor(maxRisk / riskPerShare) : 0;
-      const totalInvestment = quantity * entry;
-      const mult = bias === 'DEMAND' ? 1 : -1;
-      const target2R = entry + (mult * riskPerShare * 2);
-      const target3R = entry + (mult * riskPerShare * 3);
-
-      document.getElementById('calc-sl-price').innerText = '₹' + slPrice.toFixed(2);
-      document.getElementById('calc-risk-per-share').innerText = '₹' + riskPerShare.toFixed(2);
-      document.getElementById('calc-qty').innerText = quantity + ' Shares';
-      document.getElementById('calc-total-inv').innerText = '₹' + totalInvestment.toLocaleString('en-IN', {maximumFractionDigits: 2});
-      document.getElementById('calc-t2').innerText = '₹' + target2R.toFixed(2);
-      document.getElementById('calc-t3').innerText = '₹' + target3R.toFixed(2);
-    }
-
-    function closeRRCalculator() {
-      document.getElementById('rr-calculator-modal').style.display = 'none';
-    }
-
-    // Refresh visible stock news automatically every 5 seconds.
-    const sfpNewsStates = new Map();
-    const sfpNewsLatest = new Map();
-    let sfpNewsTimer = null;
-    let sfpNewsBusy = false;
-    let sfpNewsCursor = 0;
-    function sfpNewsBadge(symbol) {
-      const safe = String(symbol || '').toUpperCase();
-      return sfpNewsStates.get(safe) === true
-        ? `<button type="button" class="sfp-news-badge" data-news-symbol="${safe}" onclick="openStockNews('${safe}')">📰 NEWS</button>` : '';
-    }
-    function sfpScheduleNewsCheck() {
-      if (!sfpNewsTimer) sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 350);
-    }
-    async function sfpFetchNewsStatuses() {
-      sfpNewsTimer = null;
-      if (sfpNewsBusy || document.hidden) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
-      sfpEnsureChartLinks();
-      const links = [...document.querySelectorAll('a.stock-link')];
-      const symbolsAll = [...new Set(links.map(a => {
-        const m = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
-        return m ? m[1].toUpperCase() : null;
-      }).filter(Boolean))];
-      if (!symbolsAll.length) { sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); return; }
-      // Rotate batches so large 200+ stock universes do not overload the API.
-      const symbols = Array.from({length:Math.min(30,symbolsAll.length)}, (_,i) => symbolsAll[(sfpNewsCursor+i)%symbolsAll.length]);
-      sfpNewsCursor = (sfpNewsCursor + symbols.length) % symbolsAll.length;
-      sfpNewsBusy = true;
-      try {
-        const response = await fetch('/api/stock-news-status?symbols=' + encodeURIComponent(symbols.join(',')), {credentials:'same-origin',cache:'no-store'});
-        if (!response.ok) throw new Error('Upstox news API HTTP ' + response.status);
-        const data = await response.json();
-        for (const [symbol, value] of Object.entries(data.hasNews || {})) {
-          const prior = sfpNewsLatest.get(symbol);
-          const latest = data.latest?.[symbol] || null;
-          sfpNewsStates.set(symbol, value === true);
-          sfpNewsLatest.set(symbol, latest);
-          links.forEach(a => {
-            const match = (a.getAttribute('href') || '').match(/NSE(?:%3A|:)([A-Z0-9&.-]+)/i);
-            if (!match || match[1].toUpperCase() !== symbol) return;
-            const badge = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]') || null;
-            if (!value && badge) badge.remove();
-            if (value && !badge) (a.nextElementSibling?.classList.contains('sfp-chart-link') ? a.nextElementSibling : a).insertAdjacentHTML('afterend', sfpNewsBadge(symbol));
-            if (value && prior && latest && latest !== prior) {
-              const current = a.parentElement?.querySelector('.sfp-news-badge[data-news-symbol="' + symbol + '"]');
-              if (current?.classList.contains('sfp-news-badge')) {
-                current.classList.add('sfp-news-new');
-                current.title = 'New headline detected';
-              }
-            }
-          });
-        }
-      } catch (err) { console.warn('Stock news refresh:', err.message); }
-      finally { sfpNewsBusy = false; sfpNewsTimer = setTimeout(sfpFetchNewsStatuses, 5000); }
-    }
-    // Stock names always open their TradingView charts in a new tab.
-    // News remains accessible through the separate NEWS badge.
-    document.addEventListener('click', function(event) {
-      const link = event.target.closest('a.stock-link');
-      if (!link) return;
-      const href = link.getAttribute('href') || '';
-      if (!href.includes('tradingview.com/chart/')) return;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-    });
-    function sfpEnsureChartLinks() {
-      document.querySelectorAll('a.stock-link').forEach(link => {
-        if (link.nextElementSibling?.classList.contains('sfp-chart-link')) return;
-        if (link.parentElement?.querySelector('a.sfp-chart-link[data-for="' + link.textContent.trim() + '"]')) return;
-        const chart = document.createElement('a');
-        chart.className = 'sfp-chart-link';
-        chart.dataset.for = link.textContent.trim();
-        chart.href = link.href;
-        chart.target = '_blank';
-        chart.rel = 'noopener noreferrer';
-        chart.textContent = '↗';
-        chart.title = 'Open TradingView chart';
-        chart.setAttribute('aria-label', 'Open ' + link.textContent.trim() + ' TradingView chart');
-        link.insertAdjacentElement('afterend', chart);
-      });
-    }
-    function closeStockNews() { document.getElementById('sfp-news-overlay').style.display = 'none'; }
-    async function openStockNews(symbol) {
-      const overlay = document.getElementById('sfp-news-overlay');
-      const content = document.getElementById('sfp-news-content');
-      document.getElementById('sfp-news-title').textContent = symbol + ' · Latest News';
-      overlay.style.display = 'flex';
-      content.textContent = 'Loading latest headlines...';
-      try {
-        const response = await fetch('/api/stock-news?symbol=' + encodeURIComponent(symbol), {credentials:'same-origin',cache:'no-store'});
-        if (!response.ok) throw new Error('News service temporarily unavailable');
-        const data = await response.json();
-        content.replaceChildren();
-        if (!data.news?.length) { content.textContent = 'No recent news found for this stock.'; return; }
-        // Always show the most recently published company news first.
-        const newestFirst = [...data.news].sort((a, b) => {
-          const timestamp = item => {
-            const numeric = Number(item.publishedTime);
-            if (Number.isFinite(numeric) && numeric > 0) return numeric;
-            const parsed = Date.parse(item.publishedAt || '');
-            return Number.isFinite(parsed) ? parsed : 0;
-          };
-          return timestamp(b) - timestamp(a);
-        });
-        for (const [index, item] of newestFirst.entries()) {
-          const a = document.createElement('a');
-          a.className = 'sfp-news-item'; a.href = item.url;
-          a.target = '_blank'; a.rel = 'noopener noreferrer';
-          a.append(document.createTextNode((index === 0 ? 'LATEST · ' : '') + item.title));
-          const meta = document.createElement('span'); meta.className = 'sfp-news-meta';
-          const when = item.publishedAt ? new Date(item.publishedAt).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : '';
-          meta.textContent = [item.source, when].filter(Boolean).join(' · ');
-          a.append(meta); content.append(a);
-        }
-      } catch(e) { content.textContent = 'Unable to load news right now. Please try again later.'; }
-    }
-    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeStockNews(); });
-
-    const sfpNewsObserver = new MutationObserver(() => sfpScheduleNewsCheck());
-    window.addEventListener('DOMContentLoaded', () => {
-      sfpEnsureChartLinks();
-      for (const id of ['tbody','watchlist-tbody','zones-tbody','top-gainers-list','top-losers-list','pb-tbody']) {
-        const el = document.getElementById(id);
-        if (el) sfpNewsObserver.observe(el, {childList:true,subtree:false});
-      }
-      sfpScheduleNewsCheck();
-    });
-  
-
-    // Institutional VFX: motion is tied only to actual NIFTY session % change and
-    // screener breadth. This is an abstract data-reactive visualization, NOT a price chart.
-    const sfpVfx = {pct:null, breadth:null, active:true, raf:0, lastFrame:0, phase:0};
-    function sfpUpdateIntelligence() {
-      const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
-      const indices=window.sfpLastIndices||[];
-      const names=['NIFTY 50','BANK NIFTY','SENSEX'];
-      const found=names.map(name=>indices.find(x=>x.symbol===name&&x.available!==false&&Number.isFinite(Number(x.percent))&&x.price!=null));
-      const sign=x=>x>0.15?1:x< -0.15?-1:0;
-      const fmt=x=>(x>=0?'+':'')+x.toFixed(2)+'%';
-      const trio=document.getElementById('sfp-index-trio');
-      if(trio) [...trio.children].forEach((el,i)=>{const q=found[i],p=q?Number(q.percent):null;el.className='sfp-index-cell '+(p===null?'is-missing':sign(p)>0?'is-up':sign(p)<0?'is-down':'is-flat');el.replaceChildren(document.createTextNode(names[i]));const strong=document.createElement('strong');strong.textContent=p===null?'Feed unavailable':fmt(p);el.append(strong);});
-      const validIdx=found.filter(Boolean).map(x=>Number(x.percent));
-      const idxDir=validIdx.length>=2?(validIdx.reduce((a,b)=>a+sign(b),0)>=2?1:validIdx.reduce((a,b)=>a+sign(b),0)<=-2?-1:0):0;
-      const stocks=typeof marketStocks!=='undefined'&&Array.isArray(marketStocks)?marketStocks:[];
-      const valid=stocks.filter(x=>x.sector&&Number.isFinite(Number(x.pricePct))&&x.pricePct!==null&&x.pricePct!==undefined);
-      const up=valid.filter(x=>Number(x.pricePct)>0).length,down=valid.filter(x=>Number(x.pricePct)<0).length;
-      const breadthDir=valid.length>=10?(up/valid.length>.58?1:down/valid.length>.58?-1:0):0;
-      const marketDir=idxDir&&breadthDir&&idxDir===breadthDir?idxDir:0;
-      const direction=marketDir===1?'Broad Upward Alignment':marketDir===-1?'Broad Downward Alignment':validIdx.length<2||valid.length<10?'Insufficient Market Data':'Mixed Market Alignment';
-      put('sfp-market-trend',direction);put('sfp-market-detail',validIdx.length+' of 3 indices available · '+valid.length+' stocks observed · '+up+' rising / '+down+' falling');
-      put('sfp-align-indices',idxDir===1?'Upward':idxDir===-1?'Downward':validIdx.length<2?'Unavailable':'Mixed');
-      put('sfp-align-breadth',breadthDir===1?'Broadly Rising':breadthDir===-1?'Broadly Falling':valid.length<10?'Unavailable':'Mixed');
-      put('vfx-market-state',marketDir===1?'UPSIDE ALIGNMENT':marketDir===-1?'DOWNSIDE ALIGNMENT':'MIXED / PENDING');
-      put('vfx-nifty-change',found[0]?('NIFTY '+fmt(Number(found[0].percent))):'NIFTY unavailable');
-      put('vfx-source',validIdx.length>=2?'VERIFIED INDEX SESSION QUOTES':'INDEX FEED INCOMPLETE');
-      const stage=document.getElementById('vfx-stage');if(stage)stage.dataset.direction=marketDir===1?'up':marketDir===-1?'down':'flat';
-      const dot=document.getElementById('vfx-dot');if(dot)dot.classList.toggle('is-ready',validIdx.length>=2&&valid.length>=10);
-      sfpVfx.pct=validIdx.length>=2&&valid.length>=10?(marketDir||0)*Math.min(2,Math.abs(validIdx.reduce((a,b)=>a+b,0)/validIdx.length)):null;
-      sfpVfx.breadth=valid.length?(up-down)/valid.length:null;
-      const grouped=new Map();for(const x of valid){const k=x.sector; if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(x);}
-      const ranked=[...grouped].filter(([k,v])=>v.length>=2).map(([name,arr])=>({name,arr,avg:arr.reduce((n,x)=>n+Number(x.pricePct),0)/arr.length,up:arr.filter(x=>Number(x.pricePct)>0).length/arr.length,down:arr.filter(x=>Number(x.pricePct)<0).length/arr.length}));
-      const leadUp=ranked.filter(x=>x.avg>0&&x.up>=.6).sort((a,b)=>b.avg-a.avg)[0];
-      const leadDown=ranked.filter(x=>x.avg<0&&x.down>=.6).sort((a,b)=>a.avg-b.avg)[0];
-      const evidence=(x,dir)=>{
-        const p=Number(x.pricePct);const oi=Number(x.oiPct);const oiOK=x.oiVerified===true&&x.oiPct!==null&&Number.isFinite(oi);
-        const oiSupport=oiOK&&oi>0&&Math.sign(p)===dir;
-        return [['TREND',dir*p>0?'Aligned':'Mixed'],['VOLUME',Number.isFinite(Number(x.volMultiplier))?'×'+Number(x.volMultiplier).toFixed(1):'Unavailable'],['OI',oiOK?(oiSupport?'Supporting '+fmt(oi):'Not confirming '+fmt(oi)):'Unavailable'],['ADX','Unavailable'],['VWAP','Unavailable'],['ORDER FLOW','Unavailable']];
-      };
-      const show=(dir,leader)=>{
-        const prefix=dir===1?'sfp-up-':'sfp-down-';
-        if(!leader){put(prefix+'sector','No qualifying sector');put(prefix+'stock','—');put(prefix+'meta','Awaiting sector breadth and stock movement');put(prefix+'confirm','Unconfirmed');document.getElementById(prefix+'evidence').replaceChildren();return;}
-        const top=leader.arr.filter(x=>dir*Number(x.pricePct)>0).sort((a,b)=>dir*(Number(b.pricePct)-Number(a.pricePct)))[0];
-        put(prefix+'sector',leader.name);put(prefix+'stock',top.symbol+' · '+fmt(Number(top.pricePct)));
-        put(prefix+'meta','Sector average '+fmt(leader.avg)+' · '+Math.round((dir===1?leader.up:leader.down)*100)+'% participating');
-        put(prefix+'confirm',marketDir===dir?'Market aligned':marketDir===-dir?'Against market':'Sector-led');
-        const target=document.getElementById(prefix+'evidence');target.replaceChildren();for(const [label,value] of evidence(top,dir)){const chip=document.createElement('span');chip.className='sfp-evidence-chip';const bold=document.createElement('b');bold.textContent=label;chip.append(bold,document.createTextNode(' '+value));target.append(chip);}
-      };
-      show(1,leadUp);show(-1,leadDown);
-      put('sfp-align-leadership',marketDir===1?(leadUp?leadUp.name:'Unavailable'):marketDir===-1?(leadDown?leadDown.name:'Unavailable'):'Mixed / Sector-led');
-      put('sfp-feed-status',validIdx.length<2||!valid.length?'Market data incomplete. No simulated confirmations.':'Sector leaders use real price changes and breadth. Technical readings show Unavailable unless verified.');
-      if(validIdx.length||valid.length)put('sfp-intel-updated','Observed '+new Date().toLocaleTimeString('en-IN',{hour12:false}));
-    }
-    function sfpVfxDraw(t){
-      const canvas=document.getElementById('vfx-canvas'), stage=document.getElementById('vfx-stage');
-      if(!canvas||!stage)return;
-      const visible=stage.getClientRects().length>0&&!document.hidden;
-      const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if(!visible||sfpVfx.pct===null){
-        const ctx=canvas.getContext('2d');if(ctx)ctx.clearRect(0,0,canvas.width,canvas.height);
-        sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);return;
-      }
-      if(t-sfpVfx.lastFrame<32){sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);return;}
-      sfpVfx.lastFrame=t;
-      const r=stage.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,1.6);
-      const w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(r.height*dpr));
-      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-      const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);
-      const pct=sfpVfx.pct, amp=Math.min(Math.abs(pct)/2.5,1);
-      const rising=pct>0.15,falling=pct< -0.15;
-      const rgb=rising?'46,213,154':falling?'247,98,119':'225,177,93';
-      const direction=rising?-1:falling?1:0;
-      const time=t*.00027;
-      // Abstract strands: amplitude and tint are data-driven; time is decorative motion only.
-      for(let j=0;j<7;j++){
-        const y0=h*(.26+j*.092);
-        const alpha=.05+j*.018;
-        ctx.beginPath();
-        for(let x=0;x<=w;x+=5*dpr){
-          const u=x/w;
-          const wave=Math.sin(u*12+time*(direction||.2)*3+j*.64)*amp*16*dpr;
-          const bend=(u-.5)*direction*amp*38*dpr;
-          const y=y0+wave+bend;
-          if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-        }
-        ctx.strokeStyle=`rgba(${rgb},${alpha})`;ctx.lineWidth=(j===3?2:1)*dpr;ctx.stroke();
-      }
-      const sweep=((t*.028*dpr)%(w+200*dpr))-100*dpr;
-      const gradient=ctx.createLinearGradient(sweep-90*dpr,0,sweep+90*dpr,0);
-      gradient.addColorStop(0,'rgba(255,255,255,0)');gradient.addColorStop(.5,`rgba(${rgb},${.025+amp*.045})`);gradient.addColorStop(1,'rgba(255,255,255,0)');
-      ctx.fillStyle=gradient;ctx.fillRect(sweep-90*dpr,0,180*dpr,h);
-      sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);
-    }
-    window.addEventListener('DOMContentLoaded',()=>{
-      if(!sfpVfx.raf)sfpVfx.raf=requestAnimationFrame(sfpVfxDraw);
-    });
-
-    // Market pulse is independent of the sector ticker and scans.
-    let sfpMarketPulseBusy = false;
-    const sfpPulseEscape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    async function sfpFetchMarketPulse() {
-      if (sfpMarketPulseBusy || document.hidden) return;
-      sfpMarketPulseBusy = true;
-      try {
-        const response = await fetch('/api/market-pulse', {cache:'no-store'});
-        if (!response.ok) throw new Error('Market feed unavailable');
-        const payload = await response.json();
-        if (payload.status !== 'success') throw new Error('Market feed unavailable');
-        const target = document.getElementById('sfpMarketPulse');
-        if (!target) return;
-        const quotes = payload.data || [];
-        const cards = quotes.map(item => {
-          const hasPrice = item.price !== null && item.price !== undefined && Number.isFinite(Number(item.price));
-          const pct = item.percent == null ? '' : `${Number(item.percent) >= 0 ? '+' : ''}${Number(item.percent).toFixed(2)}%`;
-          const cls = Number(item.change) >= 0 ? 'sfp-pulse-positive' : 'sfp-pulse-negative';
-          const price = hasPrice ? `${item.currency === 'USD/bbl' ? '$' : '₹'}${Number(item.price).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}` : 'Unavailable';
-          const chart = 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(item.chart || 'NSE:NIFTY');
-          const alertText = item.alert ? ` ⚠ ${sfpPulseEscape(item.alertText)}` : '';
-          return `<a class="sfp-pulse-item ${item.alert?'sfp-pulse-alert':''}" href="${chart}" target="_blank" rel="noopener noreferrer" title="Open chart" aria-label="Open ${sfpPulseEscape(item.symbol)} chart"><span class="sfp-pulse-symbol">${sfpPulseEscape(item.symbol)}</span>${/^(NIFTY 50|NIFTY BANK|BANK ?NIFTY|SENSEX)$/i.test(String(item.symbol || "").trim()) ? `<svg class="sfp-pulse-chart-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>` : ""}<span class="sfp-pulse-price">${price}</span><span class="${cls}">${pct}</span>${alertText}</a>`;
-        }).join('');
-        const time = payload.asOf ? new Date(payload.asOf).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
-        target.innerHTML = cards + `<span class="sfp-pulse-time">Checked ${sfpPulseEscape(time)} • 60s refresh • Brent indicative</span>`;
-        window.sfpLastIndices = quotes; sfpUpdateIntelligence();
-      } catch (e) {
-        const target = document.getElementById('sfpMarketPulse');
-        if (target && !target.querySelector('a')) target.textContent = 'Market feed unavailable — checking again…';
-      } finally { sfpMarketPulseBusy = false; }
-    }
-    sfpFetchMarketPulse();
-    setInterval(sfpFetchMarketPulse, 60000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) sfpFetchMarketPulse(); });
-
-</script>
-<div id="sfp-news-overlay" class="sfp-news-overlay" role="presentation" onclick="if(event.target===this)closeStockNews()">
-  <section class="sfp-news-dialog" role="dialog" aria-modal="true" aria-labelledby="sfp-news-title">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px"><h3 id="sfp-news-title">Stock News</h3><button type="button" class="filter-btn" onclick="closeStockNews()" aria-label="Close news">✕</button></div>
-    <div id="sfp-news-content" aria-live="polite">Loading news...</div>
-  </section>
-</div>
 </body>
 </html>
+"""
+
+SIGNUP_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up - Stock Finder Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .signup-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); backdrop-filter: blur(16px); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(243, 156, 18, 0.2); }
+    .btn-signup { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; transition: background 0.2s; }
+    .btn-signup:hover { background: #e67e22; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--strong-text); }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
+</head>
+<body>
+  <div class="signup-card">
+    <div class="brand">⚡ CREATE ACCOUNT</div>
+    {% if error %}
+      <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    <form action="/signup" method="POST"><input type="hidden" name="plan" value="{{ plan|default('monthly') }}">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn-signup">Sign Up & Save 🚀</button>
+    </form>
+    <a href="/login" class="back-link">Already have an account? Login</a>
+  </div>
+</body>
+</html>
+"""
+
+FORGOT_PASSWORD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Forgot Password - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">🔒 RESET PASSWORD</div>
+    {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+    <form action="/forgot-password" method="POST">
+      <div class="form-group">
+        <label>Registered Email</label>
+        <input type="email" name="email" placeholder="trader@example.com" required />
+      </div>
+      <button type="submit" class="btn">Send OTP Code 🚀</button>
+    </form>
+    <a href="/login" class="back-link">Back to Login</a>
+  </div>
+</body>
+</html>
+"""
+
+VERIFY_OTP_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Verify OTP - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 1.1rem; text-align: center; letter-spacing: 4px; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+    .error-msg { background: rgba(231, 76, 60, 0.15); border: 1px solid var(--red); color: var(--red); padding: 0.6rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem; text-align: center; }
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">📬 ENTER 6-DIGIT OTP</div>
+    {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+    <form action="/verify-otp" method="POST">
+      <div class="form-group">
+        <label>Verification Code</label>
+        <input type="text" name="otp" maxlength="6" placeholder="123456" required />
+      </div>
+      <button type="submit" class="btn">Verify OTP ⚡</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+RESET_PASSWORD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>New Password - Stock Finder Pro</title>
+  <style>
+    :root { --bg: #0a0a0c; --card: rgba(24, 24, 28, 0.85); --border: rgba(255, 255, 255, 0.08); --text: #e0e0e0; --muted: #8b8b93; --primary: #f39c12; --strong-text: #ffffff; --red: #e74c3c; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
+    .brand { font-weight: 800; font-size: 1.25rem; color: var(--primary); margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; }
+    input { width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 10px; color: var(--strong-text); font-size: 0.9rem; outline: none; }
+    input:focus { border-color: var(--primary); }
+    .btn { width: 100%; background: var(--primary); color: #000; padding: 0.9rem; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem; margin-top: 1rem; }
+  
+/* Unified StockFinder Pro visual system */
+:root{--bg:#070d12!important;--card:#101b23!important;--border:#30414c!important;--text:#c3d0d8!important;--muted:#93a5b1!important;--primary:#f6aa2a!important;--strong-text:#eef4f7!important;--red:#ff5a65!important}
+body{min-height:100dvh!important;height:auto!important;background:radial-gradient(ellipse at 75% 0%,rgba(32,207,131,.12),transparent 45%),#070d12!important;padding:80px 16px 30px!important;color:#c3d0d8!important}
+.login-card,.signup-card,.reset-card,.otp-card,.forgot-card{background:linear-gradient(145deg,#14232c,#0c151c)!important;border:1px solid #30414c!important;border-radius:18px!important;box-shadow:0 24px 65px #0006!important;padding:clamp(22px,5vw,42px)!important;max-width:440px!important}
+.brand{color:#eef4f7!important;letter-spacing:-.5px}.brand:before{content:'●';color:#20cf83;margin-right:8px;font-size:13px}input{background:#0a141b!important;border:1px solid #344754!important;color:#eef4f7!important;min-height:46px!important}input:focus{border-color:#f6aa2a!important;box-shadow:0 0 0 3px #f6aa2a18!important}.btn-login,.btn-signup,button[type=submit]{background:#f6aa2a!important;color:#101820!important;border-radius:10px!important;min-height:46px!important}.btn-login:hover,.btn-signup:hover,button[type=submit]:hover{background:#ffbf53!important}.back-link,.forgot-link{color:#f6aa2a!important}@media(max-width:500px){body{padding:55px 14px 25px!important}.login-card,.signup-card{width:100%!important}}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">🔑 NEW PASSWORD</div>
+    <form action="/reset-password" method="POST">
+      <div class="form-group">
+        <label>Enter New Password</label>
+        <input type="password" name="password" placeholder="••••••••" required />
+      </div>
+      <button type="submit" class="btn">Update Password 🚀</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+# Landing page is a separate, editable HTML template; existing auth/payment logic is unchanged.
+with open(os.path.join(basedir, 'landing.html'), encoding='utf-8') as landing_file:
+    LANDING_PAGE_HTML = landing_file.read()
+
+# ================= FLASK ROUTING & AUTHENTICATION =================
+@app.route("/landing-hero.png")
+def landing_hero_asset():
+    return send_from_directory(basedir, "landing-hero.png")
+
+@app.route("/")
+def landing_page():
+    # Always show the landing page, even if a login session exists.
+    # Login/signup routes handle subscription-based redirects separately.
+    return render_template_string(LANDING_PAGE_HTML, support_email=os.getenv("SUPPORT_EMAIL", "").strip())
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password")
+        
+        print(f"📝 Signup Attempt - Email: {email}, Password Received: {bool(password)}") # డిబగ్ లాగ్
+        
+        if not email or not password:
+            return render_template_string(SIGNUP_PAGE_HTML, error="Email and password are required!")
+        
+        user_exists = User.query.filter_by(email=email).first()
+        if user_exists:
+            return render_template_string(SIGNUP_PAGE_HTML, error="Email already registered! Please login.")
+        
+        try:
+            hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+            new_user = User(email=email, password=hashed_password, watchlist="")
+            db.session.add(new_user)
+            db.session.commit()
+            print(f"✅ User successfully created in DB: {email}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ Signup DB Error: {e}")
+            return render_template_string(SIGNUP_PAGE_HTML, error="Database error during signup. Try again.")
+        
+        chosen_plan = request.form.get('plan') or session.get('selected_plan')
+        establish_device_login(new_user)
+        return redirect(url_for('landing_page') + '#pricing')
+    selected = request.args.get('plan', '')
+    if selected in PLAN_DETAILS: session['selected_plan'] = selected
+    else: session.pop('selected_plan', None)
+    return render_template_string(SIGNUP_PAGE_HTML, plan=selected)
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password")
+        
+        print(f"🔐 Login Attempt - Email: {email}") # డిబగ్ లాగ్
+        
+        if not email or not password:
+            return render_template_string(LOGIN_PAGE_HTML, error="Email and password are required!")
+            
+        user = User.query.filter_by(email=email).first()
+        if user:
+            password_match = check_password_hash(user.password, password)
+            print(f"🔍 User found in DB. Password Match: {password_match}")
+            if password_match:
+                chosen_plan = session.get('selected_plan', 'monthly')
+                establish_device_login(user)
+                return redirect(url_for('terminal_app')) if active_subscription(user) else redirect(url_for('landing_page') + '#pricing')
+            
+        return render_template_string(LOGIN_PAGE_HTML, error="Invalid email or password!")
+    return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            otp = str(secrets.randbelow(900000) + 100000)
+            user.reset_otp = otp
+            user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+            db.session.commit()
+            
+            email_sent = send_otp_email(email, otp)
+            if not email_sent:
+                return render_template_string(FORGOT_PASSWORD_HTML, error="Unable to send OTP. Please try again later or contact support.")
+            
+            session['reset_email'] = email
+            return redirect(url_for('verify_otp'))
+        else:
+            return render_template_string(FORGOT_PASSWORD_HTML, error="Email address not found!")
+            
+    return render_template_string(FORGOT_PASSWORD_HTML)
+
+@app.route("/verify-otp", methods=["GET", "POST"])
+def verify_otp():
+    if 'reset_email' not in session:
+        return redirect(url_for('forgot_password'))
+        
+    if request.method == "POST":
+        entered_otp = request.form.get("otp", "").strip()
+        email = session['reset_email']
+        user = User.query.filter_by(email=email).first()
+        
+        expiry = user.otp_expiry if user else None
+        if expiry and expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+            
+        if user and user.reset_otp and hmac.compare_digest(user.reset_otp, entered_otp) and expiry and expiry > datetime.now(timezone.utc):
+            user.reset_otp = None
+            user.otp_expiry = None
+            db.session.commit()
+            session['otp_verified'] = True
+            return redirect(url_for('reset_password'))
+        else:
+            return render_template_string(VERIFY_OTP_HTML, error="Invalid or expired OTP code.")
+            
+    return render_template_string(VERIFY_OTP_HTML)
+
+@app.route("/reset-password", methods=["GET", "POST"])
+def reset_password():
+    if not session.get('otp_verified') or 'reset_email' not in session:
+        return redirect(url_for('forgot_password'))
+        
+    if request.method == "POST":
+        new_password = request.form.get("password", "")
+        if len(new_password) < 8:
+            return render_template_string(RESET_PASSWORD_HTML, error="Password must contain at least 8 characters.")
+        email = session['reset_email']
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
+            user.reset_otp = None
+            user.otp_expiry = None
+            db.session.commit()
+            
+            session.pop('reset_email', None)
+            session.pop('otp_verified', None)
+            return redirect(url_for('login_page'))
+            
+    return render_template_string(RESET_PASSWORD_HTML)
+
+# Account & Settings pages use existing User, Subscription and Payment tables.
+ACCOUNT_CSS = """<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% 0,#173b32,#081018 48%);color:#edf5fa;font:14px 'Plus Jakarta Sans',Arial,sans-serif}a{color:inherit;text-decoration:none}.wrap{max-width:1080px;margin:auto;padding:25px 20px 70px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:34px}.logo{font-weight:800;font-size:20px}.logo b{color:#32d596}.links{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.links a{color:#bbcad3}.links a:hover{color:#ffb342}h1{font-size:34px;margin:0 0 8px}h2{font-size:18px;margin:0 0 18px}p{color:#a9bac6;line-height:1.7}.muted{color:#a9bac6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:22px 0}.card{background:#10212b;border:1px solid #2c4652;border-radius:16px;padding:23px;margin-bottom:16px}.label{color:#9db0bc;font-size:12px}.value{font-size:25px;font-weight:800;margin:10px 0}.tag{display:inline-block;padding:6px 10px;border-radius:20px;background:#174438;color:#53e0aa;font-weight:700;font-size:12px}.tag.off{background:#493025;color:#ffc18e}.btn{display:inline-block;background:#f6aa2a;color:#111b21;border:0;border-radius:9px;padding:12px 17px;font-weight:800;cursor:pointer}.btn.secondary{background:#1a323f;color:#eaf2f5;border:1px solid #41606d}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}table{width:100%;border-collapse:collapse;text-align:left}td,th{padding:13px 8px;border-bottom:1px solid #2c4652}th{color:#9db0bc;font-size:12px}.table-wrap{overflow-x:auto}input{display:block;width:100%;padding:12px;background:#0b1820;color:white;border:1px solid #42606e;border-radius:9px;margin:7px 0 17px;max-width:450px}.msg{padding:13px;border-radius:9px;background:#153b30;color:#83f1c3;margin:15px 0}.msg.err{background:#46252b;color:#ffb3bd}.plan-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.plan{background:#0c1921;border:1px solid #2c4652;border-radius:12px;padding:16px}.plan strong{display:block;margin-bottom:9px}.plan .price{font-size:22px;font-weight:800;color:#ffbf60}.plan .btn{margin-top:12px;font-size:12px;text-align:center;width:100%}@media(max-width:760px){.grid{grid-template-columns:1fr}.plan-grid{grid-template-columns:repeat(2,1fr)}h1{font-size:28px}}@media(max-width:430px){.plan-grid{grid-template-columns:1fr}}</style>"""
+
+ACCOUNT_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>My Account | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">My Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>My Account</h1><p>Manage your StockFinder Pro membership, billing history and account access.</p><div class="grid"><section class="card"><div class="label">Membership status</div><div class="value">{{ 'Active' if is_active else 'Expired / Inactive' }}</div><span class="tag {{ '' if is_active else 'off' }}">{{ 'Access enabled' if is_active else 'Renew to access screener' }}</span></section><section class="card"><div class="label">Current plan</div><div class="value">{{ plan_name }}</div><div class="muted">{{ plan_price }}</div></section><section class="card"><div class="label">Time remaining</div><div class="value">{{ days_left }} days</div><div class="muted">Expires: {{ expiry }}</div></section></div><section class="card"><h2>Profile & Membership</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">{% for label,href,subtitle in navigation %}<a class="plan" href="{{ href }}" style="display:block"><strong>{{ label }} →</strong><span class="muted">{{ subtitle }}</span></a>{% endfor %}</div></section><section class="card"><h2>Account details</h2><p><b>Registered email:</b> {{ email }}</p><p><b>Member since:</b> {{ joined }}</p><div class="actions"><a class="btn secondary" href="/settings">Account Settings</a><a class="btn secondary" href="/terminal">Open Screener</a></div></section><section class="card"><h2>Subscription plans</h2><p>Renew or extend your membership. A verified payment extends the current expiry date when your plan is still active.</p><div class="plan-grid">{% for key, item in plans.items() %}<div class="plan"><strong>{{ item.name }}</strong><div class="price">₹{{ item.price }}</div><div class="muted">{{ item.duration }}</div><a class="btn" href="/checkout?plan={{ key }}&renew=1">{{ 'Extend plan' if is_active else 'Choose plan' }}</a></div>{% endfor %}</div></section><section class="card"><h2>Payment history</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Status</th><th>Payment ID</th></tr></thead><tbody>{% for p in payments %}<tr><td>{{ p.created_at.strftime('%d %b %Y') if p.created_at else '—' }}</td><td>{{ p.plan|title }}</td><td>₹{{ '%.2f'|format(p.amount_paise/100) }}</td><td>{{ p.status|title }}</td><td>{{ p.payment_id or '—' }}</td></tr>{% else %}<tr><td colspan="5">No payment records yet.</td></tr>{% endfor %}</tbody></table></div></section><p>Need help? {% if support_email %}<a href="mailto:{{ support_email }}">{{ support_email }}</a>{% else %}Contact platform support.{% endif %} Never share your password or OTP.</p></main></body></html>"""
+
+SETTINGS_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Settings | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">My Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>Account Settings</h1><p>Update your password and review account preferences.</p>{% if message %}<div class="msg {{ 'err' if error else '' }}">{{ message }}</div>{% endif %}<section class="card"><h2>Settings Options</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">{% for label,href,subtitle in navigation %}<a class="plan" href="{{ href }}" style="display:block"><strong>{{ label }} →</strong><span class="muted">{{ subtitle }}</span></a>{% endfor %}</div></section><section class="card"><h2>Security · Change password</h2><form method="post" action="/settings"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label><label>New password (minimum 8 characters)<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label><label>Confirm new password<input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required></label><button class="btn" type="submit">Update Password</button></form></section></main></body></html>"""
+
+# All account navigation is server-side and restricted to the authenticated user.
+PROFILE_NAV = [
+    ('My Profile','/account/profile','Registered email and account details'),
+    ('My Subscription','/account/subscription','Plan and expiry'),
+    ('Billing History','/account/billing','Payment records'),
+]
+SETTINGS_NAV = [
+    ('Appearance','/settings/appearance','Dark, Light, Ocean and AMOLED'),
+    ('Screener Settings','/settings/screener','Default filters and timeframe'),
+    ('Security','/settings/security','Change your password'),
+    ('Notifications','/settings/notifications','Reminder preferences'),
+]
+ACCOUNT_NAV = PROFILE_NAV + SETTINGS_NAV
+ACCOUNT_DETAIL_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }} | StockFinder Pro</title>{{ css|safe }}</head><body><main class="wrap"><header class="top"><a class="logo" href="/terminal">◉ STOCKFINDER <b>PRO</b></a><nav class="links"><a href="/terminal">Screener</a><a href="/account">Account</a><a href="/settings">Settings</a><a href="/logout">Logout</a></nav></header><h1>{{ title }}</h1><p>{{ description }}</p><div style="display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);gap:20px;align-items:start" class="account-layout"><aside class="card" style="padding:12px">{% for label,href,subtitle in navigation %}<a href="{{ href }}" style="display:block;padding:13px;border-radius:9px;margin-bottom:4px;background:{{ '#234337' if href==current_path else 'transparent' }}"><b>{{ label }}</b><div class="muted" style="font-size:11px;margin-top:4px">{{ subtitle }}</div></a>{% endfor %}</aside><section class="card" style="min-width:0">{% if message %}<div class="msg {{ 'err' if error else '' }}">{{ message }}</div>{% endif %}{{ content|safe }}</section></div><p class="muted">Your account data is private. Never share your password or OTP.</p></main><style>@media(max-width:700px){.account-layout{grid-template-columns:1fr!important}}</style></body></html>"""
+
+def _detail_page(title, description, content, **kwargs):
+    return render_template_string(ACCOUNT_DETAIL_HTML, title=title, description=description,
+        css=ACCOUNT_CSS, navigation=(SETTINGS_NAV if request.path.startswith("/settings") else PROFILE_NAV), current_path=request.path,
+        content=render_template_string(content, **kwargs), message=kwargs.get('message',''),
+        error=kwargs.get('error',False))
+
+@app.route('/account/profile')
+def profile_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    return _detail_page('My Profile','Your registered StockFinder Pro account.',
+        '<h2>Profile details</h2><p><b>Registered email:</b> {{ email }}</p><p><b>Member since:</b> {{ joined }}</p><p><b>Account ID:</b> {{ account_id }}</p><p><b>Subscription:</b> {{ plan }}</p>',
+        email=user.email, joined=user.created_at.strftime('%d %b %Y') if user.created_at else '—',
+        account_id=user.id, plan=sub.plan.title() if sub else 'Not subscribed')
+
+@app.route('/account/subscription')
+def subscription_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    now = datetime.utcnow()
+    days = max(0,__import__('math').ceil((sub.expires_at-now).total_seconds()/86400)) if sub else 0
+    return _detail_page('My Subscription','Plan validity and renewal options.',
+        '<h2>Membership</h2><p><b>Current plan:</b> {{ plan }}</p><p><b>Status:</b> {{ status }}</p><p><b>Days remaining:</b> {{ days }}</p><p><b>Expiry (UTC):</b> {{ expiry }}</p><h2>Renew or extend</h2><div class="plan-grid">{% for key,plan in plans.items() %}<div class="plan"><strong>{{ key|title }}</strong><div class="price">₹{{ plan }}</div><a class="btn" href="/checkout?plan={{ key }}&renew=1">Choose plan</a></div>{% endfor %}</div>',
+        plan=sub.plan.title() if sub else 'None', status='Active' if sub and sub.expires_at>now else 'Inactive / Expired',
+        days=days, expiry=sub.expires_at.strftime('%d %b %Y %H:%M') if sub else '—',
+        plans={'monthly':'499','quarterly':'1,199','halfyearly':'2,499','yearly':'4,999'})
+
+@app.route('/account/billing')
+def billing_details():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    payments = Payment.query.filter_by(user_id=user.id).order_by(Payment.created_at.desc()).limit(100).all()
+    return _detail_page('Billing History','Your recorded payment attempts and transactions.',
+        '<div class="table-wrap"><table><thead><tr><th>Date (UTC)</th><th>Plan</th><th>Amount</th><th>Status</th><th>Payment ID</th></tr></thead><tbody>{% for p in payments %}<tr><td>{{ p.created_at.strftime("%d %b %Y") if p.created_at else "—" }}</td><td>{{ p.plan|title }}</td><td>₹{{ "%.2f"|format(p.amount_paise/100) }}</td><td>{{ p.status|title }}</td><td>{{ p.payment_id or "—" }}</td></tr>{% else %}<tr><td colspan="5">No transactions recorded yet.</td></tr>{% endfor %}</tbody></table></div><p>Invoices are not available in this version. Contact support with your payment ID for billing assistance.</p>',payments=payments)
+
+
+@app.route('/settings/appearance')
+def appearance_settings():
+    if 'user' not in session:
+        return redirect(url_for('login_page'))
+    return _detail_page('Appearance', 'Choose the StockFinder Pro terminal theme.',
+        '''<h2>Terminal theme</h2><p>Select a theme. It will apply when you return to the terminal on this browser.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px">
+        <button type="button" class="theme-choice" data-value="dark" style="background:#101b23;color:#fff">🌙 Dark</button>
+        <button type="button" class="theme-choice" data-value="light" style="background:#f4f7fb;color:#152537">☀️ Light</button>
+        <button type="button" class="theme-choice" data-value="ocean" style="background:#0c2b41;color:#40caff">🌊 Ocean Blue</button>
+        <button type="button" class="theme-choice" data-value="amoled" style="background:#000;color:#fff">◼ AMOLED</button></div>
+        <p id="theme-current" class="muted" aria-live="polite"></p><a class="btn" href="/terminal">Return to terminal</a>
+        <style>.theme-choice{padding:22px 12px;border-radius:12px;border:2px solid #526879;cursor:pointer;font-size:16px}.theme-choice[aria-pressed="true"]{outline:3px solid #f6aa2a;outline-offset:2px}</style>
+        <script>(function(){const buttons=document.querySelectorAll('.theme-choice');const current=document.getElementById('theme-current');function render(){let t=localStorage.getItem('theme')||'dark';buttons.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.value===t)));current.textContent='Selected theme: '+t;}buttons.forEach(b=>b.addEventListener('click',()=>{localStorage.setItem('theme',b.dataset.value);render();}));render();})();</script>''')
+
+@app.route('/settings/screener', methods=['GET','POST'])
+def screener_preferences():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    pref=db.session.get(UserPreference,user.id)
+    if pref is None:
+        pref=UserPreference(user_id=user.id)
+        db.session.add(pref)
+        db.session.commit()
+    if 'settings_csrf' not in session: session['settings_csrf']=secrets.token_urlsafe(32)
+    message,error='',False
+    if request.method=='POST':
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']):
+            message,error='Invalid session token. Reload and retry.',True
+        elif request.form.get('universe') not in ('FO','NIFTY500') or request.form.get('timeframe') not in ('day','week','month','quarter','halfyear') or request.form.get('zone_filter') not in ('all','fresh','tested'):
+            message,error='Invalid preference selection.',True
+        else:
+            pref.universe=request.form['universe'];pref.timeframe=request.form['timeframe'];pref.zone_filter=request.form['zone_filter']
+            db.session.commit();message='Screener preferences saved.'
+    return _detail_page('Screener Settings','Set your preferred screener defaults.',
+        '<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Stock universe<select name="universe"><option value="FO" {{ "selected" if pref.universe=="FO" else "" }}>F&O</option><option value="NIFTY500" {{ "selected" if pref.universe=="NIFTY500" else "" }}>NIFTY 500</option></select></label><label>Default timeframe<select name="timeframe">{% for tf in ["day","week","month","quarter","halfyear"] %}<option value="{{ tf }}" {{ "selected" if pref.timeframe==tf else "" }}>{{ tf|title }}</option>{% endfor %}</select></label><label>Zone preference<select name="zone_filter">{% for f in ["all","fresh","tested"] %}<option value="{{ f }}" {{ "selected" if pref.zone_filter==f else "" }}>{{ f|title }}</option>{% endfor %}</select></label><p class="muted">These preferences are saved to your account. Apply them when choosing filters in the terminal; they do not alter scanner calculations.</p><button class="btn" type="submit">Save preferences</button></form><style>select{display:block;width:100%;max-width:450px;background:#0b1820;color:white;border:1px solid #42606e;border-radius:9px;padding:12px;margin:7px 0 17px}</style>',pref=pref,csrf=session['settings_csrf'],message=message,error=error)
+
+@app.route('/settings/security', methods=['GET','POST'])
+def security_details():
+    return settings_page()
+
+@app.route('/settings/notifications', methods=['GET','POST'])
+def notification_details():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    pref=db.session.get(UserPreference,user.id)
+    if pref is None:
+        pref=UserPreference(user_id=user.id);db.session.add(pref);db.session.commit()
+    if 'settings_csrf' not in session: session['settings_csrf']=secrets.token_urlsafe(32)
+    message,error='',False
+    if request.method=='POST':
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']): message,error='Invalid session token.',True
+        else:
+            pref.expiry_reminders=request.form.get('expiry_reminders')=='on';db.session.commit();message='Notification preference saved.'
+    return _detail_page('Notifications','Manage communication preferences.',
+        '<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label style="display:flex;gap:12px;align-items:center"><input style="width:auto;margin:0" type="checkbox" name="expiry_reminders" {{ "checked" if enabled else "" }}>Subscription expiry reminders</label><p>Reminder delivery requires an email scheduler, which is not configured in this version. This option only stores your preference.</p><button class="btn" type="submit">Save preference</button></form>',csrf=session['settings_csrf'],enabled=pref.expiry_reminders,message=message,error=error)
+
+@app.route('/support')
+def support_details():
+    user=current_user()
+    if not user: return redirect(url_for('login_page'))
+    return _detail_page('Help & Support','Get assistance with your account, payment or screener.',
+        '<h2>Contact support</h2>{% if email %}<p>Email: <a href="mailto:{{ email }}?subject=StockFinder%20Pro%20Support">{{ email }}</a></p>{% else %}<p>Support email has not been configured by the platform owner.</p>{% endif %}<h2>Before contacting us</h2><p>Include your registered email, issue description and any relevant payment ID. Do not share passwords, OTPs or card details.</p><div class="actions"><a class="btn secondary" href="/account/billing">Check billing</a><a class="btn secondary" href="/account/subscription">Check subscription</a></div>',email=os.getenv('SUPPORT_EMAIL','').strip())
+
+@app.route('/account')
+def account_page():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    sub = Subscription.query.filter_by(user_id=user.id).first()
+    active = bool(sub and sub.expires_at > datetime.utcnow())
+    remaining = max(0, (sub.expires_at - datetime.utcnow()).total_seconds()) if sub else 0
+    days_left = int(__import__('math').ceil(remaining / 86400))
+    plan_info = {'monthly':('Monthly','499'), 'quarterly':('Quarterly','1,199'), 'halfyearly':('Half-Yearly','2,499'), 'yearly':('Yearly','4,999')}
+    plan_name, price = plan_info.get(sub.plan, (sub.plan.title(), '—')) if sub else ('No plan', '—')
+    plans = {k: {'name':v[0], 'price':v[1], 'duration':str(PLAN_DETAILS[k][1])+' month(s)'} for k,v in plan_info.items()}
+    payments = Payment.query.filter_by(user_id=user.id).order_by(Payment.created_at.desc()).limit(50).all()
+    return render_template_string(ACCOUNT_HTML, css=ACCOUNT_CSS, is_active=active, plan_name=plan_name,
+        plan_price=('₹'+price if sub else 'No active membership'), days_left=days_left,
+        expiry=sub.expires_at.strftime('%d %b %Y, %I:%M %p UTC') if sub else 'Not subscribed',
+        email=user.email, joined=user.created_at.strftime('%d %b %Y') if user.created_at else '—',
+        plans=plans, payments=payments, navigation=PROFILE_NAV, support_email=os.getenv('SUPPORT_EMAIL','').strip())
+
+@app.route('/settings', methods=['GET','POST'])
+def settings_page():
+    user = current_user()
+    if not user: return redirect(url_for('login_page'))
+    if 'settings_csrf' not in session: session['settings_csrf'] = secrets.token_urlsafe(32)
+    message, error = '', False
+    if request.method == 'POST':
+        current = request.form.get('current_password','')
+        new = request.form.get('new_password','')
+        confirm = request.form.get('confirm_password','')
+        if not secrets.compare_digest(request.form.get('csrf_token',''),session['settings_csrf']):
+            message, error = 'Invalid form session. Reload and retry.', True
+        elif not check_password_hash(user.password, current):
+            message, error = 'Current password is incorrect.', True
+        elif len(new) < 8 or len(new) > 128:
+            message, error = 'New password must contain 8–128 characters.', True
+        elif new != confirm:
+            message, error = 'New passwords do not match.', True
+        elif new == current:
+            message, error = 'Choose a different password.', True
+        else:
+            user.password = generate_password_hash(new, method='pbkdf2:sha256')
+            db.session.commit()
+            session['settings_csrf'] = secrets.token_urlsafe(32)
+            message = 'Password updated successfully.'
+    return render_template_string(SETTINGS_HTML,css=ACCOUNT_CSS,message=message,error=error,csrf_token=session['settings_csrf'],navigation=SETTINGS_NAV)
+
+@app.route("/terminal")
+def terminal_app():
+    if not current_user():
+        return redirect(url_for('login_page'))
+    if not active_subscription(current_user()):
+        return redirect(url_for('landing_page') + '#pricing')
+    return send_from_directory(basedir, 'index.html')
+
+@app.route("/logout")
+def logout():
+    revoke_device_login()
+    response = redirect(url_for('landing_page'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    response.headers['Pragma'] = 'no-cache'
+    return response
+
+@app.after_request
+def prevent_auth_page_caching(response):
+    # Avoid restoring a previous account or login screen from mobile browser cache.
+    if request.path in ('/login', '/signup', '/logout', '/account') or request.path.startswith('/account/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+@app.before_request
+def protect_market_apis():
+    path = request.path
+
+    if not path.startswith('/api/') or path.startswith('/api/payment/'):
+        return None
+
+    # Allow diagnostics only for local development, never on Render.
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+
+    is_local_dev = (
+        os.getenv("LOCAL_DEV_SUBSCRIPTION", "0") == "1"
+        and request.remote_addr in {"127.0.0.1", "::1"}
+        and request.host.split(":")[0].strip("[]").lower() in local_hosts
+    )
+
+    if is_local_dev and path in {
+        "/api/zone-regression",
+        "/api/zone-debug"
+    }:
+        return None
+
+    if not active_subscription(current_user()):
+        return jsonify({
+            "status": "error",
+            "message": "Active subscription required"
+        }), 403
+
+@app.route('/checkout')
+def checkout():
+    plan = request.args.get('plan', 'monthly')
+    if plan not in PLAN_DETAILS: abort(400)
+    if not current_user():
+        session['selected_plan'] = plan
+        return redirect(url_for('login_page'))
+    user = current_user()
+    if active_subscription(user) and request.args.get('renew') != '1':
+        return redirect(url_for('terminal_app'))
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        app.logger.error('Razorpay credentials missing: configure both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')
+        return ('Payment setup is incomplete. Please contact support (Razorpay credentials missing).', 503)
+    amount, _ = PLAN_DETAILS[plan]
+    try:
+        r = requests.post('https://api.razorpay.com/v1/orders',
+            auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
+            json={'amount':amount,'currency':'INR','receipt':f'u{user.id}_{int(time.time())}',
+                  'notes':{'plan':plan,'user_id':str(user.id)}}, timeout=20)
+    except requests.RequestException:
+        app.logger.exception('Razorpay network error during order creation')
+        return ('Payment gateway is temporarily unreachable. Please retry in a moment.', 502)
+    if not r.ok:
+        try:
+            gateway_error = r.json().get('error', {})
+            reason = str(gateway_error.get('description') or gateway_error.get('code') or 'Unknown gateway error')[:250]
+        except (ValueError, AttributeError, TypeError):
+            reason = 'Unexpected gateway response'
+        app.logger.error('Razorpay order rejected: HTTP %s; reason=%s', r.status_code, reason)
+        if r.status_code in (401, 403):
+            return ('Razorpay authentication failed. Check that the configured Key ID and Secret belong to the same test/live mode.', 503)
+        return ('Payment order could not be created: ' + reason, 502)
+    try:
+        order = r.json()
+        order_id = order['id']
+        payment = Payment(user_id=user.id, order_id=order_id,plan=plan,amount_paise=amount)
+        db.session.add(payment)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Payment order created but local database save failed')
+        return ('Payment order could not be saved. Please contact support.', 500)
+    return render_template_string(CHECKOUT_HTML, key_id=RAZORPAY_KEY_ID,
+        order_id=order['id'], amount=amount, plan=plan, email=current_user().email)
+
+CHECKOUT_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Secure Checkout - Stock Finder Pro</title><script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>body{background:radial-gradient(ellipse at 75% 0%,#12352d,#070d12 60%);color:#eef4f7;font-family:Plus Jakarta Sans,Arial,sans-serif;text-align:center;padding:70px 16px;min-height:100vh}button{background:#f6aa2a;color:#101820;font-weight:800;border:0;border-radius:9px;padding:14px 24px;font-weight:bold;cursor:pointer}a{color:#ff9e0b}</style></head>
+<body><h2>Stock Finder Pro</h2><p>Selected plan: {{plan|title}} — ₹{{'%.2f'|format(amount/100)}}</p>
+<button id="pay">Open Razorpay Payment</button><p id="status"></p><p><a href="/#pricing">Change plan</a></p>
+<script>
+const opts={key:{{key_id|tojson}},amount:{{amount|tojson}},currency:'INR',name:'Stock Finder Pro',
+ description:{{(plan+' plan')|tojson}},order_id:{{order_id|tojson}},prefill:{email:{{email|tojson}}},
+ handler:async function(response){document.getElementById('status').textContent='Verifying payment...';
+ try{const r=await fetch('/api/payment/verify',{method:'POST',headers:{'Content-Type':'application/json'},
+ body:JSON.stringify(response)});const data=await r.json();if(!r.ok)throw Error(data.message||'Verification failed');
+ location.href=data.redirect||'/terminal';}catch(e){document.getElementById('status').textContent=e.message+' Please contact support if charged.';}},
+ theme:{color:'#ff9e0b'}};
+document.getElementById('pay').onclick=()=>new Razorpay(opts).open();
+window.addEventListener('load',()=>{if(typeof Razorpay==='function')new Razorpay(opts).open();});
+</script></body></html>"""
+
+@app.route('/api/payment/verify', methods=['POST'])
+def verify_payment():
+    user=current_user()
+    if not user: return jsonify({'message':'Login required'}),401
+    data=request.get_json(silent=True) or {}
+    order_id=data.get('razorpay_order_id','')
+    payment_id=data.get('razorpay_payment_id','')
+    signature=data.get('razorpay_signature','')
+    payment=Payment.query.filter_by(order_id=order_id,user_id=user.id).first()
+    if not payment or not all((order_id,payment_id,signature)):
+        return jsonify({'message':'Unknown payment order'}),400
+    digest=hmac.new(RAZORPAY_KEY_SECRET.encode(),f'{order_id}|{payment_id}'.encode(),hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(digest,signature):
+        return jsonify({'message':'Invalid payment signature'}),400
+    if payment.status == 'paid':
+        return jsonify({'status':'success'}) if active_subscription(user) else (jsonify({'message':'Subscription unavailable'}),409)
+    try:
+        r=requests.get('https://api.razorpay.com/v1/payments/'+payment_id,
+            auth=(RAZORPAY_KEY_ID,RAZORPAY_KEY_SECRET),timeout=15)
+        r.raise_for_status(); gateway_payment=r.json()
+    except Exception:
+        app.logger.exception('Razorpay payment lookup failed')
+        return jsonify({'message':'Could not confirm payment. Please retry.'}),502
+    if (gateway_payment.get('status') != 'captured' or gateway_payment.get('order_id') != order_id
+        or gateway_payment.get('amount') != payment.amount_paise or gateway_payment.get('currency') != 'INR'):
+        return jsonify({'message':'Payment not captured or amount mismatch'}),409
+    existing=Payment.query.filter_by(payment_id=payment_id).first()
+    if existing and existing.id != payment.id:
+        return jsonify({'message':'Payment already used'}),409
+    sub=Subscription.query.filter_by(user_id=user.id).first()
+    base=max(datetime.utcnow(),sub.expires_at) if sub else datetime.utcnow()
+    expires=add_months(base,PLAN_DETAILS[payment.plan][1])
+    if sub: sub.plan=payment.plan;sub.expires_at=expires
+    else: db.session.add(Subscription(user_id=user.id,plan=payment.plan,expires_at=expires))
+    payment.payment_id=payment_id;payment.status='paid'
+    db.session.commit()
+    return jsonify({'status':'success','redirect':'/terminal'})
+
+@app.route("/api/watchlist", methods=["GET"])
+def get_watchlist():
+    if not current_user():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    user = current_user()
+    if not user or not user.watchlist:
+        return jsonify({"status": "success", "data": []})
+    symbols = [s.strip().upper() for s in user.watchlist.split(",") if s.strip()]
+    return jsonify({"status": "success", "data": symbols})
+
+@app.route("/api/watchlist/toggle", methods=["POST"])
+def toggle_watchlist():
+    if not current_user():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    data = request.json
+    symbol = data.get('symbol')
+    if not symbol:
+        return jsonify({"status": "error", "message": "Symbol required"}), 400
+    
+    symbol = symbol.strip().upper()
+    user = current_user()
+    if not user:
+        return jsonify({"status": "error", "message": "User not found"}), 404
+
+    current_symbols = [s.strip().upper() for s in user.watchlist.split(",") if s.strip()]
+    if symbol in current_symbols:
+        current_symbols.remove(symbol)
+        action = "removed"
+    else:
+        current_symbols.append(symbol)
+        action = "added"
+
+    user.watchlist = ",".join(current_symbols)
+    db.session.commit()
+    return jsonify({"status": "success", "action": action, "symbol": symbol, "data": current_symbols})
+
+@app.route("/api/smart-orb", methods=["GET"])
+def get_smart_orb():
+    try:
+        force_refresh = request.args.get("refresh", "0") == "1"
+        if SMART_ORB_SIGNALS and not force_refresh:
+            return jsonify({"status": "success", "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S"), "data": SMART_ORB_SIGNALS})
+        stocks = fetch_live_upstox_quotes("FO")
+        if isinstance(stocks, dict) and "error" in stocks or not isinstance(stocks, list):
+            return jsonify({"status": "success", "data": []})
+        advances = sum(1 for s in stocks if s.get('pricePct', 0) > 0)
+        declines = sum(1 for s in stocks if s.get('pricePct', 0) < 0)
+        market_is_bullish = advances >= declines
+        scored_stocks = []
+        for stock in stocks:
+            score, bias = 0, "NEUTRAL"
+            price_pct, buildup, candle_tag, vol_multiplier = stock.get('pricePct', 0), stock.get('buildup', ''), stock.get('candleTag', ''), stock.get('volMultiplier', 1.0)
+            if market_is_bullish:
+                if candle_tag == 'OPEN=LOW': score += 40
+                if buildup in ['Long Buildup', 'Short Covering']: score += 30
+                if vol_multiplier >= 1.1: score += 20
+                if price_pct > 0: score += 10
+                if score >= 10: bias = "BULLISH_ORB"
+            else:
+                if candle_tag == 'OPEN=HIGH': score += 40
+                if buildup in ['Short Buildup', 'Long Unwinding']: score += 30
+                if vol_multiplier >= 1.1: score += 20
+                if price_pct < 0: score += 10
+                if score >= 10: bias = "BEARISH_ORB"
+            if bias != "NEUTRAL":
+                scored_stocks.append({
+                    "symbol": stock["symbol"], "bias": bias, "score": score,
+                    "ltp": stock["ltp"], "sector": stock["sector"],
+                    "reason": f"Score: {score} | Tag: {candle_tag or 'N/A'} | Buildup: {buildup or 'N/A'} | Vol: {vol_multiplier}x"
+                })
+        scored_stocks.sort(key=lambda x: x['score'], reverse=True)
+        if force_refresh:
+            SMART_ORB_SIGNALS[:] = scored_stocks[:2]
+        return jsonify({"status": "success", "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S"), "data": scored_stocks[:2]})
+    except Exception:
+        return jsonify({"status": "success", "data": []})
+
+ZONE_ALGORITHM_VERSION = 'v21_completed_recent_refresh'
+
+ZONE_SCAN_LOCKS = {}
+ZONE_SCAN_LOCKS_GUARD = threading.Lock()
+
+# Progressive scan jobs: return immediately, stream completed batches via polling.
+# Jobs are shared by all subscribers selecting the same universe/timeframe.
+ZONE_JOBS = {}
+ZONE_JOBS_LOCK = threading.RLock()
+ZONE_JOB_TTL = 600
+# Scans run before the user clicks; requests serve stored results immediately.
+# Prewarm is opt-in on local Windows, so it does not spawn per Gunicorn worker.
+PRECOMPUTE_UNIVERSES = tuple(x.strip().upper() for x in os.getenv('SFP_PRECOMPUTE_UNIVERSES', 'FO').split(',') if x.strip())
+PRECOMPUTE_TIMEFRAMES = ('month', 'quarter', 'halfyear', 'day', 'week')
+PRECOMPUTE_REFRESH_SECONDS = int(os.getenv('SFP_PRECOMPUTE_REFRESH_SECONDS', '21600'))
+PRECOMPUTE_STOP = threading.Event()
+PRECOMPUTE_THREAD = None
+
+def _stored_zone_snapshot(univ_key, tf):
+    try:
+        with app.app_context():
+            row = db.session.get(ZoneResultStore, f'{ZONE_ALGORITHM_VERSION}:{univ_key}:{tf}')
+            if row is not None:
+                data = json.loads(row.zones_json)
+                if isinstance(data, list):
+                    return data, row.updated_at
+    except Exception as exc:
+        print('Zone snapshot read:', type(exc).__name__, str(exc)[:120])
+    return None, None
+
+def _begin_zone_job(univ_key, tf, target_universe, force=False):
+    key = (univ_key, tf)
+    with ZONE_JOBS_LOCK:
+        job = ZONE_JOBS.get(key)
+        if job and not job.get('done'):
+            return False
+        if not force and job and time.time() - job['started'] < ZONE_JOB_TTL:
+            return False
+        quotes = QUOTE_CACHE.get(univ_key, {})
+        live_quotes = {x['symbol']: x['ltp'] for x in quotes.get('data', [])} if time.time()-quotes.get('last_updated',0)<90 else {}
+        ZONE_JOBS[key] = {'started': time.time(), 'completed': 0, 'total': len(target_universe), 'done': False, 'data': [], 'error': None}
+        threading.Thread(target=_zone_scan_background, args=(key,tf,list(target_universe),live_quotes), daemon=True).start()
+        return True
+
+def _precompute_loop():
+    # Complete all five TF scans once, then refresh in the background.
+    # A cached snapshot remains visible while refresh is underway.
+    while not PRECOMPUTE_STOP.is_set():
+        for universe in PRECOMPUTE_UNIVERSES:
+            try:
+                univ_key, items = get_active_universe_list(universe)
+            except Exception as exc:
+                print('Precompute universe:', str(exc)[:120]); continue
+            for tf in PRECOMPUTE_TIMEFRAMES:
+                if PRECOMPUTE_STOP.is_set(): return
+                _begin_zone_job(univ_key, tf, items, force=True)
+                key = (univ_key, tf)
+                while not PRECOMPUTE_STOP.wait(1.0):
+                    with ZONE_JOBS_LOCK:
+                        job = ZONE_JOBS.get(key)
+                        if not job or job.get('done'): break
+        PRECOMPUTE_STOP.wait(max(300, PRECOMPUTE_REFRESH_SECONDS))
+
+def start_zone_precompute():
+    global PRECOMPUTE_THREAD
+    if PRECOMPUTE_THREAD and PRECOMPUTE_THREAD.is_alive(): return
+    PRECOMPUTE_THREAD = threading.Thread(target=_precompute_loop, name='sfp-zone-precompute', daemon=True)
+    PRECOMPUTE_THREAD.start()
+
+def _zone_scan_background(key, tf, target_universe, live_quotes):
+    started = time.time()
+    results = []
+    missing_history = 0
+    univ_key = key[0]
+    def worker(item):
+        try:
+            candles = fetch_historical_candles(item["isin"], tf)
+            if not candles or len(candles) < 2: return None
+            ltp = live_quotes.get(item["symbol"], max(candles, key=lambda c: str(c[0]))[4] if candles else 0)
+            zones = scan_four_institutional_zones(candles, ltp, item["symbol"], tf)
+            return [{
+            "symbol": item["symbol"], "sector": item["sector"], "ltp": ltp,
+            "pattern": z["pattern"], "bias": z["bias"], "proximal": z["proximal"], "distal": z["distal"],
+            "entry": z["entry"], "stopLoss": z["stopLoss"], "risk": z["risk"], "riskPct": z["riskPct"],
+            "target1R2": z["target1R2"], "target1R3": z["target1R3"],
+            "strongZone": z.get("strongZone", False),
+            "status": z["status"], "testCount": z.get("testCount", 0), "distancePct": z.get("distancePct"), "multiplier": z.get("multiplier", 1.0),
+            "tvUrl": z["tvUrl"], "brokerUrl": z["brokerUrl"], "timeframe": z["timeframe"],
+            "baseCandles": z.get("baseCandles"),
+            "zoneCandleDate": z.get("zoneCandleDate"), "zoneCandleOpen": z.get("zoneCandleOpen"),
+            "zoneCandleHigh": z.get("zoneCandleHigh"), "zoneCandleLow": z.get("zoneCandleLow"),
+            "zoneCandleClose": z.get("zoneCandleClose"),
+            "exitCandleDate": z.get("exitCandleDate"),
+            "incomingCandleDate": z.get("incomingCandleDate"),
+            "zoneBoundarySource": z.get("zoneBoundarySource"),
+            "confirmation": "Confirmed"
+            } for z in zones]
+        except Exception as exc:
+            print(f"Zone worker {tf}/{item.get('symbol')}: {type(exc).__name__}: {str(exc)[:150]}")
+            return None
+
+
+    try:
+        # Controlled concurrency to reduce Upstox throttling. Publish partial results.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=int(os.getenv("SFP_ZONE_WORKERS", "6"))) as executor:
+            futures = {executor.submit(worker, item): item for item in target_universe}
+            for future in concurrent.futures.as_completed(futures):
+                found = []
+                try:
+                    found = future.result()
+                    if found is None:
+                        missing_history += 1
+                    elif found:
+                        results.extend(found)
+                except Exception as exc:
+                    print('Zone worker error:', str(exc)[:180])
+                with ZONE_JOBS_LOCK:
+                    job = ZONE_JOBS.get(key)
+                    if job:
+                        job['completed'] += 1
+                        if found:
+                            job['data'].extend(found)
+        # Do not replace a known-good snapshot with a severely incomplete scan.
+        if target_universe and missing_history > len(target_universe) * 0.05:
+            with ZONE_JOBS_LOCK:
+                if key in ZONE_JOBS:
+                    ZONE_JOBS[key].update(done=True, error=f"Historical data missing for {missing_history}/{len(target_universe)} stocks; previous snapshot preserved")
+            print(f"Incomplete zone scan {univ_key}/{tf}: missing history for {missing_history}/{len(target_universe)}")
+            return
+        # Sort once at completion, after all stock requests finish.
+        def cmp_distance(zone):
+            cmp = float(zone.get("ltp") or 0)
+            proximal = float(zone.get("proximal") or 0)
+            distal = float(zone.get("distal") or 0)
+            if cmp <= 0 or proximal <= 0 or distal <= 0:
+                return float("inf")
+            if min(proximal, distal) <= cmp <= max(proximal, distal):
+                return 0.0
+            if zone["bias"] == "DEMAND" and proximal <= cmp:
+                return (cmp - proximal) / cmp * 100
+            if zone["bias"] == "SUPPLY" and proximal >= cmp:
+                return (proximal - cmp) / cmp * 100
+            return float("inf")
+
+
+        results.sort(key=lambda x: (cmp_distance(x), x.get('symbol', '')))
+        try:
+            with app.app_context():
+                store_key = f'{ZONE_ALGORITHM_VERSION}:{univ_key}:{tf}'
+                record = db.session.get(ZoneResultStore, store_key)
+                if record is None:
+                    record = ZoneResultStore(cache_key=store_key, zones_json='[]')
+                    db.session.add(record)
+                record.zones_json = json.dumps(results, separators=(',', ':'))
+                record.updated_at = datetime.utcnow()
+                db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            print('Zone result persistence:', type(exc).__name__, str(exc)[:120])
+        with ZONE_CACHE_LOCK:
+            entry = ZONE_CACHE.setdefault(univ_key, {'last_updated': {}})
+            entry[tf] = results
+            entry['last_updated'][tf] = time.time()
+        with ZONE_JOBS_LOCK:
+            if key in ZONE_JOBS:
+                ZONE_JOBS[key].update(data=results, done=True, completed=len(target_universe))
+        print(f'Zone scan completed {univ_key}/{tf}: {len(results)} zones in {time.time()-started:.1f}s')
+    except Exception as exc:
+        print('Zone background scan failed:', repr(exc))
+        with ZONE_JOBS_LOCK:
+            if key in ZONE_JOBS:
+                ZONE_JOBS[key].update(done=True, error='Scan failed; check Render logs')
+
+# Gunicorn imports this module rather than executing __main__. Enable only with
+# SFP_PRECOMPUTE=1 and ONE Gunicorn worker; otherwise each worker starts its own scans.
+if os.getenv('SFP_PRECOMPUTE', '0') == '1' and __name__ != '__main__':
+    start_zone_precompute()
+
+@app.route('/api/zone-screener', methods=['GET'])
+def zone_screener():
+    tf = request.args.get('tf', 'day').lower()
+    if tf not in ('day','week','month','quarter','halfyear','year','5minute','15minute','30minute','60minute'):
+        tf = 'day'
+    univ_key, target_universe = get_active_universe_list()
+    key = (univ_key, tf)
+    force_refresh = request.args.get('refresh') == '1'
+    with ZONE_CACHE_LOCK:
+        cache = ZONE_CACHE.setdefault(univ_key, {'last_updated': {}})
+        cached = cache.get(tf)
+        age = time.time() - cache['last_updated'].get(tf, 0)
+    if cached is not None and age < ZONE_JOB_TTL and not force_refresh:
+        cached = [z for z in cached if int(z.get('testCount', 0) or 0) <= 1]
+        return jsonify(status='success', data=cached, done=True, completed=len(target_universe), total=len(target_universe), source='memory')
+    persisted, updated_at = _stored_zone_snapshot(univ_key, tf)
+    if persisted is not None and not force_refresh:
+        persisted = [z for z in persisted if int(z.get('testCount', 0) or 0) <= 1]
+        stale = not updated_at or (datetime.utcnow()-updated_at).total_seconds() >= ZONE_JOB_TTL
+        if stale:
+            _begin_zone_job(univ_key, tf, target_universe)
+        with ZONE_JOBS_LOCK:
+            job = ZONE_JOBS.get(key)
+            refreshing = bool(job and not job.get('done'))
+        return jsonify(status='success', data=persisted, done=True, completed=len(target_universe), total=len(target_universe), source='database', stale=stale, refreshing=refreshing, updatedAt=updated_at.isoformat() if updated_at else None)
+    _begin_zone_job(univ_key, tf, target_universe, force=force_refresh)
+    with ZONE_JOBS_LOCK:
+        job = ZONE_JOBS.get(key)
+        if job:
+            return jsonify(status='success', data=[z for z in job['data'] if int(z.get('testCount', 0) or 0) <= 1], done=job['done'], completed=job['completed'], total=job['total'], message=job.get('error'), source='scan')
+    return jsonify(status='error', data=[], done=True, message='Scan could not start'), 503
+
+@app.route('/api/zone-debug', methods=['GET'])
+def zone_debug():
+    """Authenticated single-symbol diagnostic, no secrets or API tokens exposed."""
+    user = current_user()
+    if not user:
+        return jsonify(status='error', message='Login required'), 401
+    if not active_subscription(user):
+        return jsonify(status='error', message='Active subscription required'), 403
+    symbol = request.args.get('symbol', 'COCHINSHIP').strip().upper()
+    tf = request.args.get('tf', 'week').strip().lower()
+    if tf not in ('day', 'week', 'month', 'quarter', 'halfyear'):
+        return jsonify(status='error', message='Invalid timeframe'), 400
+    _, universe = get_active_universe_list(request.args.get('universe', 'FO'))
+    item = next((x for x in universe if x['symbol'] == symbol), None)
+    if not item:
+        return jsonify(status='error', message='Symbol not in selected universe'), 404
+    candles = fetch_historical_candles(item['isin'], tf)
+    if not candles:
+        return jsonify(status='error', message='No historical candles returned'), 502
+    ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+    ltp = float(request.args.get('ltp') or ordered[-1][4])
+    zones = scan_four_institutional_zones(ordered, ltp, symbol, tf)
+    # Report all price structure candidates without falsely labelling them as
+    # confirmed supply/demand zones. This makes missed formations inspectable.
+    candidates = []
+    for i in range(len(ordered)-2):
+        try:
+            a, b, c = ordered[i:i+3]
+            def strength(x):
+                o,h,l,cl = map(float, (x[1],x[2],x[3],x[4]))
+                return abs(cl-o)/max(h-l, 0.000001)
+            a_down = float(a[4]) < float(a[1]); c_down = float(c[4]) < float(c[1])
+            a_up = float(a[4]) > float(a[1]); c_up = float(c[4]) > float(c[1])
+            if ((a_down and c_down) or (a_up and c_up)) and strength(a) >= 0.50 and strength(c) >= 0.55:
+                candidates.append({'legIn':str(a[0]),'base':str(b[0]),'legOut':str(c[0]),
+                                   'direction':'SUPPLY' if c_down else 'DEMAND',
+                                   'baseHigh':float(b[2]),'baseLow':float(b[3]),
+                                   'legInBodyRatio':round(strength(a),3),
+                                   'legOutBodyRatio':round(strength(c),3),
+                                   'note':'Candidate only; check base, departure, retests and invalidation'})
+        except (ValueError,TypeError,IndexError):
+            continue
+    # Inspect every 1-2-base formation near a supplied reference, including rejected ones.
+    # No reference price is ever used by the scanner to create or retain zones.
+    rejection_trace = []
+    for legin_idx in range(len(ordered) - 2):
+        for base_count in (1, 2):
+            exit_idx = legin_idx + base_count + 1
+            if exit_idx >= len(ordered):
+                continue
+            trio = ordered[legin_idx:exit_idx + 1]
+            try:
+                def describe(x):
+                    o,h,l,c = map(float, x[1:5]); span = h-l
+                    return dict(date=str(x[0]), open=o, high=h, low=l, close=c,
+                                body=round(abs(c-o), 4), bodyPct=round(100*abs(c-o)/span,2) if span>0 else 0)
+                legin = describe(trio[0]); legout = describe(trio[-1]); bases = [describe(x) for x in trio[1:-1]]
+                if legout['close'] <= legout['open']:
+                    continue  # This reference trace focuses on demand formations.
+                prox = max(max(x['open'],x['close']) for x in bases)
+                dist = min(x['low'] for x in bases)
+                reasons = []
+                if legin['bodyPct'] < 70: reasons.append('LEG_IN_BODY_BELOW_70')
+                if legout['bodyPct'] < 70: reasons.append('LEG_OUT_BODY_BELOW_70')
+                if legout['body'] <= legin['body']: reasons.append('LEG_OUT_NOT_LARGER')
+                if any(x['bodyPct'] > 30 or x['body'] > 0.40*legin['body'] for x in bases):
+                    reasons.append('BASE_NOT_COMPACT')
+                if legout['close'] <= max(x['high'] for x in bases): reasons.append('NO_BASE_BREAKOUT_CLOSE')
+                if max(x['high'] for x in bases)-dist > max(legin['body'],legout['body']):
+                    reasons.append('BASE_RANGE_TOO_WIDE')
+                rejection_trace.append(dict(proximal=round(prox,2),distal=round(dist,2),
+                                            legIn=legin,bases=bases,legOut=legout,
+                                            rejectionReasons=reasons or ['CHECK_RETEST_OR_OTHER_FILTERS']))
+            except (ValueError, TypeError, IndexError, ZeroDivisionError):
+                continue
+    try:
+        ref_value = float(request.args.get('reference',''))
+        rejection_trace.sort(key=lambda x: min(abs(x['proximal']-ref_value),abs(x['distal']-ref_value)))
+    except ValueError:
+        rejection_trace.sort(key=lambda x: x['legOut']['date'], reverse=True)
+    rejection_trace = rejection_trace[:25]
+    reference = request.args.get('reference', '').strip()
+    reference_analysis = None
+    if reference:
+        try:
+            ref_price = float(reference)
+            nearby = sorted(zones, key=lambda z: min(abs(z['proximal']-ref_price), abs(z['distal']-ref_price)))[:8]
+            reference_analysis = {'price': ref_price, 'nearestConfirmedZones': nearby}
+        except ValueError:
+            return jsonify(status='error', message='reference must be a number'), 400
+    return jsonify(status='success',referenceAnalysis=reference_analysis,symbol=symbol,timeframe=tf,ltp=ltp,
+                   candleCount=len(ordered),firstCandle=str(ordered[0][0]),
+                   lastCandle=str(ordered[-1][0]),confirmedZones=zones,
+                   recentCandles=ordered[-26:],historicalCandidates=candidates[-100:],rejectionTrace=rejection_trace,
+                   note='Candidates are not confirmed zones. No levels are hardcoded.')
+
+def _zone_v19_audit(candles, tf, expected_proximal=None, expected_distal=None):
+    """Read-only formation audit; references rank results but NEVER affect detection."""
+    ordered = sorted((c for c in candles if len(c) >= 5), key=lambda c: str(c[0]))
+    now_ist = datetime.now(pytz.timezone('Asia/Kolkata'))
+    if tf == 'month':
+        ordered = [c for c in ordered if (pd.to_datetime(c[0]).year, pd.to_datetime(c[0]).month) < (now_ist.year, now_ist.month)]
+    elif tf == 'week':
+        monday = now_ist.date() - timedelta(days=now_ist.weekday())
+        ordered = [c for c in ordered if pd.to_datetime(c[0]).date() < monday]
+    def detail(c):
+        o,h,l,cl = map(float, c[1:5])
+        span=h-l
+        return dict(date=str(c[0]), open=o, high=h, low=l, close=cl,
+                    body=round(abs(cl-o),4), bodyPct=round(100*abs(cl-o)/span,2) if span>0 else 0,
+                    valid=span>0 and l<=min(o,cl)<=max(o,cl)<=h)
+    rows=[detail(c) for c in ordered]
+    findings=[]
+    for i in range(len(rows)-2):
+        for n in (1,2):
+            j=i+n+1
+            if j>=len(rows): continue
+            incoming=rows[i]; bases=rows[i+1:j]; outgoing=rows[j]
+            if outgoing['close']<=outgoing['open']: continue
+            proximal=max(max(b['open'],b['close']) for b in bases)
+            distal=min(b['low'] for b in bases)
+            reasons=[]
+            if not incoming['valid'] or not outgoing['valid'] or not all(b['valid'] for b in bases): reasons.append('INVALID_OHLC')
+            if incoming['bodyPct']<70: reasons.append('LEG_IN_BODY_BELOW_70')
+            if outgoing['bodyPct']<70: reasons.append('LEG_OUT_BODY_BELOW_70')
+            if outgoing['body']<=incoming['body']: reasons.append('LEG_OUT_NOT_LARGER')
+            if any(b['bodyPct']>30 or b['body']>0.4*incoming['body'] for b in bases): reasons.append('BASE_NOT_COMPACT')
+            if i>0 and rows[i]['bodyPct']<=30 and rows[i-1]['bodyPct']<=30: reasons.append('POSSIBLE_EXTENDED_BASE_BEFORE_LEGIN')
+            if n==2 and i+3<len(rows) and rows[i+1]['bodyPct']<=30 and rows[i+2]['bodyPct']<=30 and rows[i+3]['bodyPct']<=30: reasons.append('MORE_THAN_TWO_BASES')
+            base_high=max(b['high'] for b in bases)
+            if outgoing['close']<=base_high: reasons.append('NO_BASE_BREAKOUT_CLOSE')
+            if base_high-distal>max(incoming['body'],outgoing['body']): reasons.append('BASE_RANGE_TOO_WIDE')
+            if base_high-distal>0.70*outgoing['body']: reasons.append('IMPULSE_ORIGIN_BASE_TOO_WIDE')
+            if outgoing['body']<1.30*(base_high-distal): reasons.append('IMPULSE_ORIGIN_DEPARTURE_TOO_SMALL')
+            touched_count=0; was_touching=False; invalidated_at=None
+            for later in rows[j+1:]:
+                if later['close']<distal:
+                    invalidated_at=later['date']; reasons.append('INVALIDATED_CLOSE_BELOW_DISTAL'); break
+                touched=later['low']<=proximal and later['high']>=distal
+                if touched and not was_touching: touched_count+=1
+                was_touching=touched
+            findings.append(dict(pattern='Rally-Base-Rally' if incoming['close']>incoming['open'] else 'Drop-Base-Rally',
+                proximal=round(proximal,2),distal=round(distal,2),baseCandles=n,
+                legIn=incoming,base=bases,legOut=outgoing,rejectionReasons=reasons,
+                testCount=touched_count,invalidatedAt=invalidated_at))
+    if expected_proximal is not None and expected_distal is not None:
+        findings.sort(key=lambda x: abs(x['proximal']-expected_proximal)+abs(x['distal']-expected_distal))
+    else:
+        findings.sort(key=lambda x: x['legOut']['date'], reverse=True)
+    return dict(completedCandles=len(rows),nearestCandidates=findings[:12],
+                note='Audit only; reasons describe candidate constraints, not proof of a valid zone. Reference prices only sort audit output.')
+
+@app.route('/api/zone-regression', methods=['GET'])
+def zone_regression():
+    """Live diagnostics for reference formations."""
+    user = current_user()
+
+    if not user:
+        return jsonify(
+            status='error',
+            message='Login required'
+        ), 401
+
+    # Allow regression testing on localhost only.
+    local_hosts = {'localhost', '127.0.0.1', '::1'}
+    is_local = (
+        os.getenv('LOCAL_DEV_SUBSCRIPTION', '0') == '1'
+        and request.remote_addr in {'127.0.0.1', '::1'}
+        and request.host.split(':')[0].strip('[]').lower() in local_hosts
+    )
+
+    if not is_local and not active_subscription(user):
+        return jsonify(
+            status='error',
+            message='Active subscription required'
+        ), 403
+
+    _, universe = get_active_universe_list('FO')
+    by_symbol = {item['symbol']: item for item in universe}
+
+    cases = [
+        ('COCHINSHIP', 'week', 1106.10, 1016.20),
+        ('INDHOTEL', 'month', 438.35, 416.90),
+        ('INDHOTEL', 'week', None, None)
+    ]
+
+    report = []
+
+    for symbol, tf, expected_proximal, expected_distal in cases:
+        item = by_symbol.get(symbol)
+
+        if not item:
+            report.append(dict(
+                symbol=symbol,
+                timeframe=tf,
+                error='Missing from FO universe'
+            ))
+            continue
+
+        try:
+            candles = fetch_historical_candles(item['isin'], tf)
+
+            if not candles:
+                report.append(dict(
+                    symbol=symbol,
+                    timeframe=tf,
+                    error='No candles available'
+                ))
+                continue
+
+            ordered = sorted(
+                (c for c in candles if len(c) >= 5),
+                key=lambda c: str(c[0])
+            )
+
+            ltp = float(ordered[-1][4])
+
+            zones = scan_four_institutional_zones(
+                ordered, ltp, symbol, tf
+            )
+
+            if expected_proximal is None:
+                matches = [
+                    z for z in zones
+                    if z['bias'] == 'DEMAND'
+                    and z['pattern'] in (
+                        'Drop-Base-Rally',
+                        'Rally-Base-Rally'
+                    )
+                ]
+                nearest = matches[-12:]
+            else:
+                matches = [
+                    z for z in zones
+                    if z['bias'] == 'DEMAND'
+                    and abs(z['proximal'] - expected_proximal)
+                    <= max(2.0, expected_proximal * 0.01)
+                    and abs(z['distal'] - expected_distal)
+                    <= max(2.0, expected_distal * 0.01)
+                ]
+
+                nearest = sorted(
+                    (z for z in zones if z['bias'] == 'DEMAND'),
+                    key=lambda z:
+                    abs(z['proximal'] - expected_proximal)
+                    + abs(z['distal'] - expected_distal)
+                )[:5]
+
+            audit = _zone_v19_audit(ordered, tf, expected_proximal, expected_distal)
+            report.append(dict(
+                audit=audit,
+                symbol=symbol,
+                timeframe=tf,
+                candles=len(ordered),
+                firstCandle=str(ordered[0][0]),
+                lastCandle=str(ordered[-1][0]),
+                reference=dict(
+                    proximal=expected_proximal,
+                    distal=expected_distal
+                ),
+                referenceMatched=(
+                    bool(matches)
+                    if expected_proximal is not None else None
+                ),
+                patternCounts={
+                    p: sum(z['pattern'] == p for z in zones)
+                    for p in (
+                        'Drop-Base-Rally',
+                        'Rally-Base-Rally'
+                    )
+                },
+                matches=matches,
+                nearestDemandZones=nearest,
+                totalZones=len(zones)
+            ))
+
+        except Exception as exc:
+            report.append(dict(
+                symbol=symbol,
+                timeframe=tf,
+                error=type(exc).__name__ + ': ' + str(exc)[:160]
+            ))
+
+    return jsonify(
+        status='success',
+        algorithmVersion=ZONE_ALGORITHM_VERSION,
+        auditVersion='v19_diagnostic',
+        results=report,
+        note='Reference prices used only to test matches; never to generate zones.'
+    )
+
+@app.route('/api/zone-cache-status', methods=['GET'])
+def zone_cache_status():
+    # Used by local testing to confirm each timeframe is precomputed.
+    universe = request.args.get('universe', 'FO').upper()
+    if universe not in ('FO','NIFTY500','MIDCAP','SMALLCAP','TOTALMARKET'):
+        return jsonify(status='error', message='Unknown universe'), 400
+    output = {}
+    for tf in PRECOMPUTE_TIMEFRAMES:
+        rows, updated = _stored_zone_snapshot(universe, tf)
+        with ZONE_JOBS_LOCK:
+            job = ZONE_JOBS.get((universe, tf))
+            progress = {'completed':job['completed'], 'total':job['total'], 'running':not job['done']} if job else None
+        output[tf] = {'ready':rows is not None, 'zones':len(rows) if rows is not None else 0,
+                      'updatedAt':updated.isoformat() if updated else None, 'scan':progress}
+    return jsonify(status='success', universe=universe, timeframes=output)
+
+
+# ---- Intraday Pullback Scanner: sector-confirmed, no future candles ----
+PULLBACK_LOCK = threading.RLock()
+PULLBACK_JOBS = {}
+PULLBACK_TTL = 180
+PULLBACK_STALE_SECONDS = 150
+PULLBACK_IST = pytz.timezone('Asia/Kolkata')
+# Use only actual exchange indices. Unmapped/custom sectors are intentionally excluded.
+PULLBACK_SECTOR_INDICES = {
+    'Nifty Bank':'Nifty Bank', 'Nifty IT':'Nifty IT', 'Nifty Auto':'Nifty Auto',
+    'Nifty Pharma':'Nifty Pharma', 'Nifty Metal':'Nifty Metal',
+    'Nifty Energy':'Nifty Energy', 'Nifty FMCG':'Nifty FMCG',
+    'Fin Service':'Nifty Fin Service',
+}
+
+def _pb_candles(key, unit, days=1, diagnostic=False):
+    if not UPSTOX_ACCESS_TOKEN:
+        if diagnostic: raise RuntimeError('UPSTOX_ACCESS_TOKEN is not configured')
+        return []
+    url = ('https://api.upstox.com/v3/historical-candle/intraday/'
+           + urllib.parse.quote(key, safe='') + '/minutes/' + str(unit))
+    try:
+        with HISTORY_API_SLOTS:
+            response = HTTP_SESSION.get(url, headers={'Accept':'application/json',
+                'Authorization':'Bearer '+UPSTOX_ACCESS_TOKEN}, timeout=(5,13))
+        if response.status_code != 200:
+            if diagnostic:
+                try: detail = response.json().get('message') or response.json().get('errors') or response.text[:200]
+                except ValueError: detail = response.text[:200]
+                raise RuntimeError('Upstox intraday HTTP %s: %s' % (response.status_code, detail))
+            return []
+        candles = response.json().get('data',{}).get('candles',[])
+        return sorted([c for c in candles if len(c)>=6],key=lambda c:str(c[0]))
+    except (ValueError, KeyError, requests.RequestException) as exc:
+        if diagnostic: raise RuntimeError('Upstox intraday request failed: %s' % type(exc).__name__) from exc
+        return []
+
+def _pb_frame(candles,unit):
+    if not candles: return pd.DataFrame()
+    try:
+        f=pd.DataFrame(candles,columns=['ts','open','high','low','close','volume']+['oi']*(len(candles[0])-6))
+        f=f.iloc[:,:6].copy()
+        f['ts']=pd.to_datetime(f['ts'],utc=True).dt.tz_convert(PULLBACK_IST)
+        for col in ['open','high','low','close','volume']: f[col]=pd.to_numeric(f[col],errors='coerce')
+        f=f.dropna().sort_values('ts').drop_duplicates('ts')
+        now=datetime.now(PULLBACK_IST)
+        f=f[(f.ts.dt.date==now.date()) & (f.ts.dt.time>=datetime.strptime('09:15','%H:%M').time())]
+        f=f[f.ts+pd.to_timedelta(unit,unit='m')<=pd.Timestamp(now)]
+        return f.reset_index(drop=True)
+    except (ValueError,TypeError,KeyError): return pd.DataFrame()
+
+def _pb_trend(frame):
+    if len(frame)<8: return 0
+    c=frame.close
+    fast=c.ewm(span=9,adjust=False).mean()
+    slow=c.ewm(span=20,adjust=False).mean()
+    vwap=( ((frame.high+frame.low+frame.close)/3)*frame.volume ).cumsum()/frame.volume.cumsum().replace(0,np.nan)
+    # NSE index candles often have zero volume. VWAP is undefined for indices;
+    # use price-only trend confirmation rather than rejecting every sector.
+    if not np.isfinite(vwap.iloc[-1]):
+        vwap = (frame.high + frame.low + frame.close) / 3
+        vwap = vwap.expanding().mean()
+    last=float(c.iloc[-1]); prev=float(c.iloc[-4])
+    if last>float(vwap.iloc[-1]) and fast.iloc[-1]>slow.iloc[-1] and last>prev: return 1
+    if last<float(vwap.iloc[-1]) and fast.iloc[-1]<slow.iloc[-1] and last<prev: return -1
+    return 0
+
+def _pb_index_trend(frame):
+    """Classify actual index price direction without requiring index VWAP/volume.
+
+    A neutral result remains possible for genuinely mixed or flat trends.
+    """
+    if len(frame) < 8:
+        return 0
+    close = frame.close.astype(float)
+    ema9 = close.ewm(span=9, adjust=False).mean()
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    last = float(close.iloc[-1])
+    recent = float(close.iloc[-4])
+    spread = (float(ema9.iloc[-1]) - float(ema20.iloc[-1])) / max(abs(last), 1e-9)
+    slope = (last - recent) / max(abs(recent), 1e-9)
+    # Both EMA alignment and recent price direction must agree.
+    if spread > 0.00005 and slope > 0:
+        return 1
+    if spread < -0.00005 and slope < 0:
+        return -1
+    return 0
+
+def _pb_daily_levels(key):
+    # Prior completed daily candle and completed-day EMA (never use today's unfinished candle).
+    now=datetime.now(PULLBACK_IST).date()
+    start=now-timedelta(days=100)
+    url=('https://api.upstox.com/v3/historical-candle/'
+         +urllib.parse.quote(key,safe='')+'/days/1/'+str(now)+'/'+str(start))
+    try:
+        with HISTORY_API_SLOTS:
+            response=HTTP_SESSION.get(url,headers={'Accept':'application/json',
+                 'Authorization':'Bearer '+UPSTOX_ACCESS_TOKEN},timeout=(5,13))
+        candles=response.json().get('data',{}).get('candles',[]) if response.status_code==200 else []
+    except (requests.RequestException,ValueError,KeyError):candles=[]
+    data=[]
+    for c in candles:
+        try:
+            dt=pd.to_datetime(c[0],utc=True).tz_convert(PULLBACK_IST).date()
+            if dt<now: data.append((dt,float(c[2]),float(c[3]),float(c[4])))
+        except (ValueError,TypeError,IndexError): pass
+    data=sorted(data,key=lambda a:a[0])
+    if len(data)<21:return None
+    closes=pd.Series([r[3] for r in data])
+    return {'pdh':data[-1][1],'pdl':data[-1][2],
+            'ema20':float(closes.ewm(span=20,adjust=False).mean().iloc[-1])}
+
+def _pb_reaction(frame,level,name):
+    if level is None or len(frame)<2:return 'Unavailable'
+    a=frame.iloc[-2]; b=frame.iloc[-1]
+    tolerance=max(level*.002,1e-6)
+    touched=min(abs(float(a.low)-level),abs(float(a.high)-level),abs(float(b.low)-level),abs(float(b.high)-level))<=tolerance or (float(b.low)<=level<=float(b.high))
+    if b.close>level and a.close<=level and b.close>b.open:return name+' Breakout'
+    if b.close<level and a.close>=level and b.close<b.open:return name+' Breakdown'
+    if touched and b.close>level and b.close>b.open:return name+' Support Holding'
+    if touched and b.close<level and b.close<b.open:return name+' Resistance Rejection'
+    if abs(float(b.close)-level)/level<=.005:return 'Near '+name
+    return 'Above '+name if b.close>level else 'Below '+name
+
+def _pb_scan_stock(item, tf, market, sector):
+    """Completed-candle swing/candle pullbacks, no mandatory VWAP or sector gate."""
+    f = _pb_frame(_pb_candles(item['isin'], tf), tf)
+    if len(f) < 22:
+        return None, 'insufficient_stock_candles'
+    c = f.close.astype(float)
+    e9 = c.ewm(span=9, adjust=False).mean()
+    e20 = c.ewm(span=20, adjust=False).mean()
+    vol = f.volume.astype(float)
+    vw = (((f.high + f.low + f.close) / 3) * vol).cumsum() / vol.cumsum().replace(0, np.nan)
+    sector_name = item.get('sector', 'General')
+    sf = sector.get(sector_name, {})
+    results = []
+    # Check recent COMPLETED candles, including setups waiting for confirmation.
+    for direction in (1, -1):
+        # EMA alignment and EMA20 slope establish the prevailing intraday trend.
+        if direction == 1 and not (e9.iloc[-1] > e20.iloc[-1] and e20.iloc[-1] > e20.iloc[-5]):
+            continue
+        if direction == -1 and not (e9.iloc[-1] < e20.iloc[-1] and e20.iloc[-1] < e20.iloc[-5]):
+            continue
+        for setup_end in range(max(12, len(f)-5), len(f)):
+            # A setup can be 1-3 opposite candles, after a directional impulse.
+            for count in (1, 2, 3):
+                start = setup_end - count + 1
+                if start < 8: continue
+                pull = f.iloc[start:setup_end+1]
+                before = f.iloc[max(0,start-5):start]
+                if len(before) < 3: continue
+                opposite = all((float(r.close) < float(r.open) if direction == 1 else float(r.close) > float(r.open)) for _,r in pull.iterrows())
+                impulse = float(before.close.iloc[-1]) - float(before.close.iloc[0])
+                if not opposite or impulse*direction <= 0: continue
+                # The pullback should retrace, not break down the trend structure.
+                if direction == 1:
+                    if float(pull.low.min()) < float(e20.iloc[start:setup_end+1].min()) * .993: continue
+                    if float(pull.close.iloc[-1]) >= float(before.close.iloc[-1]): continue
+                else:
+                    if float(pull.high.max()) > float(e20.iloc[start:setup_end+1].max()) * 1.007: continue
+                    if float(pull.close.iloc[-1]) <= float(before.close.iloc[-1]): continue
+                # Confirmed swing pivot from past candles ONLY (2 left, 2 right).
+                pivots = []
+                for j in range(2, start-2):
+                    if direction == 1 and float(f.low.iloc[j]) <= float(f.low.iloc[j-2:j+3].min()):
+                        pivots.append((j, float(f.low.iloc[j])))
+                    if direction == -1 and float(f.high.iloc[j]) >= float(f.high.iloc[j-2:j+3].max()):
+                        pivots.append((j, float(f.high.iloc[j])))
+                swing = False
+                if pivots:
+                    pivot = pivots[-1][1]
+                    low = float(pull.low.min()); high = float(pull.high.max())
+                    swing = (low >= pivot*.997 and low <= pivot*1.008) if direction == 1 else (high <= pivot*1.003 and high >= pivot*.992)
+                # Candle pullback is independently valid; swing proximity adds a second type.
+                trigger = float(pull.high.max()) if direction == 1 else float(pull.low.min())
+                later = f.iloc[setup_end+1:]
+                if len(later):
+                    triggered = bool((later.high.astype(float)>trigger).any() if direction == 1 else (later.low.astype(float)<trigger).any())
+                else:
+                    triggered = False
+                # Discard invalidated setups even if they triggered earlier.
+                if len(later) and ((later.low.astype(float)<float(pull.low.min())*.997).any() if direction == 1 else (later.high.astype(float)>float(pull.high.max())*1.003).any()):
+                    continue
+                last = float(c.iloc[-1]); base = float(f.open.iloc[0]); change = (last/base-1)*100 if base else 0
+                vratio = float(vol.iloc[-1]/max(1,vol.iloc[max(0,len(f)-12):-1].mean()))
+                sector_trend = sf.get('trend',0)
+                alignment = ('Aligned' if sector_trend == direction and (market in (0,direction)) else
+                             'Mixed' if sector_trend and market else 'Unavailable')
+                vwap_value = float(vw.iloc[-1]) if np.isfinite(vw.iloc[-1]) else None
+                vwap_status = ('Above VWAP' if last >= vwap_value else 'Below VWAP') if vwap_value is not None else 'Unavailable'
+                momentum = 'Strong' if vratio>=1.2 and abs(change)>=.5 else 'Moderate'
+                levels = None  # Daily levels are optional, not a qualification gate.
+                result = {'symbol':item['symbol'],'sector':sector_name,
+                    'direction':'Bullish' if direction==1 else 'Bearish',
+                    'state':'TRIGGERED' if triggered else 'WATCH',
+                    'time':pull.ts.iloc[-1].strftime('%I:%M %p'),
+                    'momentum':momentum,'vwap':vwap_status,
+                    'sectorChange':round(sf.get('change',0),2) if sf else None,
+                    'marketChange':round(sf.get('market_change',0),2) if sf else None,
+                    'dailyEma20':None,'emaReaction':'Optional',
+                    'pdh':None,'pdl':None,'pdhStatus':'Optional','pdlStatus':'Optional',
+                    'ltp':round(last,2),'volumeRatio':round(vratio,2),
+                    'pattern':'Swing Pullback' if swing else 'Candle Pullback',
+                    'alignment':alignment,'pullbackCandles':count,
+                    'triggerPrice':round(trigger,2),
+                    'setupBar':setup_end}
+                results.append(result)
+    if not results: return None, 'no_valid_pullback'
+    # Most recent setup; prefer confirmed swing structure when recency ties.
+    results.sort(key=lambda r:(r['setupBar'],r['pattern']=='Swing Pullback',r['state']=='TRIGGERED'),reverse=True)
+    chosen=results[0]
+    chosen.pop('setupBar',None)
+    return chosen, 'qualified'
+
+def _pb_worker(tf):
+    key=str(tf)
+    try:
+        # A true sector index is mandatory; never substitute a custom bucket's average.
+        with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Loading NIFTY 50 index'
+        market_f=_pb_frame(_pb_candles('NSE_INDEX|Nifty 50',tf),tf)
+        # Index feed is optional confluence; never block stock pattern scanning.
+        market=_pb_index_trend(market_f)
+        # Sideways (0) is valid: scan both directions with matching sector and stock trends.
+        market_change=(float(market_f.close.iloc[-1])/float(market_f.open.iloc[0])-1)*100 if len(market_f) else 0
+        sectors={}
+        sector_diagnostics=[]
+        with PULLBACK_LOCK: PULLBACK_JOBS[key]['stage']='Checking sector indices'
+        for label,index in PULLBACK_SECTOR_INDICES.items():
+            f=_pb_frame(_pb_candles('NSE_INDEX|'+index,tf),tf)
+            trend=_pb_index_trend(f)
+            if trend and len(f):
+                sectors[label]={'trend':trend,'change':(float(f.close.iloc[-1])/float(f.open.iloc[0])-1)*100,'market_change':market_change}
+            else:
+                sector_diagnostics.append('%s: %s completed candles, trend=%s' % (label,len(f),trend))
+        universe=GLOBAL_MARKET_UNIVERSE
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['diagnostics']={'universe':len(universe),'sectorsAvailable':len(sectors),'sectorDetails':sector_diagnostics,'rejections':{},'qualified':0}
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['stage']='Scanning eligible stocks'
+            PULLBACK_JOBS[key]['total']=len(universe)
+        if not universe: raise ValueError('FO universe is empty. Check instrument loading.')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            futures={pool.submit(_pb_scan_stock,s,tf,market,sectors):s for s in universe}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result, reason=future.result()
+                    with PULLBACK_LOCK:
+                        counts=PULLBACK_JOBS[key]['diagnostics']['rejections']
+                        if result:
+                            PULLBACK_JOBS[key]['data'].append(result)
+                            PULLBACK_JOBS[key]['diagnostics']['qualified']+=1
+                        else: counts[reason]=counts.get(reason,0)+1
+                except Exception as exc:
+                    app.logger.warning('Pullback symbol %s failed: %s', futures[future].get('symbol'),type(exc).__name__)
+                    with PULLBACK_LOCK:
+                        counts=PULLBACK_JOBS[key]['diagnostics']['rejections']
+                        counts['scan_error']=counts.get('scan_error',0)+1
+                with PULLBACK_LOCK:
+                    PULLBACK_JOBS[key]['completed']+=1
+                    PULLBACK_JOBS[key]['updated']=time.time()
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['data'].sort(key=lambda s:(s['state']!='TRIGGERED',s['momentum']!='Strong',s['symbol']))
+    except Exception as exc:
+        with PULLBACK_LOCK:PULLBACK_JOBS[key]['message']=str(exc)
+    finally:
+        with PULLBACK_LOCK:
+            PULLBACK_JOBS[key]['done']=True
+            PULLBACK_JOBS[key]['stage']='Finished'
+            PULLBACK_JOBS[key]['updated']=time.time()
+
+@app.route('/api/pullback-scanner',methods=['GET'])
+def pullback_scanner():
+    user=current_user()
+    if not user:return jsonify(status='error',message='Login required'),401
+    if not active_subscription(user):return jsonify(status='error',message='Active subscription required'),403
+    try:tf=int(request.args.get('tf','5'))
+    except ValueError:return jsonify(status='error',message='Invalid timeframe'),400
+    if tf not in (5,15):return jsonify(status='error',message='Timeframe must be 5 or 15'),400
+    key=str(tf)
+    refresh=request.args.get('refresh')=='1'
+    with PULLBACK_LOCK:
+        job=PULLBACK_JOBS.get(key)
+        stale=bool(job and not job['done'] and time.time()-job['updated']>PULLBACK_STALE_SECONDS)
+        if stale:
+            job['done']=True
+            job['message']='Scanner timed out. Refresh to retry; check Render logs for Upstox errors.'
+        if not job or (job['done'] and (refresh or time.time()-job['updated']>PULLBACK_TTL)):
+            job={'data':[],'completed':0,'total':0,'stage':'Starting scan','done':False,'updated':time.time(),'message':None,'diagnostics':{}}
+            PULLBACK_JOBS[key]=job
+            threading.Thread(target=_pb_worker,args=(tf,),daemon=True).start()
+        return jsonify(status='success',data=list(job['data']),completed=job['completed'],
+                       total=job.get('total',0),stage=job.get('stage','Starting scan'),
+                       done=job['done'],message=job['message'],timeframe=tf,diagnostics=job.get('diagnostics',{}))
+
+
+
+# ================= STOCK NEWS (UPSTOX API) =================
+# 5-second cache is shared between logged-in visitors in this Flask process.
+STOCK_NEWS_CACHE = {}
+STOCK_NEWS_LOCK = threading.RLock()
+STOCK_NEWS_TTL = 5
+
+def _news_instrument_key(symbol):
+    record = ALL_NSE_EQ_MAP.get(symbol) or {}
+    return record.get("inst_key") or (FO_INSTRUMENT_MAP.get(symbol) if "FO_INSTRUMENT_MAP" in globals() else None)
+
+def _upstox_news_batch(symbols):
+    keys = {symbol: _news_instrument_key(symbol) for symbol in symbols}
+    keys = {symbol: key for symbol, key in keys.items() if isinstance(key, str) and key.startswith("NSE_EQ|")}
+    if not keys:
+        return {symbol: [] for symbol in symbols}
+    token = os.getenv("UPSTOX_ANALYTICS_TOKEN", "").strip() or UPSTOX_ACCESS_TOKEN
+    response = HTTP_SESSION.get("https://api.upstox.com/v2/news", params={
+        "category": "instrument_keys", "instrument_keys": ",".join(dict.fromkeys(keys.values())),
+        "page_number": 1, "page_size": 100
+    }, headers={"Accept":"application/json", "Authorization":"Bearer " + token}, timeout=(4, 12))
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") != "success" or not isinstance(payload.get("data"), dict):
+        raise ValueError("Upstox news returned an invalid response")
+    result = {}
+    for symbol in symbols:
+        raw = payload["data"].get(keys.get(symbol), [])
+        items = []
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            # Reject items explicitly tagged to a different listed company.
+            tagged = item.get("instrument_key") or item.get("instrumentKey")
+            if tagged and tagged != keys.get(symbol):
+                continue
+            tagged_list = item.get("instrument_keys")
+            if isinstance(tagged_list, list) and tagged_list and keys.get(symbol) not in tagged_list:
+                continue
+            url = item.get("article_link", "")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            published_ms = item.get("published_time")
+            try:
+                published = datetime.fromtimestamp(int(published_ms) / 1000, tz=timezone.utc).isoformat()
+            except (ValueError, TypeError, OverflowError):
+                published = None
+            items.append({"title": str(item.get("heading") or ""), "url": url,
+                          "source": "Upstox News", "summary": str(item.get("summary") or ""),
+                          "publishedAt": published, "publishedTime": published_ms})
+        items.sort(key=lambda x: x.get("publishedTime") or 0, reverse=True)
+        result[symbol] = items[:20]
+    return result
+
+def _news_cached_batch(symbols):
+    now = time.monotonic()
+    with STOCK_NEWS_LOCK:
+        missing = [symbol for symbol in symbols if symbol not in STOCK_NEWS_CACHE or
+                   now - STOCK_NEWS_CACHE[symbol]["time"] >= STOCK_NEWS_TTL]
+    # A request may contain up to 30 instruments (Upstox limit).
+    if missing:
+        fresh = _upstox_news_batch(missing)
+        with STOCK_NEWS_LOCK:
+            for symbol in missing:
+                STOCK_NEWS_CACHE[symbol] = {"time": time.monotonic(), "news": fresh.get(symbol, [])}
+    with STOCK_NEWS_LOCK:
+        return {symbol: list(STOCK_NEWS_CACHE.get(symbol, {}).get("news", [])) for symbol in symbols}
+
+@app.route("/api/stock-news-status", methods=["GET"])
+def stock_news_status():
+    user = current_user()
+    if not user:
+        return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user):
+        return jsonify(status="error", message="Active subscription required"), 403
+    raw = request.args.get("symbols", "")
+    symbols = list(dict.fromkeys(x.strip().upper() for x in raw.split(",") if x.strip()))
+    if not symbols or len(symbols) > 30 or any(not re.fullmatch(r"[A-Z0-9&.-]{1,24}", x) for x in symbols):
+        return jsonify(status="error", message="Supply 1-30 valid symbols"), 400
+    try:
+        news = _news_cached_batch(symbols)
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Upstox news status error: %s", exc)
+        return jsonify(status="unavailable", message="Upstox news API unavailable"), 503
+    return jsonify(status="success", provider="Upstox", pollSeconds=5,
+                   hasNews={s: bool(news[s]) for s in symbols},
+                   latest={s: (news[s][0].get("publishedAt") if news[s] else None) for s in symbols})
+
+@app.route("/api/stock-news", methods=["GET"])
+def stock_news():
+    user = current_user()
+    if not user:
+        return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user):
+        return jsonify(status="error", message="Active subscription required"), 403
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9&.-]{1,24}", symbol):
+        return jsonify(status="error", message="Invalid symbol"), 400
+    try:
+        items = _news_cached_batch([symbol])[symbol]
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Upstox news error for %s: %s", symbol, exc)
+        return jsonify(status="unavailable", message="Upstox news API unavailable", news=[]), 503
+    return jsonify(status="success", provider="Upstox", symbol=symbol,
+                   count=len(items), news=items)
+
+@app.route("/api/oi-status", methods=["GET"])
+def oi_status():
+    user = current_user()
+    if not user: return jsonify(status="error", message="Login required"), 401
+    if not active_subscription(user): return jsonify(status="error", message="Active subscription required"), 403
+    if request.args.get("refresh") == "1":
+        with FUTURES_OI_LOCK:
+            FUTURES_MAP_CACHE["until"] = 0
+            FUTURES_OI_CACHE["until"] = 0
+    values = _actual_futures_oi()
+    return jsonify(status="success", diagnostic=dict(FUTURES_OI_DIAGNOSTICS),
+                   samples=[{"symbol":k, "contract":v.get("oiContract"), "oi":v.get("oi"),
+                             "prevOi":v.get("prevOi"), "oiPct":v.get("oiPct"),
+                             "futuresLtp":v.get("futuresLtp"), "futuresPrevClose":v.get("futuresPrevClose"),
+                             "futuresPricePct":v.get("futuresPricePct"), "buildup":v.get("buildup"),
+                             "previousSessionDate":v.get("previousSessionDate")} for k,v in list(values.items())[:5]])
+
+@app.route("/api/screener", methods=["GET"])
+def screener():
+    filter_val, search_val, univ_type = request.args.get("filter", "ALL"), request.args.get("search", "").strip().lower(), request.args.get("universe", "FO").upper()
+    stocks = fetch_live_upstox_quotes(univ_type)
+    if isinstance(stocks, dict) and "error" in stocks: return jsonify({"status": "error", "message": stocks["error"]})
+    top_gainers = [s for s in sorted(stocks, key=lambda x: float(x.get("pricePct", 0)), reverse=True) if float(s.get("pricePct", 0)) > 0][:20]
+    top_losers = [s for s in sorted(stocks, key=lambda x: float(x.get("pricePct", 0))) if float(s.get("pricePct", 0)) < 0][:20]
+    filtered = list(stocks)
+    if filter_val and filter_val != "ALL":
+        if filter_val in ["OPEN=LOW", "OPEN=HIGH"]: filtered = [x for x in filtered if x.get("candleTag") == filter_val]
+        elif filter_val == "VOL_SHOCKER": filtered = [x for x in filtered if x.get("volMultiplier", 0) >= 1.5]
+        else: filtered = [x for x in filtered if x.get("buildup", "").lower() == filter_val.lower()]
+    if search_val: filtered = [x for x in filtered if search_val in x["symbol"].lower() or search_val in x["name"].lower()]
+    return jsonify({"status": "success", "universe": univ_type, "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S"), "count": len(filtered), "data": filtered, "topGainers": top_gainers, "topLosers": top_losers})
+
+@app.route("/api/sectors", methods=["GET"])
+def get_sectors():
+    univ_type = request.args.get("universe", "FO").upper()
+    stocks = fetch_live_upstox_quotes(univ_type)
+    if isinstance(stocks, dict) and "error" in stocks: return jsonify({"status": "error", "message": stocks["error"]})
+    target_stocks = [s for s in stocks if s.get("is_fo", True)] if univ_type == "FO" else stocks
+    sec_map = defaultdict(lambda: {"stocks": 0, "total_pct": 0.0, "total_vol": 0, "advances": 0, "declines": 0})
+    total_vol = total_adv = total_dec = 0
+    for s in target_stocks:
+        sec, p_pct, vol = s.get("sector", "Market"), float(s.get("pricePct", 0.0)), int(s.get("volume", 0))
+        total_vol += vol
+        if p_pct >= 0: total_adv += 1
+        else: total_dec += 1
+        sec_map[sec]["stocks"] += 1
+        sec_map[sec]["total_pct"] += p_pct
+        sec_map[sec]["total_vol"] += vol
+        if p_pct >= 0: sec_map[sec]["advances"] += 1
+        else: sec_map[sec]["declines"] += 1
+    summary = [{"sector": sec, "avgChange": round(val["total_pct"] / val["stocks"], 2) if val["stocks"] > 0 else 0.0, "stocksCount": val["stocks"], "advances": val["advances"], "declines": val["declines"], "totalVolume": val["total_vol"]} for sec, val in sec_map.items()]
+    summary.sort(key=lambda x: x["avgChange"], reverse=True)
+    return jsonify({"status": "success", "universe": univ_type, "data": summary, "marketBreadth": {"totalVolume": total_vol, "advances": total_adv, "declines": total_dec}})
+
+
+# Market pulse: Upstox index quotes and optional Brent feed.
+# Brent uses an unofficial delayed/indicative Yahoo Finance futures endpoint; not an exchange live feed.
+_MARKET_PULSE_CACHE = {"at": 0.0, "payload": None, "retry_after": 0.0}
+_BRENT_OBSERVATIONS = []
+
+@app.route('/api/market-pulse', methods=['GET'])
+def market_pulse():
+    if not current_user():
+        return jsonify({"status": "error", "message": "Login required"}), 401
+    if not active_subscription(current_user()):
+        return jsonify({"status": "error", "message": "Active subscription required"}), 403
+    now = time.time()
+    if _MARKET_PULSE_CACHE['payload'] is not None and (now - _MARKET_PULSE_CACHE['at'] < 60 or now < _MARKET_PULSE_CACHE['retry_after']):
+        return jsonify(_MARKET_PULSE_CACHE['payload'])
+    index_keys = ["NSE_INDEX|Nifty 50", "NSE_INDEX|Nifty Bank", "BSE_INDEX|SENSEX"]
+    names = ["NIFTY 50", "BANK NIFTY", "SENSEX"]
+    charts = ["NSE:NIFTY", "NSE:BANKNIFTY", "BSE:SENSEX"]
+    result = [{'symbol':name,'price':None,'change':None,'percent':None,'chart':chart,'currency':'INR','source':'Upstox','available':False} for name,chart in zip(names,charts)]
+    try:
+        r = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+            headers={'Accept':'application/json','Authorization':f'Bearer {UPSTOX_ACCESS_TOKEN}'},
+            params={'instrument_key':','.join(index_keys)}, timeout=4)
+        r.raise_for_status()
+        data = r.json().get('data') or {}
+        for key, name, chart in zip(index_keys, names, charts):
+            quote = data.get(key) or data.get(key.replace('|', ':'))
+            if not quote:
+                # Upstox can key quote responses by trading symbol.
+                quote = next((v for v in data.values() if isinstance(v,dict) and v.get('instrument_token') == key), None)
+            if not quote: continue
+            ltp = float(quote.get('last_price') or 0)
+            if ltp <= 0: continue
+            change = float(quote.get('net_change') or 0)
+            prev = float(quote.get('prev_close') or ltp-change)
+            result[names.index(name)] = {'symbol':name,'price':round(ltp,2),'change':round(change,2),
+                'percent':round(100*change/prev,2) if prev else None,
+                'chart':chart,'currency':'INR','source':'Upstox','available':True}
+    except Exception as exc:
+        if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 429:
+            _MARKET_PULSE_CACHE['retry_after'] = now + 180
+        app.logger.warning('Market pulse indices unavailable: %s', str(exc)[:180])
+
+    brent = {'symbol':'BRENT CRUDE','price':None,'change':None,'percent':None,
+             'chart':'TVC:UKOIL','currency':'USD/bbl','source':'Yahoo Finance (indicative)',
+             'alert':False,'alertText':'','available':False}
+    try:
+        import os as _os
+        # Optional provider override; JSON fields: price, change, percent.
+        custom_url = _os.getenv('BRENT_QUOTE_URL', '').strip()
+        if custom_url and not custom_url.startswith('https://'):
+            raise ValueError('BRENT_QUOTE_URL must use HTTPS')
+        if custom_url:
+            j = HTTP_SESSION.get(custom_url, timeout=4).json()
+            q = j.get('data',j)
+            brent['price'] = float(q['price'])
+            brent['change'] = float(q.get('change',0))
+            brent['percent'] = float(q.get('percent',0))
+            brent['source'] = 'Configured Brent provider'
+        else:
+            j = HTTP_SESSION.get('https://query1.finance.yahoo.com/v8/finance/chart/BZ=F',
+                params={'interval':'1m','range':'1d'},
+                headers={'User-Agent':'Mozilla/5.0'},timeout=4).json()
+            meta = j['chart']['result'][0]['meta']
+            price = float(meta['regularMarketPrice'])
+            previous = float(meta.get('chartPreviousClose') or meta.get('previousClose') or price)
+            brent['price'] = price
+            brent['change'] = round(price-previous,2)
+            brent['percent'] = round((price-previous)*100/previous,2) if previous else None
+        brent['available'] = True
+        _BRENT_OBSERVATIONS.append((now,brent['price']))
+        _BRENT_OBSERVATIONS[:] = [(t,p) for t,p in _BRENT_OBSERVATIONS if now-t <= 300]
+        if len(_BRENT_OBSERVATIONS) > 1:
+            base = _BRENT_OBSERVATIONS[0][1]
+            move = (brent['price']-base)/base*100 if base else 0
+            if abs(move) >= 1.0:
+                brent['alert'] = True
+                brent['alertText'] = f"Brent {'surged' if move>0 else 'fell'} {abs(move):.2f}% in last 5 min"
+    except Exception as exc:
+        app.logger.info('Brent quote unavailable: %s', str(exc)[:160])
+    result.append(brent)
+    payload={'status':'success','data':result,'asOf':datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(),
+             'refreshSeconds':60}
+    _MARKET_PULSE_CACHE.update(at=now,payload=payload)
+    return jsonify(payload)
+
+@app.route("/api/ticker-bar", methods=["GET"])
+def ticker_bar():
+    univ_type = request.args.get("universe", "FO").upper()
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {UPSTOX_ACCESS_TOKEN}"}
+    ticker_results = []
+    index_isins = [idx["isin"] for idx in MARKET_INDICES]
+    url = "https://api.upstox.com/v2/market-quote/quotes"
+    
+    try:
+        res = HTTP_SESSION.get(url, headers=headers, params={"instrument_key": ",".join(index_isins)}, timeout=4)
+        if res.status_code == 200:
+            data = res.json().get("data", {})
+            for idx in MARKET_INDICES:
+                q = data.get(idx["isin"]) or data.get(idx["isin"].replace("|", ":"))
+                if q:
+                    ltp = float(q.get("last_price", 0.0))
+                    net_change = float(q.get("net_change", 0.0))
+                    prev_close = float(q.get("prev_close") or (ltp - net_change))
+                    price_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+                    ticker_results.append({
+                        "symbol": idx["symbol"], "price": f"{ltp:,.2f}",
+                        "change": f"{net_change:+,.2f} ({price_pct:+.2f}%)", "isPositive": net_change >= 0
+                    })
+    except Exception:
+        pass
+
+    stocks = fetch_live_upstox_quotes(univ_type)
+    if isinstance(stocks, list) and len(stocks) > 0:
+        sec_map = defaultdict(lambda: {"total_pct": 0.0, "stocks": 0})
+        for s in stocks:
+            sec = s.get("sector", "")
+            if sec:
+                sec_map[sec]["total_pct"] += float(s.get("pricePct", 0.0))
+                sec_map[sec]["stocks"] += 1
+        
+        for sec, val in sec_map.items():
+            if val["stocks"] > 0:
+                avg_pct = round(val["total_pct"] / val["stocks"], 2)
+                ticker_results.append({
+                    "symbol": sec,
+                    "price": "",
+                    "change": f"{avg_pct:+.2f}%",
+                    "isPositive": avg_pct >= 0
+                })
+
+        sorted_by_gain = sorted(stocks, key=lambda x: float(x.get("pricePct", 0.0)), reverse=True)
+        if len(sorted_by_gain) > 0:
+            top_gainer = sorted_by_gain[0]
+            ticker_results.append({"symbol": f"TOP GAINER: {top_gainer['symbol']}", "price": f"{top_gainer['ltp']:,.2f}", "change": f"{top_gainer['pricePct']:+.2f}%", "isPositive": True})
+            top_loser = sorted_by_gain[-1]
+            ticker_results.append({"symbol": f"TOP LOSER: {top_loser['symbol']}", "price": f"{top_loser['ltp']:,.2f}", "change": f"{top_loser['pricePct']:+.2f}%", "isPositive": False})
+
+    return jsonify({"status": "success", "data": ticker_results})
+
+if __name__ == "__main__":
+    start_smart_orb_background_thread()
+    if os.getenv('SFP_PRECOMPUTE', '0') == '1':
+        start_zone_precompute()
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+
+
+
+# StockFinder Pro: verified index overview, independent of the FO screener universe.
+_INDEX_OVERVIEW_CACHE = {}
+_INDEX_CONSTITUENTS = {
+    'NIFTY 50': ('NSE_INDEX|Nifty 50', 'https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv', 50),
+    'BANK NIFTY': ('NSE_INDEX|Nifty Bank', 'https://nsearchives.nseindia.com/content/indices/ind_niftybanklist.csv', None),
+    'SENSEX': ('BSE_INDEX|SENSEX', None, 30),
+}
+
+@app.route('/api/index-overview', methods=['GET'])
+def index_overview():
+    user = current_user()
+    if not user:
+        return jsonify(status='error', message='Login required'), 401
+    if not active_subscription(user):
+        return jsonify(status='error', message='Active subscription required'), 403
+    name = request.args.get('index', 'NIFTY 50').upper().strip()
+    if name not in _INDEX_CONSTITUENTS:
+        return jsonify(status='error', message='Unsupported index'), 400
+    cached = _INDEX_OVERVIEW_CACHE.get(name)
+    if cached and time.time() - cached[0] < 30:
+        return jsonify(cached[1])
+    instrument, csv_url, expected = _INDEX_CONSTITUENTS[name]
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {UPSTOX_ACCESS_TOKEN}'}
+    try:
+        response = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+            headers=headers, params={'instrument_key': instrument}, timeout=8)
+        response.raise_for_status()
+        quotes = response.json().get('data') or {}
+        quote = quotes.get(instrument) or quotes.get(instrument.replace('|', ':'))
+        if not quote:
+            quote = next((q for q in quotes.values() if isinstance(q,dict)
+                          and q.get('instrument_token') == instrument), None)
+        if not quote:
+            raise ValueError('Index quote missing')
+        price = float(quote.get('last_price') or 0)
+        if price <= 0:
+            raise ValueError('Invalid index price')
+        change = float(quote.get('net_change') or 0)
+        prev = float(quote.get('prev_close') or quote.get('prev_close_price') or price-change)
+        percent = (100 * change / prev) if prev > 0 else None
+    except Exception as exc:
+        app.logger.warning('Index overview quote unavailable: %s', str(exc)[:150])
+        return jsonify(status='error', message='Index quote unavailable'), 503
+    breadth = {'complete': False, 'message': 'Verified index constituent quotes unavailable'}
+    if csv_url:
+        try:
+            csv_response = HTTP_SESSION.get(csv_url,
+                headers={'User-Agent':'Mozilla/5.0','Accept':'text/csv',
+                         'Referer':'https://www.nseindia.com/'}, timeout=8)
+            csv_response.raise_for_status()
+            rows = list(csv.DictReader(io.StringIO(csv_response.text)))
+            symbols = [str(row.get('Symbol') or '').strip() for row in rows]
+            symbols = list(dict.fromkeys(s for s in symbols if s))
+            inst_map = load_all_upstox_instruments()
+            if expected and len(symbols) != expected:
+                raise ValueError('Unexpected constituent count')
+            if not symbols or any(s not in inst_map for s in symbols):
+                raise ValueError('Incomplete constituent instrument mapping')
+            keys = [inst_map[s]['inst_key'] for s in symbols]
+            advances = declines = unchanged = 0
+            for offset in range(0, len(keys), 100):
+                batch = keys[offset:offset+100]
+                r = HTTP_SESSION.get('https://api.upstox.com/v2/market-quote/quotes',
+                    headers=headers, params={'instrument_key':','.join(batch)}, timeout=8)
+                r.raise_for_status()
+                data = r.json().get('data') or {}
+                for symbol, key in zip(symbols[offset:offset+100], batch):
+                    q = data.get(key) or data.get(key.replace('|', ':')) or data.get('NSE_EQ:'+symbol)
+                    if not q:
+                        raise ValueError('Missing constituent quote')
+                    last = float(q.get('last_price') or 0)
+                    prior = float(q.get('prev_close') or q.get('prev_close_price') or (last-float(q.get('net_change') or 0)))
+                    if last <= 0 or prior <= 0:
+                        raise ValueError('Invalid constituent price')
+                    if last > prior: advances += 1
+                    elif last < prior: declines += 1
+                    else: unchanged += 1
+            breadth = {'complete':True,'total':len(symbols),'advances':advances,
+                       'declines':declines,'unchanged':unchanged}
+        except Exception as exc:
+            app.logger.info('Index constituent breadth unavailable for %s: %s',name,str(exc)[:150])
+    payload = {'status':'success','index':name,'price':round(price,2),
+               'change':round(change,2),'percent':round(percent,2) if percent is not None else None,
+               'breadth':breadth,'asOf':datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()}
+    _INDEX_OVERVIEW_CACHE[name] = (time.time(),payload)
+    return jsonify(payload)
+
